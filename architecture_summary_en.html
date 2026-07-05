@@ -1,0 +1,377 @@
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --surface-2: #fbfbfc;
+    --ink: #1b2430;
+    --muted: #5b6675;
+    --faint: #8b95a3;
+    --line: #e4e7ec;
+    --accent: #0f8e6d;      /* teal = middle layer / contract / star */
+    --top: #6d5ae6;         /* violet = top layer / brains / LLM */
+    --mid: #0f8e6d;         /* teal   = middle layer / interface */
+    --bot: #c77a2b;         /* amber  = bottom layer / raw provider */
+    --code-bg: #f1f3f6;
+    --code-ink: #223;
+    --shadow: 0 1px 2px rgba(20,30,45,.04), 0 6px 20px rgba(20,30,45,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11151b;
+      --surface: #1a2029;
+      --surface-2: #161c24;
+      --ink: #e7eaee;
+      --muted: #9aa5b1;
+      --faint: #6b7684;
+      --line: #29313c;
+      --accent: #35c398;
+      --top: #9b8bff;
+      --mid: #35c398;
+      --bot: #e0a05a;
+      --code-bg: #0f141a;
+      --code-ink: #cdd6e0;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f6f8; --surface: #ffffff; --surface-2: #fbfbfc; --ink: #1b2430;
+    --muted: #5b6675; --faint: #8b95a3; --line: #e4e7ec; --accent: #0f8e6d;
+    --top: #6d5ae6; --mid: #0f8e6d; --bot: #c77a2b; --code-bg: #f1f3f6;
+    --code-ink: #223; --shadow: 0 1px 2px rgba(20,30,45,.04), 0 6px 20px rgba(20,30,45,.05);
+  }
+  :root[data-theme="dark"] {
+    --bg: #11151b; --surface: #1a2029; --surface-2: #161c24; --ink: #e7eaee;
+    --muted: #9aa5b1; --faint: #6b7684; --line: #29313c; --accent: #35c398;
+    --top: #9b8bff; --mid: #35c398; --bot: #e0a05a; --code-bg: #0f141a;
+    --code-ink: #cdd6e0; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .page {
+    --sans: system-ui, "Segoe UI", "Inter", sans-serif;
+    --mono: ui-monospace, "Cascadia Code", Consolas, "Liberation Mono", monospace;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    padding: clamp(1.5rem, 4vw, 4rem) 1.25rem 4rem;
+  }
+  .wrap { max-width: 60rem; margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 .9rem;
+  }
+  h1 {
+    font-size: clamp(1.9rem, 4.4vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -.02em;
+    font-weight: 800;
+    text-wrap: balance;
+    margin: 0 0 .7rem;
+  }
+  .lede {
+    font-size: clamp(1.02rem, 2vw, 1.22rem);
+    color: var(--muted);
+    max-width: 46ch;
+    margin: 0;
+  }
+  .lede b { color: var(--ink); font-weight: 700; }
+
+  .hero-meta {
+    display: flex; flex-wrap: wrap; gap: .5rem;
+    margin-top: 1.6rem;
+  }
+  .chip {
+    font-family: var(--mono); font-size: .74rem;
+    padding: .3rem .6rem; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--surface);
+    color: var(--muted);
+  }
+
+  section { margin-top: clamp(2.5rem, 6vw, 4rem); }
+  .kicker {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--faint); margin: 0 0 .3rem;
+  }
+  h2 {
+    font-size: clamp(1.25rem, 2.6vw, 1.6rem);
+    letter-spacing: -.01em; font-weight: 750;
+    margin: 0 0 1.1rem; text-wrap: balance;
+  }
+  h2 .num { color: var(--accent); font-family: var(--mono); font-size: .9em; margin-right: .5rem; }
+  p { margin: 0 0 1rem; }
+  .muted { color: var(--muted); }
+
+  /* ---- layer stack diagram ---- */
+  .stack { display: flex; flex-direction: column; gap: .55rem; }
+  .layer {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--hue);
+    border-radius: 12px;
+    padding: 1rem 1.15rem;
+    box-shadow: var(--shadow);
+  }
+  .layer.top { --hue: var(--top); }
+  .layer.mid { --hue: var(--mid); }
+  .layer.bot { --hue: var(--bot); }
+  .layer .lname {
+    display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
+    margin-bottom: .25rem;
+  }
+  .layer .tag {
+    font-family: var(--mono); font-size: .72rem; font-weight: 700;
+    color: var(--hue); letter-spacing: .04em;
+  }
+  .layer .lname strong { font-size: 1.02rem; font-weight: 700; }
+  .layer .desc { color: var(--muted); font-size: .93rem; margin: 0; }
+  .layer .path { font-family: var(--mono); font-size: .8rem; color: var(--faint); }
+
+  .flow-note {
+    display: flex; gap: .75rem; align-items: flex-start;
+    margin: .55rem 0; padding-left: .2rem;
+    font-size: .86rem; color: var(--muted);
+  }
+  .flow-note .ar { color: var(--accent); font-family: var(--mono); font-weight: 700; flex: none; }
+
+  .rule {
+    margin-top: 1.4rem;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.1rem 1.25rem;
+  }
+  .rule .lbl {
+    font-family: var(--mono); font-size: .7rem; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--bot); margin: 0 0 .4rem;
+  }
+  .rule p { margin: 0; font-size: .96rem; }
+  .rule code { color: var(--ink); }
+
+  /* ---- table ---- */
+  .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; min-width: 34rem; }
+  thead th {
+    text-align: left; font-weight: 700; color: var(--muted);
+    font-family: var(--mono); font-size: .74rem; letter-spacing: .05em;
+    text-transform: uppercase;
+    padding: .8rem 1rem; background: var(--surface-2);
+    border-bottom: 1px solid var(--line);
+  }
+  tbody td { padding: .8rem 1rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr td:first-child { font-weight: 650; }
+  .same { color: var(--accent); font-weight: 700; }
+  .diff { color: var(--bot); font-weight: 700; }
+
+  /* ---- code ---- */
+  pre {
+    margin: 0; background: var(--code-bg); border: 1px solid var(--line);
+    border-radius: 12px; padding: 1.1rem 1.2rem; overflow-x: auto;
+    font-family: var(--mono); font-size: .84rem; line-height: 1.7; color: var(--code-ink);
+  }
+  pre .c { color: var(--faint); }        /* comment */
+  pre .k { color: var(--top); }           /* keyword-ish */
+  pre .a { color: var(--accent); }        /* accent token */
+  pre .d { color: var(--bot); }           /* dir / data */
+  code {
+    font-family: var(--mono); font-size: .86em;
+    background: var(--code-bg); padding: .1rem .34rem; border-radius: 5px;
+    border: 1px solid var(--line);
+  }
+
+  /* ---- flow strip ---- */
+  .flow {
+    display: grid; gap: .55rem;
+    grid-template-columns: 1fr;
+  }
+  .flow .step {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: .8rem 1rem; box-shadow: var(--shadow);
+  }
+  .flow .step .s-tag { font-family: var(--mono); font-size: .72rem; color: var(--faint); }
+  .flow .step .s-body { font-size: .93rem; margin-top: .15rem; }
+  .flow .step.hl { border-color: var(--accent); }
+  .flow .step.hl .s-tag { color: var(--accent); }
+  .arrow-down { text-align: center; color: var(--faint); font-family: var(--mono); font-size: .85rem; line-height: 1; }
+
+  .payoff {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 8%, var(--surface)), var(--surface));
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+    border-radius: 14px; padding: 1.4rem 1.4rem;
+  }
+  .payoff p { margin: 0; }
+  .payoff .big { font-size: 1.05rem; font-weight: 650; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 1rem 1.4rem; margin-top: 1rem; }
+  .legend span { display: inline-flex; align-items: center; gap: .45rem; font-size: .82rem; color: var(--muted); }
+  .dot { width: .7rem; height: .7rem; border-radius: 3px; flex: none; }
+
+  footer {
+    margin-top: 3.5rem; padding-top: 1.4rem; border-top: 1px solid var(--line);
+    font-size: .82rem; color: var(--faint);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .layer { transition: transform .15s ease; }
+    .layer:hover { transform: translateX(2px); }
+  }
+</style>
+
+<div class="page">
+  <div class="wrap">
+
+    <header>
+      <p class="eyebrow">Investment Research Agent · Architecture</p>
+      <h1>Asset-agnostic from day one</h1>
+      <p class="lede">A three-layer structure where <b>adding crypto means writing one folder</b> — no rewrites. A summary of what we designed together.</p>
+      <div class="hero-meta">
+        <span class="chip">Python</span>
+        <span class="chip">ABC / interface</span>
+        <span class="chip">strategy pattern</span>
+        <span class="chip">Phase 1</span>
+      </div>
+    </header>
+
+    <!-- ===== 3-LAYER MENTAL MODEL ===== -->
+    <section>
+      <p class="kicker">The core mental model</p>
+      <h2><span class="num">01</span>Three layers &amp; the dependency rule</h2>
+      <p class="muted">Each layer knows only the “contract” the middle layer defines — never the others’ details.</p>
+
+      <div class="stack">
+        <div class="layer top">
+          <div class="lname"><span class="tag">TOP LAYER</span><strong>Agent loop + LLM summary</strong></div>
+          <p class="desc">Plan → call tools → summarize into structured output + score against a rubric</p>
+          <p class="path">src/agent/ · src/evals/</p>
+        </div>
+
+        <div class="flow-note"><span class="ar">↓ depends on</span><span>The top layer sees only the middle interfaces — it calls <code>get_price()</code>, <code>to_facts()</code> without knowing stock vs. crypto underneath</span></div>
+
+        <div class="layer mid">
+          <div class="lname"><span class="tag">MIDDLE LAYER ★</span><strong>Interfaces + shared data shapes</strong></div>
+          <p class="desc">Contracts (ABC) + dataclasses every asset shares: <code>PriceSnapshot</code> · <code>NewsItem</code> · <code>Fact</code> · <code>*Provider</code></p>
+          <p class="path">src/domain/ — imports nothing from below</p>
+        </div>
+
+        <div class="flow-note"><span class="ar">↑ fulfills contract</span><span>Each provider produces real data, then normalizes it into the shared shapes before sending it up</span></div>
+
+        <div class="layer bot">
+          <div class="lname"><span class="tag">BOTTOM LAYER</span><strong>Providers (real implementations)</strong></div>
+          <p class="desc">The only place allowed to import yfinance / APIs — <code>stock/</code> today, <code>crypto/</code> later</p>
+          <p class="path">src/providers/stock/ · src/providers/registry.py</p>
+        </div>
+      </div>
+
+      <div class="rule">
+        <p class="lbl">⬤ The one iron rule</p>
+        <p>The top layer may import the middle — it must <b>never</b> import the bottom. The day you see <code>import yfinance</code> in an agent file, the design is broken. Data flows <b>up</b> (provider → Fact → agent), but dependencies always point <b>toward the middle</b>.</p>
+      </div>
+
+      <div class="legend">
+        <span><span class="dot" style="background:var(--top)"></span>Top — brains / LLM</span>
+        <span><span class="dot" style="background:var(--mid)"></span>Middle — the contract (the star)</span>
+        <span><span class="dot" style="background:var(--bot)"></span>Bottom — raw data sources</span>
+      </div>
+    </section>
+
+    <!-- ===== WHY SPLIT ===== -->
+    <section>
+      <p class="kicker">Why split the interfaces</p>
+      <h2><span class="num">02</span>The asymmetry between three things</h2>
+      <p class="muted">price/news only differ by <em>source</em>, but share the same output shape — fundamentals differs down to the <em>shape</em> of the data, so its contract is split out (Interface Segregation).</p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Data</th><th>Stock</th><th>Crypto</th><th>output shape</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>price</td><td>yfinance</td><td>exchange API</td><td class="same">same · PriceSnapshot</td></tr>
+            <tr><td>news</td><td>yfinance / news API</td><td>news API</td><td class="same">same · NewsItem[]</td></tr>
+            <tr><td>fundamentals</td><td>financial statements (revenue, FCF, ROIC)</td><td>on-chain (TVL, tokenomics)</td><td class="diff">different worlds</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="rule" style="border-left:4px solid var(--bot)">
+        <p class="lbl">Why not one combined interface</p>
+        <p>If a single <code>AssetProvider</code> had <code>get_fundamentals()</code> returning financial statements → building crypto would force it to return fake values or throw errors, because crypto has no statements = <b>lying code</b>. Split apart, <code>CryptoProvider</code> takes only what applies to it.</p>
+      </div>
+    </section>
+
+    <!-- ===== FACT CONVERGENCE ===== -->
+    <section>
+      <p class="kicker">The heart of asset-agnostic</p>
+      <h2><span class="num">03</span>Fundamentals can differ — but converge at <code>Fact</code></h2>
+      <p class="muted">Each asset keeps its own raw fields (StockFundamentals / CryptoFundamentals), but every one promises to convert itself into a list of <code>Fact</code> — “one number + a label” — before it reaches the top layer.</p>
+
+      <pre><span class="c"># domain/interfaces.py — middle layer</span>
+<span class="k">class</span> Fundamentals(ABC):
+    <span class="c"># the shared contract the top layer talks to</span>
+    <span class="k">def</span> <span class="a">to_facts</span>(self) -> list[Fact]: ...
+
+<span class="c"># providers/stock/fundamentals.py — bottom layer</span>
+<span class="k">class</span> <span class="d">StockFundamentals</span>(Fundamentals):   <span class="c"># IS-A Fundamentals</span>
+    revenue; free_cash_flow; roic       <span class="c"># the stock's own raw fields</span>
+    <span class="k">def</span> <span class="a">to_facts</span>(self):
+        <span class="k">return</span> [Fact(<span class="a">"Revenue"</span>, ...), Fact(<span class="a">"ROIC"</span>, ...)]</pre>
+
+      <div class="flow" style="margin-top:1.1rem">
+        <div class="step bot" style="border-left:3px solid var(--bot)">
+          <div class="s-tag">provider.get_fundamentals("AAPL")</div>
+          <div class="s-body">→ <code>StockFundamentals(revenue=383e9, roic=56, …)</code></div>
+        </div>
+        <div class="arrow-down">│ .to_facts()<br>▼</div>
+        <div class="step hl">
+          <div class="s-tag">the top layer sees only list[Fact]</div>
+          <div class="s-body"><code>[Fact("Revenue", 383e9, "USD", "FY24"), Fact("ROIC", 56, "%")]</code> — no idea which asset it came from</div>
+        </div>
+        <div class="arrow-down">│ feed to LLM<br>▼</div>
+        <div class="step top" style="border-left:3px solid var(--top)">
+          <div class="s-tag">LLM (top layer)</div>
+          <div class="s-body">Summarizes “strong / weak, and where” + scores the rubric — written once, works for every asset</div>
+        </div>
+      </div>
+      <p class="muted" style="margin-top:1rem">The <code>isinstance</code> you feared vanishes, because the top layer only ever touches <code>Fundamentals</code> (the contract), never <code>StockFundamentals</code> directly = <b>polymorphism</b>.</p>
+    </section>
+
+    <!-- ===== FOLDER ===== -->
+    <section>
+      <p class="kicker">The real folder layout (already created)</p>
+      <h2><span class="num">04</span>Folder map</h2>
+      <pre>trade-finance/
+├── AGENT_PROJECT.md
+├── requirements.txt
+└── src/
+    ├── <span class="d">domain/</span>            <span class="c"># middle layer — never imports yfinance</span>
+    │   ├── models.py       <span class="c"># PriceSnapshot, NewsItem, Fact</span>
+    │   └── interfaces.py   <span class="c"># *Provider (ABC), Fundamentals</span>
+    ├── <span class="d">providers/</span>         <span class="c"># bottom layer — real implementations</span>
+    │   ├── registry.py     <span class="c"># asset_type -> which provider set</span>
+    │   └── <span class="d">stock/</span>          <span class="c"># price.py · news.py · fundamentals.py</span>
+    │   <span class="c">#   crypto/  ← added later, a sibling of stock/</span>
+    ├── <span class="d">agent/</span>             <span class="c"># top layer — loop.py · summarize.py</span>
+    ├── <span class="d">watchlist/</span>         <span class="c"># store.py (SQLite) — carries asset_type</span>
+    └── <span class="d">evals/</span>            <span class="c"># check_grounding.py (eval seed)</span></pre>
+    </section>
+
+    <!-- ===== PAYOFF ===== -->
+    <section>
+      <div class="payoff">
+        <p class="big">Adding crypto later = create <code>src/providers/crypto/</code> that fulfills the same contracts</p>
+        <p class="muted" style="margin-top:.5rem">watchlist · news · price · LLM summary · scheduling · evals — <b>all reused, untouched</b>. This is the “extend without rewriting” engineering signal interviewers want to see.</p>
+      </div>
+    </section>
+
+    <footer>
+      Architecture summary for learning · Phase 1 — watchlist, price/news tools, structured LLM summary, agent loop, one eval seed · A research tool, not investment advice.
+    </footer>
+
+  </div>
+</div>
