@@ -1,19 +1,26 @@
 import yfinance as yf
+import pandas as pd
 from dataclasses import dataclass
 from src.domain.interfaces import Fundamentals, FundamentalsProvider, Fact
 
 @dataclass
 class StockFundamentals(Fundamentals):
-    revenue: float
-    free_cash_flow: float
-    roic: float
+    revenue: float | None
+    free_cash_flow: float | None
+    roic: float | None
     period: str = "FY2024"
 
     def to_facts(self) -> list[Fact]:
+        # missing metric -> no Fact (never fake a 0.0 that reads as a real zero)
+        candidates = [
+            ("Revenue", self.revenue, "USD"),
+            ("Free Cash Flow", self.free_cash_flow, "USD"),
+            ("ROIC", self.roic, "%"),
+        ]
         return [
-            Fact("Revenue",     self.revenue,       "USD",  self.period),
-            Fact("Free Cash Flow",     self.free_cash_flow,       "USD",  self.period),
-            Fact("ROIC",     self.roic,       "%",  self.period),
+            Fact(label, value, unit, self.period)
+            for label, value, unit in candidates
+            if value is not None
         ]
 
 
@@ -25,7 +32,7 @@ def _first(row_names, df):
     for name in row_names:
         if name in df.index:
             value = df.loc[name, latest_col]
-            if value is not None:
+            if pd.notna(value):
                 return float(value)
     return None
 
@@ -53,7 +60,7 @@ def _latest_period_label(financials) -> str:
 
 
 def _compute_roic(financials, balance_sheet) -> float | None:
-    operating_income = _first(["Operating Income", "EBIT"], financials)
+    operating_income = _first(["Operating Income", "EBIT"], financials) #กำไรจากการดำเนินงาน ก่อนดอกเบี้ยและภาษี
     pretax_income = _first(["Pretax Income"], financials)
     tax_provision = _first(["Tax Provision"], financials)
 
@@ -67,9 +74,9 @@ def _compute_roic(financials, balance_sheet) -> float | None:
     if operating_income is None or total_debt is None or total_equity is None or cash is None:
         return None
 
-    tax_rate = tax_provision / pretax_income if pretax_income else 0.0
-    nopat = operating_income * (1 - tax_rate)
-    invested_capital = total_debt + total_equity - cash
+    tax_rate = tax_provision / pretax_income if pretax_income and tax_provision is not None else 0.0 # อัตราภาษีจริงที่จ่าย
+    nopat = operating_income * (1 - tax_rate) #กำไรจากการดำเนินงานหลังหักภาษี
+    invested_capital = total_debt + total_equity - cash #หนี้ + ส่วนของเจ้าของ = เงินทั้งหมดที่ใส่เข้าธุรกิจ (ลบ cash ออก เพราะเงินสดที่กองเฉยๆ ไม่ได้ "ลงทุน" ในการดำเนินงาน)
 
     if not invested_capital:
         return None
@@ -87,8 +94,8 @@ class StockFundamentalsProvider(FundamentalsProvider):
         period = _latest_period_label(t.financials)
 
         return StockFundamentals(
-            revenue=float(revenue) if revenue is not None else 0.0,
-            free_cash_flow=free_cash_flow if free_cash_flow is not None else 0.0,
-            roic=roic if roic is not None else 0.0,
+            revenue=float(revenue) if revenue is not None else None,
+            free_cash_flow=free_cash_flow,   # already None when missing
+            roic=roic,                       # already None when missing
             period=period,
         )

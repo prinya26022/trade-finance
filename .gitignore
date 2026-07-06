@@ -1,6 +1,7 @@
 # --- Secrets (สำคัญสุด: อย่าให้ API key หลุด) ---
 .env
 .env.*
+!.env.example
 *.key
 
 # --- Python ---
