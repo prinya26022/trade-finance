@@ -12,6 +12,9 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
     except Exception as e:
         print(f"[error] price failed for {ticker}: {e}")
         return None
+    if price is None or price.price is None:   # ticker ไม่ถูกต้อง/delisted -> yfinance คืน None ไม่ raise
+        print(f"[error] no price data for {ticker} (invalid or delisted ticker?)")
+        return None                            # ตกที่ stop condition -> ไม่ไปเปลือง Gemini
     try:
         news = bundle.news.get_news(ticker, limit=5)
     except Exception as e:
