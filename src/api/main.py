@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from src.history.store import init_db, latest_per_ticker, history
 from src.watchlist.store import list_all, add as add_ticker, remove as remove_ticker
+from src.agent.changes import detect_changes
 
 app = FastAPI(title="Investment Research Agent API")
 
@@ -71,3 +72,15 @@ def get_ticker_history(ticker: str, limit: int = 50):
     if not rows:
         raise HTTPException(status_code=404, detail=f"no analyses for {ticker}")
     return rows
+
+
+@app.get("/api/changes")
+def get_changes():
+    """สิ่งที่เปลี่ยนตั้งแต่ครั้งก่อนของแต่ละ ticker (Phase 3 — ไม่เรียก LLM)."""
+    tickers = [row["ticker"] for row in latest_per_ticker()]
+    return [detect_changes(t) for t in tickers]
+
+
+@app.get("/api/changes/{ticker}")
+def get_ticker_changes(ticker: str):
+    return detect_changes(ticker.upper())

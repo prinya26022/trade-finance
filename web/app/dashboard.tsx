@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Analysis, WatchlistItem } from "@/lib/types";
+import type { Analysis, WatchlistItem, Change, ChangeReport } from "@/lib/types";
 import { addToWatchlist, removeFromWatchlist } from "@/lib/api";
 import { GlossaryText, Tip, BADGES } from "@/lib/glossary";
 
@@ -10,14 +10,37 @@ function pct(x: number | null | undefined) {
   return x == null ? "—" : `${Math.round(x * 100)}%`;
 }
 
-function AnalysisCard({ a }: { a: Analysis }) {
+function AnalysisCard({ a, changes }: { a: Analysis; changes: Change[] }) {
   const s = a.summary;
+  const topSeverity = changes.some((c) => c.severity === "alert")
+    ? "alert"
+    : changes.some((c) => c.severity === "warn")
+    ? "warn"
+    : changes.length
+    ? "info"
+    : null;
   return (
     <div className="card">
       <div className="card-head">
+        {topSeverity && <span className={`dot dot-${topSeverity}`} title="มีการเปลี่ยนแปลง" />}
         <span className="ticker">{a.ticker}</span>
         <span className="price">${a.price?.toFixed(2)}</span>
       </div>
+
+      {changes.length > 0 && (
+        <div className="changes">
+          <div className="section-title" style={{ margin: "0 0 6px" }}>
+            เปลี่ยนตั้งแต่ครั้งก่อน
+          </div>
+          <ul className="list">
+            {changes.map((c, i) => (
+              <li key={i} className={`change change-${c.severity}`}>
+                <GlossaryText text={c.detail} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="badges">
         <Tip def={BADGES[s.fundamental_strength]}>
@@ -90,11 +113,14 @@ function AnalysisCard({ a }: { a: Analysis }) {
 export default function Dashboard({
   analyses,
   watchlist,
+  changes,
 }: {
   analyses: Analysis[];
   watchlist: WatchlistItem[];
+  changes: ChangeReport[];
 }) {
   const router = useRouter();
+  const changesByTicker = new Map(changes.map((c) => [c.ticker, c.changes]));
   const [filter, setFilter] = useState("");
   const [newTicker, setNewTicker] = useState("");
   const [busy, setBusy] = useState(false);
@@ -180,7 +206,7 @@ export default function Dashboard({
       ) : (
         <div className="grid">
           {filtered.map((a) => (
-            <AnalysisCard key={a.id} a={a} />
+            <AnalysisCard key={a.id} a={a} changes={changesByTicker.get(a.ticker) ?? []} />
           ))}
         </div>
       )}

@@ -23,6 +23,21 @@ export type WatchlistItem = {
   added_at: string;
 };
 
+export type Change = {
+  type: string;
+  detail: string;
+  severity: "alert" | "warn" | "info";
+  metric?: string;
+};
+
+export type ChangeReport = {
+  ticker: string;
+  from?: string;
+  to?: string;
+  changes: Change[];
+  note?: string;
+};
+
 export type Analysis = {
   id: number;
   ticker: string;

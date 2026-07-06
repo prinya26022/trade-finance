@@ -1,5 +1,5 @@
-import { getAnalyses, getWatchlist } from "@/lib/api";
-import type { Analysis, WatchlistItem } from "@/lib/types";
+import { getAnalyses, getWatchlist, getChanges } from "@/lib/api";
+import type { Analysis, WatchlistItem, ChangeReport } from "@/lib/types";
 import Dashboard from "./dashboard";
 
 // server component: ดึงจาก FastAPI ตอน render (no-store = สดเสมอ)
@@ -8,9 +8,14 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   let analyses: Analysis[] = [];
   let watchlist: WatchlistItem[] = [];
+  let changes: ChangeReport[] = [];
   let error: string | null = null;
   try {
-    [analyses, watchlist] = await Promise.all([getAnalyses(), getWatchlist()]);
+    [analyses, watchlist, changes] = await Promise.all([
+      getAnalyses(),
+      getWatchlist(),
+      getChanges(),
+    ]);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
@@ -28,7 +33,7 @@ export default async function Home() {
           <code>uvicorn src.api.main:app --port 8000</code>
         </div>
       ) : (
-        <Dashboard analyses={analyses} watchlist={watchlist} />
+        <Dashboard analyses={analyses} watchlist={watchlist} changes={changes} />
       )}
 
       <p className="disclaimer">
