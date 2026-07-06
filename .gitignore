@@ -22,6 +22,11 @@ data/*.db
 data/*.sqlite
 data/*.sqlite3
 
+# --- Node / Next.js (web/) ---
+node_modules/
+.next/
+next-env.d.ts
+
 # --- OS / IDE ---
 .DS_Store
 Thumbs.db

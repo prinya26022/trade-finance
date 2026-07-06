@@ -2,8 +2,9 @@ from src.providers.registry import get_providers
 from src.agent.summarize import summarize
 from src.evals.check_grounding import check_grounding, check_facts_grounding
 from src.watchlist.store import list_all
+from src.history.store import init_db, save_analysis
 
-def analyze(ticker: str, asset_type: str = "stock"):
+def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
     bundle = get_providers(asset_type)
 
     try:
@@ -25,6 +26,10 @@ def analyze(ticker: str, asset_type: str = "stock"):
     summary = summarize(price, news, facts)
     grounding = check_grounding(summary, price, news)
     grounding["facts"] = check_facts_grounding(summary, facts)
+
+    if persist:
+        init_db()                              # idempotent: สร้างตารางถ้ายังไม่มี
+        save_analysis(summary, grounding)      # เก็บลง history เพื่อให้ UI/Phase 3 ใช้
     return summary, grounding
 
 def run_watchlist():
