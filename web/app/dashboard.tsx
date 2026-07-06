@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Analysis, WatchlistItem } from "@/lib/types";
 import { addToWatchlist, removeFromWatchlist } from "@/lib/api";
+import { GlossaryText, Tip, BADGES } from "@/lib/glossary";
 
 function pct(x: number | null | undefined) {
   return x == null ? "—" : `${Math.round(x * 100)}%`;
@@ -19,10 +20,29 @@ function AnalysisCard({ a }: { a: Analysis }) {
       </div>
 
       <div className="badges">
-        <span className={`badge b-${s.fundamental_strength}`}>{s.fundamental_strength}</span>
-        <span className={`badge b-${s.valuation_view}`}>{s.valuation_view}</span>
-        <span className={`badge b-${s.sentiment}`}>{s.sentiment}</span>
+        <Tip def={BADGES[s.fundamental_strength]}>
+          <span className={`badge b-${s.fundamental_strength}`}>{s.fundamental_strength}</span>
+        </Tip>
+        <Tip def={BADGES[s.valuation_view]}>
+          <span className={`badge b-${s.valuation_view}`}>{s.valuation_view}</span>
+        </Tip>
+        <Tip def={BADGES[s.sentiment]}>
+          <span className={`badge b-${s.sentiment}`}>{s.sentiment}</span>
+        </Tip>
       </div>
+
+      {s.strength_reasons.length > 0 && (
+        <>
+          <div className="section-title">Strengths</div>
+          <ul className="list good">
+            {s.strength_reasons.map((r, i) => (
+              <li key={i}>
+                <GlossaryText text={r} />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
 
       {s.weak_points.length > 0 && (
         <>
@@ -30,7 +50,7 @@ function AnalysisCard({ a }: { a: Analysis }) {
           <ul className="list weak">
             {s.weak_points.map((w, i) => (
               <li key={i}>
-                <span className="area">{w.area}:</span> {w.detail}
+                <span className="area">{w.area}:</span> <GlossaryText text={w.detail} />
               </li>
             ))}
           </ul>
@@ -47,10 +67,18 @@ function AnalysisCard({ a }: { a: Analysis }) {
       </ul>
 
       <div className="meta">
-        <span>conf {a.confidence}</span>
-        <span className={a.price_ok ? "ok" : "bad"}>price {a.price_ok ? "✓" : "✗"}</span>
-        <span>news {pct(a.news_grounded_ratio)}</span>
-        <span>facts {pct(a.facts_grounded_ratio)}</span>
+        <Tip def="ความมั่นใจของ AI ต่อผลนี้ (0–1) ตามความครบของข้อมูล">
+          <span>conf {a.confidence}</span>
+        </Tip>
+        <Tip def="ราคาที่ AI รายงาน ตรงกับราคาจริงไหม (กัน AI มั่วราคา)">
+          <span className={a.price_ok ? "ok" : "bad"}>price {a.price_ok ? "✓" : "✗"}</span>
+        </Tip>
+        <Tip def="ข่าวที่ AI อ้าง เป็นข่าวจริงกี่ % (กัน AI แต่งข่าว)">
+          <span>news {pct(a.news_grounded_ratio)}</span>
+        </Tip>
+        <Tip def="ตัวเลขงบที่ AI อ้าง ตรงกับงบจริงกี่ % — ยิ่งสูงยิ่งเชื่อได้ ต่ำ = ระวัง">
+          <span>facts {pct(a.facts_grounded_ratio)}</span>
+        </Tip>
         <span style={{ marginLeft: "auto" }}>{a.run_at.replace("T", " ")}</span>
       </div>
     </div>

@@ -62,7 +62,23 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; }
 
 ul.list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
 ul.list li { font-size: 13px; line-height: 1.4; }
+.good li::before { content: "+ "; color: var(--green); font-weight: 700; }
+.weak li::before { content: "− "; color: var(--amber); font-weight: 700; }
 .weak .area { color: var(--amber); font-weight: 600; }
+
+/* คำศัพท์ที่มี tooltip: ขีดเส้นประ + เมาส์ชี้เด้งคำอธิบาย (CSS ล้วน) */
+.term { position: relative; border-bottom: 1px dotted var(--blue); cursor: help; }
+.term > .tip {
+  visibility: hidden; opacity: 0; transition: opacity .12s ease;
+  position: absolute; left: 0; top: 140%; z-index: 50;
+  width: max-content; max-width: 260px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; line-height: 1.45; font-weight: 400;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45); white-space: normal; text-align: left;
+}
+.term:hover > .tip { visibility: visible; opacity: 1; }
+.badge .term, .badges .term { border-bottom: none; } /* badge ไม่ต้องขีดเส้น */
 .news li { color: var(--text); }
 .news .noise { color: var(--muted); font-style: italic; }
 
