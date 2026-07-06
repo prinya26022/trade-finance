@@ -28,8 +28,8 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
     grounding["facts"] = check_facts_grounding(summary, facts)
 
     if persist:
-        init_db()                              # idempotent: สร้างตารางถ้ายังไม่มี
-        save_analysis(summary, grounding)      # เก็บลง history เพื่อให้ UI/Phase 3 ใช้
+        init_db()                                  # idempotent: สร้างตาราง/เพิ่มคอลัมน์ถ้ายังไม่มี
+        save_analysis(summary, grounding, facts)   # เก็บ Summary + facts ดิบ (ให้ change-detection ใช้)
     return summary, grounding
 
 def run_watchlist():
