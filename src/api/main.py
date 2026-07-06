@@ -8,9 +8,10 @@ API นี้ไม่แตะ LLM เลย จึงไม่กิน quota.
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from src.history.store import init_db, latest_per_ticker, history
-from src.watchlist.store import list_all
+from src.watchlist.store import list_all, add as add_ticker, remove as remove_ticker
 
 app = FastAPI(title="Investment Research Agent API")
 
@@ -18,9 +19,14 @@ app = FastAPI(title="Investment Research Agent API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
+
+
+class WatchlistAdd(BaseModel):
+    ticker: str
+    asset_type: str = "stock"
 
 
 @app.on_event("startup")
@@ -32,6 +38,24 @@ def _startup() -> None:
 def get_watchlist():
     """รายการ ticker ที่จับตา (ticker + asset_type)."""
     return [dict(row) for row in list_all()]
+
+
+@app.post("/api/watchlist", status_code=201)
+def post_watchlist(item: WatchlistAdd):
+    """เพิ่ม ticker เข้า watchlist — ตั้งใจไม่วิเคราะห์ทันที (ไม่กินโควตา LLM);
+    ปล่อยให้ daily run (Phase 3) หรือ run_watchlist วิเคราะห์ให้เอง."""
+    ticker = item.ticker.strip().upper()
+    if not ticker.isalnum():                       # กันช่องว่าง/อักขระแปลก (เบื้องต้น)
+        raise HTTPException(status_code=400, detail="ticker must be alphanumeric")
+    add_ticker(ticker, item.asset_type)            # INSERT OR IGNORE -> เพิ่มซ้ำไม่ error
+    return {"ticker": ticker, "asset_type": item.asset_type}
+
+
+@app.delete("/api/watchlist/{ticker}")
+def delete_watchlist(ticker: str):
+    """เอา ticker ออกจาก watchlist (ประวัติ analyses เดิมยังอยู่)."""
+    remove_ticker(ticker)
+    return {"removed": ticker.upper()}
 
 
 @app.get("/api/analyses")

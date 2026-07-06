@@ -16,6 +16,12 @@ export type Summary = {
   confidence: number;
 };
 
+export type WatchlistItem = {
+  ticker: string;
+  asset_type: string;
+  added_at: string;
+};
+
 export type Analysis = {
   id: number;
   ticker: string;
