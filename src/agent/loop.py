@@ -1,6 +1,6 @@
 from src.providers.registry import get_providers
 from src.agent.summarize import summarize
-from src.evals.check_grounding import check_grounding
+from src.evals.check_grounding import check_grounding, check_facts_grounding
 from src.watchlist.store import list_all
 
 def analyze(ticker: str, asset_type: str = "stock"):
@@ -24,6 +24,7 @@ def analyze(ticker: str, asset_type: str = "stock"):
 
     summary = summarize(price, news, facts)
     grounding = check_grounding(summary, price, news)
+    grounding["facts"] = check_facts_grounding(summary, facts)
     return summary, grounding
 
 def run_watchlist():
@@ -39,6 +40,8 @@ def run_watchlist():
             continue
         summary, grounding = result
         print(
-            f"{ticker:6} | {summary.sentiment:8} | conf {summary.confidence} | "
-            f"price_ok={grounding['price_ok']} news={grounding['news_grounded_ratio']:.0%}"
+            f"{ticker:6} | {summary.fundamental_strength:6}/{summary.valuation_view:9} | "
+            f"conf {summary.confidence} | price_ok={grounding['price_ok']} "
+            f"news={grounding['news_grounded_ratio']:.0%} "
+            f"facts={grounding['facts']['facts_grounded_ratio']:.0%}"
         )

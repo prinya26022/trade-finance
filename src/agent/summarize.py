@@ -12,21 +12,38 @@ load_dotenv(ROOT / ".env")
 CHECKLIST = (ROOT / "stock_analysis_checklist.md").read_text(encoding="utf-8")
 
 
+class WeakPoint(BaseModel):
+    area: str            # หมวดที่อ่อน เช่น "Valuation", "Growth", "Leverage", "Cash Flow"
+    detail: str          # อ่อนยังไง อ้างเมตริกจริงจาก DATA (เช่น "PEG 2.5 = ตลาดคาดหวังสูง")
+
+
 class Summary(BaseModel):
     ticker: str
     price: float
-    sentiment: Literal["bullish", "neutral", "bearish"]
-    key_news: list[str]
+
+    # --- แก่น Phase 2: พื้นฐานแข็งหรืออ่อน และอ่อน "ตรงไหน" ---
+    fundamental_strength: Literal["strong", "mixed", "weak"]
+    strength_reasons: list[str]      # จุดแข็ง อ้างเมตริกจริง
+    weak_points: list[WeakPoint]     # จุดอ่อนแยกเป็นหมวด อ้างเมตริกจริง
+    valuation_view: Literal["cheap", "fair", "expensive", "unclear"]
+
+    # --- ข่าว: กรอบลงทุนระยะยาว (แยก thesis ออกจาก noise) ---
+    thesis_relevant_news: list[str]  # เฉพาะข่าวที่แตะ thesis/invalidation/พื้นฐาน; ถ้าเป็น noise หมด = []
+    key_news: list[str]              # คงไว้ให้ grounding eval ตรวจ (ข่าวจริงที่หยิบมา)
+
     what_to_watch: list[str]
-    confidence: float 
+    sentiment: Literal["bullish", "neutral", "bearish"]
+    confidence: float
+
 
 def summarize(price, news, facts) -> Summary:
     news_lines = "\n".join(f"- {n.title} ({n.source})" for n in news)     # ← คำนวณข้างบน
     fact_lines = "\n".join(f"- {f.label}: {f.value} {f.unit} ({f.period})" for f in facts)
 
     prompt = f"""
-You are a fundamental equity analyst. Analyze ONLY the data provided below —
-do not invent numbers you were not given. This is research, not investment advice.
+You are a fundamental equity analyst serving a LONG-TERM investor (holds for years,
+exits only when the thesis breaks — not on daily price/news moves). Analyze ONLY the
+data provided below — do not invent numbers you were not given. Research, not advice.
 
 ## DATA
 Ticker: {price.ticker}
@@ -35,17 +52,26 @@ Price: {price.price} {price.currency} (as of {price.as_of})
 Recent news:
 {news_lines}
 
-Fundamentals:
+Fundamentals (some metrics span multiple fiscal years — read them as a TREND):
 {fact_lines}
 
 ## HOW TO THINK (framework)
 {CHECKLIST}
 
 ## TASK
-Judge whether this stock looks worth a closer look, based only on the data above.
-- report the price and news exactly from the DATA (don't change them)
-- if a metric needed by the framework is missing, say so — don't guess
-- fill every field of the required output schema
+Judge, from ONLY the data above, whether the fundamentals look STRONG or WEAK and WHERE.
+- `fundamental_strength`: overall verdict (strong / mixed / weak).
+- `strength_reasons` and `weak_points`: cite the ACTUAL metric values from DATA (e.g.
+  "ROIC 82% >> cost of capital"). For multi-year metrics, judge the trend across years.
+- `valuation_view`: cheap / fair / expensive / unclear, from the valuation multiples.
+- If a metric the framework needs is MISSING from DATA, say so — never guess a number.
+- NEWS (long-term lens): put an item in `thesis_relevant_news` ONLY if it could touch the
+  thesis, the invalidation point, the moat, or the fundamentals. Daily price/noise items do
+  NOT belong there — if all news is noise, return []. `key_news` still lists the real
+  headlines you were given, verbatim.
+- Do NOT give a buy/sell or timing call. Report price exactly from DATA.
+- `confidence`: a number 0.0-1.0 (how sure you are given the data completeness).
+- Fill every field of the required output schema.
 """
 
     # ---- เรียก Gemini แล้วบังคับ output ให้ตรง Summary schema ----
