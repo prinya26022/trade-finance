@@ -42,6 +42,9 @@ class Summary(BaseModel):
     sentiment: Literal["bullish", "neutral", "bearish"]
     confidence: float
 
+    # สรุปไทยง่ายๆ สำหรับคนไม่มีพื้นการเงิน (อยู่ท้ายสุด -> LLM เขียนหลังคิดครบทุกอย่างแล้ว)
+    beginner_summary: str
+
 
 def summarize(price, news, facts) -> Summary:
     news_lines = "\n".join(f"- {n.title} ({n.source})" for n in news)     # ← คำนวณข้างบน
@@ -78,6 +81,11 @@ Judge, from ONLY the data above, whether the fundamentals look STRONG or WEAK an
   headlines you were given, verbatim.
 - Do NOT give a buy/sell or timing call. Report price exactly from DATA.
 - `confidence`: a number 0.0-1.0 (how sure you are given the data completeness).
+- `beginner_summary`: write in THAI, 2-4 short sentences, for a reader with NO finance
+  background. Cover: is the business good or not, is the price cheap or expensive, and the
+  main thing to watch out for. You may keep finance terms but add a 2-4 word Thai gloss in
+  parentheses the first time (e.g. "ROIC (ผลตอบแทนต่อทุน) สูงมาก"). Plain and concrete, no
+  jargon dumps, and still NOT a buy/sell recommendation.
 - Fill every field of the required output schema.
 """
 

@@ -31,6 +31,8 @@ function AnalysisCard({ a }: { a: Analysis }) {
         </Tip>
       </div>
 
+      {s.beginner_summary && <p className="beginner">{s.beginner_summary}</p>}
+
       {s.strength_reasons.length > 0 && (
         <>
           <div className="section-title">Strengths</div>

@@ -14,6 +14,7 @@ export type Summary = {
   what_to_watch: string[];
   sentiment: "bullish" | "neutral" | "bearish";
   confidence: number;
+  beginner_summary?: string; // optional: แถวเก่าก่อน Phase 2.5 จะไม่มี field นี้
 };
 
 export type WatchlistItem = {

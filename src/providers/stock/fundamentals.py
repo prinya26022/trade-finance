@@ -27,6 +27,10 @@ class StockFundamentals(Fundamentals):
     interest_coverage: float | None = None   # EBIT / ดอกเบี้ย
     current_ratio: float | None = None
 
+    # --- Red flags (ด่าน 8) ---
+    goodwill: float | None = None            # ถ้าเยอะระวัง write-off
+    goodwill_pct_assets: float | None = None # goodwill เป็น % ของสินทรัพย์รวม
+
     # --- Valuation (ณ ปัจจุบัน, จาก info) ---
     pe: float | None = None
     forward_pe: float | None = None
@@ -43,6 +47,9 @@ class StockFundamentals(Fundamentals):
     operating_margin_series: list[tuple[str, float]] = field(default_factory=list)
     net_margin_series: list[tuple[str, float]] = field(default_factory=list)
     share_count_series: list[tuple[str, float]] = field(default_factory=list)
+    fcf_series: list[tuple[str, float]] = field(default_factory=list)          # FCF trend หลายปี
+    dso_series: list[tuple[str, float]] = field(default_factory=list)          # วันเก็บหนี้ (พุ่ง = red flag)
+    inventory_pct_series: list[tuple[str, float]] = field(default_factory=list)  # inventory เทียบยอดขาย (บวม = red flag)
 
     def to_facts(self) -> list[Fact]:
         facts: list[Fact] = []
@@ -50,7 +57,6 @@ class StockFundamentals(Fundamentals):
         # (1) สเกลาร์: (label, value, unit) — ข้ามตัวที่เป็น None (ห้ามปลอม 0.0)
         scalars = [
             ("Revenue", self.revenue, "USD"),
-            ("Free Cash Flow", self.free_cash_flow, "USD"),
             ("FCF Margin", self.fcf_margin, "%"),
             ("ROIC", self.roic, "%"),
             ("ROE", self.roe, "%"),
@@ -67,6 +73,8 @@ class StockFundamentals(Fundamentals):
             ("FCF Yield", self.fcf_yield, "%"),
             ("Market Cap", self.market_cap, "USD"),
             ("Avg Daily Volume", self.avg_volume, "shares"),
+            ("Goodwill", self.goodwill, "USD"),
+            ("Goodwill % Assets", self.goodwill_pct_assets, "%"),
         ]
         facts += [
             Fact(label, value, unit, self.period)
@@ -80,6 +88,9 @@ class StockFundamentals(Fundamentals):
             ("Operating Margin", self.operating_margin_series, "%"),
             ("Net Margin", self.net_margin_series, "%"),
             ("Diluted Shares", self.share_count_series, "shares"),
+            ("Free Cash Flow", self.fcf_series, "USD"),
+            ("DSO", self.dso_series, "days"),
+            ("Inventory % Revenue", self.inventory_pct_series, "%"),
         ]
         for label, points, unit in series:
             for period_label, value in points:
@@ -252,6 +263,39 @@ def _compute_current_ratio(balance_sheet, info) -> float | None:
     return float(cr) if cr is not None else None
 
 
+def _cross_ratio_series(numer_names, numer_df, denom_names, denom_df, mult) -> list[tuple[str, float]]:
+    """อัตราส่วนข้ามงบ จับคู่ 'ปีเดียวกัน' เช่น DSO = Receivables(งบดุล)/Revenue(งบกำไร)*365.
+    ตัวหาร (revenue) มาจากคนละ DataFrame จึง index ด้วยปีก่อนแล้วค่อยจับคู่."""
+    nrow = _find_row(numer_names, numer_df)
+    drow = _find_row(denom_names, denom_df)
+    if nrow is None or drow is None:
+        return []
+    denom_by_year: dict[int, float] = {}
+    for col in denom_df.columns:
+        year = getattr(col, "year", None)
+        val = denom_df.loc[drow, col]
+        if year is not None and pd.notna(val) and val != 0:
+            denom_by_year[year] = float(val)
+    out = []
+    for col in numer_df.columns:
+        year = getattr(col, "year", None)
+        num = numer_df.loc[nrow, col]
+        den = denom_by_year.get(year)
+        if year is not None and pd.notna(num) and den:
+            out.append((f"FY{year}", round(float(num) / den * mult, 2)))
+    return out
+
+
+def _compute_goodwill(balance_sheet) -> tuple[float | None, float | None]:
+    """คืน (goodwill, goodwill เป็น % ของสินทรัพย์รวม). ถ้าบริษัทไม่มี goodwill -> (None, None)."""
+    goodwill = _first(["Goodwill"], balance_sheet)
+    if goodwill is None:
+        return None, None
+    total_assets = _first(["Total Assets"], balance_sheet)
+    pct = round(goodwill / total_assets * 100, 2) if total_assets else None
+    return goodwill, pct
+
+
 def _fcf_yield(fcf, market_cap) -> float | None:
     if fcf is None or not market_cap:
         return None
@@ -271,6 +315,7 @@ class StockFundamentalsProvider(FundamentalsProvider):
         revenue = float(revenue) if revenue is not None else None
         fcf = _compute_free_cash_flow(info, cf)
         market_cap = info.get("marketCap")
+        goodwill, goodwill_pct = _compute_goodwill(bs)
 
         return StockFundamentals(
             period=_period_label(fin.columns[0]) if fin is not None and not fin.empty else "N/A",
@@ -283,6 +328,8 @@ class StockFundamentalsProvider(FundamentalsProvider):
             net_debt_to_ebitda=_compute_net_debt_to_ebitda(bs, fin, info),
             interest_coverage=_compute_interest_coverage(fin),
             current_ratio=_compute_current_ratio(bs, info),
+            goodwill=goodwill,
+            goodwill_pct_assets=goodwill_pct,
             pe=info.get("trailingPE"),
             forward_pe=info.get("forwardPE"),
             ev_ebitda=info.get("enterpriseToEbitda"),
@@ -296,4 +343,7 @@ class StockFundamentalsProvider(FundamentalsProvider):
             operating_margin_series=_ratio_series(["Operating Income", "EBIT"], ["Total Revenue"], fin),
             net_margin_series=_ratio_series(["Net Income", "Net Income Common Stockholders"], ["Total Revenue"], fin),
             share_count_series=_series(["Diluted Average Shares", "Basic Average Shares"], fin),
+            fcf_series=_series(["Free Cash Flow"], cf),
+            dso_series=_cross_ratio_series(["Receivables", "Accounts Receivable"], bs, ["Total Revenue", "Operating Revenue"], fin, 365),
+            inventory_pct_series=_cross_ratio_series(["Inventory"], bs, ["Total Revenue", "Operating Revenue"], fin, 100),
         )
