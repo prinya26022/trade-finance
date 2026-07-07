@@ -86,8 +86,20 @@ let the LLM grade itself on facts it may have made up.
 - **Phase 3:** daily scheduled runs + history + cross-day change detection (new filing,
   major news, unusual price move)
 - **Phase 4:** real eval harness — extraction accuracy on financials measured as a %
+- **Phase 5:** **Thesis Journal + invalidation tracking** — record *why* I hold each ticker
+  (free-text thesis) plus machine-checkable invalidation rules (e.g. "exit if operating
+  margin < 10%") + optional fair-value estimate. Change detection becomes *thesis-aware*:
+  it alerts when MY specific exit conditions trip, and the LLM analysis is told my thesis so
+  it judges "does today's data still support your reason for holding?". This closes the loop
+  on the checklist's ด่าน 4 (invalidation point) + ด่าน 7 (thesis stop) + journal (ด่าน 182).
+- **Phase 6:** eval maturity — pytest test suite + golden dataset + CI (tests green on every
+  push), extraction accuracy reported as a headline %.
+- **Phase 7:** dashboard UX — triage-first view (needs-attention vs quiet), per-ticker detail
+  page with multi-year trend charts, ranking/screener, mobile-friendly.
 - **Later:** add crypto as a second `asset_type` (on-chain / tokenomics module), reusing
-  everything else
+  everything else; deeper valuation (reverse-DCF / margin of safety / peer comparison).
+
+Phases 1-4 are COMPLETE. Phase 5 in progress.
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
