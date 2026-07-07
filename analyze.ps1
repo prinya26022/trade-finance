@@ -13,4 +13,7 @@ if ($Ticker) {
     # ส่ง report เข้า Discord — auto เลือกโหมดจากวันที่ (วันที่ 1=monthly, จันทร์=weekly, อื่นๆ=daily)
     # ข้ามเงียบๆ ถ้าไม่ตั้ง DISCORD_WEBHOOK_URL
     python -c "from src.agent.report import send_report; send_report()"
+    # ส่ง quality alert (Phase 4 — ความแม่นการคำนวณของเราเอง) เข้าช่องแยก คนละหัวข้อกับข้างบน
+    # เงียบถ้าทุกตัวปกติ หรือถ้าไม่ตั้ง DISCORD_WEBHOOK_URL_QUALITY
+    python -c "from src.agent.report import send_quality_report; send_quality_report()"
 }

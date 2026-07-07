@@ -9,7 +9,12 @@
 ข้อมูลที่เก็บไว้แล้ว จึงไม่กินโควตาเพิ่มไม่ว่าจะเลือกโหมดไหน หรือส่งซ้ำกี่ครั้งก็ได้.
 เรียก build_report(mode=...) ตรงๆ เพื่อทดสอบ/บังคับโหมด, หรือปล่อย None ให้ pick_mode()
 เลือกจากวันที่ปัจจุบัน (ใช้ตอน scheduled run จริงผ่าน send_report()).
+
+แยกอีกช่องหนึ่ง: build_quality_report()/send_quality_report() — คนละหัวข้อกับข้างบน (นั่นคือ
+"ระบบคำนวณของเราเองยังแม่นอยู่ไหม" ไม่ใช่ "หุ้นตัวนี้น่าสนใจไหม") จึงส่งไปช่อง Discord แยก
+(DISCORD_WEBHOOK_URL_QUALITY) ไม่ปนกับ report หลัก.
 """
+import os
 from datetime import date
 from pathlib import Path
 
@@ -44,21 +49,10 @@ def pick_mode(today: date | None = None) -> str:
     return "daily"
 
 
-def _extraction_suffix(a: dict) -> str:
-    """ต่อท้ายบรรทัดสถานะ: ความแม่นการคำนวณของเราเอง (Phase 4 — เทียบกับ yfinance ไม่ใช่ LLM).
-    ไม่มีข้อมูล (แถวเก่า/ไม่มีคู่เทียบ) -> ไม่แสดงอะไรเลย เงียบไว้ ไม่ใช่ error."""
-    extraction = a.get("extraction")
-    if not extraction or extraction.get("accuracy") is None:
-        return ""
-    acc = extraction["accuracy"]
-    warn = " ⚠️" if acc < EXTRACTION_WARN_THRESHOLD else ""
-    return f" · extract {acc:.0%}{warn}"
-
-
 def _status_line(a: dict) -> str:
     s = a["summary"]
     em = STRENGTH_EMOJI.get(s["fundamental_strength"], "⚪")
-    return f"{em} `{a['ticker']:<5}` {s['fundamental_strength']} / {s['valuation_view']}{_extraction_suffix(a)}"
+    return f"{em} `{a['ticker']:<5}` {s['fundamental_strength']} / {s['valuation_view']}"
 
 
 def _full_picture(a: dict, header_prefix: str = "") -> list[str]:
@@ -67,7 +61,7 @@ def _full_picture(a: dict, header_prefix: str = "") -> list[str]:
     เพราะทั้งคู่ต้องการ 'สรุปทั้งภาพ' ไม่ใช่แค่ diff."""
     s = a["summary"]
     em = STRENGTH_EMOJI.get(s["fundamental_strength"], "⚪")
-    lines = [f"{header_prefix}**{a['ticker']}**  {em} {s['fundamental_strength']} / {s['valuation_view']}{_extraction_suffix(a)}"]
+    lines = [f"{header_prefix}**{a['ticker']}**  {em} {s['fundamental_strength']} / {s['valuation_view']}"]
     if s.get("beginner_summary"):
         lines.append(s["beginner_summary"])
     for w in s.get("weak_points", [])[:2]:
@@ -146,9 +140,57 @@ def send_report(mode: str | None = None) -> bool:
     return post_chunks(build_report(mode))
 
 
-if __name__ == "__main__":   # ให้เรียก python -m src.agent.report ได้ (ทดสอบ mode: --mode weekly)
+# ─────────────────────────────────────────────────────────────────────────────
+# Quality report (Phase 4) — คนละหัวข้อกับ daily/weekly/monthly ข้างบน (นั่นคือ
+# "หุ้นตัวนี้น่าสนใจไหม", อันนี้คือ "ระบบคำนวณของเราเองยังทำงานถูกไหม") จึงแยกส่งไปช่อง
+# Discord อื่น (DISCORD_WEBHOOK_URL_QUALITY) ไม่ปนกับ report หลัก
+# ─────────────────────────────────────────────────────────────────────────────
+def build_quality_report(threshold: float = EXTRACTION_WARN_THRESHOLD) -> str | None:
+    """สรุป ticker ที่ extraction accuracy ต่ำกว่าเกณฑ์ — alert-only เหมือน daily report:
+    คืน None ถ้าทุกตัวปกติ (เงียบไว้ ไม่ใช่ error ไม่ต้องส่งอะไร)."""
+    flagged = []
+    for a in latest_per_ticker():
+        extraction = a.get("extraction")
+        if not extraction or extraction.get("accuracy") is None:
+            continue
+        acc = extraction["accuracy"]
+        if acc < threshold:
+            mismatches = [c for c in extraction["checks"] if not c["within_tolerance"]]
+            detail = "; ".join(
+                f"{c['metric']} ours={c['ours']:.2f} vs yfinance={c['reference']:.2f}"
+                for c in mismatches
+            )
+            flagged.append(f"🔴 **{a['ticker']}** — extraction accuracy {acc:.0%} ({detail})")
+
+    if not flagged:
+        return None   # ไม่มีอะไรผิดปกติ = ไม่ต้องส่ง (เงียบตามหลัก alert-only)
+
+    lines = [f"🔬 **Extraction Accuracy Alert — {date.today().isoformat()}**", ""]
+    lines += flagged
+    lines.append("")
+    lines.append("ตรวจสอบเพิ่ม: `python -m src.providers.stock.fundamentals <TICKER>`")
+    return "\n".join(lines)
+
+
+def send_quality_report() -> bool:
+    """ส่ง quality alert เข้าช่อง Discord แยก (DISCORD_WEBHOOK_URL_QUALITY).
+    ไม่มีอะไรผิดปกติ หรือไม่ได้ตั้ง webhook นี้ไว้ -> ข้ามเงียบๆ (ไม่ถือว่า fail)."""
+    report = build_quality_report()
+    if report is None:
+        return True
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL_QUALITY")
+    if not webhook:
+        print("[quality-report] ไม่มี DISCORD_WEBHOOK_URL_QUALITY — ข้ามการส่ง")
+        return False
+    return post_chunks(report, webhook_url=webhook)
+
+
+if __name__ == "__main__":
+    # ทดสอบ:  python -m src.agent.report --mode weekly   |   python -m src.agent.report --quality
     import sys
-    forced_mode = None
-    if len(sys.argv) > 1 and sys.argv[1] == "--mode":
-        forced_mode = sys.argv[2]
-    send_report(forced_mode)
+    if len(sys.argv) > 1 and sys.argv[1] == "--quality":
+        ok = send_quality_report()
+        print("quality report:", "sent" if ok else "skipped/failed")
+    else:
+        forced_mode = sys.argv[2] if len(sys.argv) > 1 and sys.argv[1] == "--mode" else None
+        send_report(forced_mode)
