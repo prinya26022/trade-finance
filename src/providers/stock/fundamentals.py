@@ -351,3 +351,18 @@ class StockFundamentalsProvider(FundamentalsProvider):
             dso_series=_cross_ratio_series(["Receivables", "Accounts Receivable"], bs, ["Total Revenue", "Operating Revenue"], fin, 365),
             inventory_pct_series=_cross_ratio_series(["Inventory"], bs, ["Total Revenue", "Operating Revenue"], fin, 100),
         )
+
+
+if __name__ == "__main__":
+    # เครื่องมือ debug: ดูทุก Fact ของ ticker หนึ่งดิบ ๆ (ไม่เรียก LLM, ไม่กิน quota)
+    # ใช้ตอนสงสัยว่า "ทำไม confidence ต่ำ / คำอธิบายดูขัดแย้งกัน" — ไล่ดู label+period+value
+    # เทียบกันเองได้ทันที ไม่ต้องเปิด python -c หลายรอบแบบตอนไล่บั๊ก TTM/FY ของ SBUX
+    #   ใช้:  python -m src.providers.stock.fundamentals SBUX
+    import sys
+
+    ticker = sys.argv[1] if len(sys.argv) > 1 else "AAPL"
+    facts = StockFundamentalsProvider().get_fundamentals(ticker).to_facts()
+    facts.sort(key=lambda f: (f.label, f.period))
+    print(f"=== {ticker}: {len(facts)} facts ===")
+    for f in facts:
+        print(f"  {f.label:22} = {f.value:>18,.4f}  {f.unit:8} period={f.period}")
