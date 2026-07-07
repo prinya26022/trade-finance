@@ -1,0 +1,50 @@
+name: Daily Watchlist Analysis
+
+# ทำไมต้อง commit DB กลับเข้า repo (ดูขั้นตอนสุดท้าย):
+# runner ของ GitHub Actions เป็นเครื่องใหม่ล้างสดทุกครั้ง ไม่มี state เหลือจากรันก่อนหน้า
+# watchlist.db (รายชื่อ ticker + ประวัติวิเคราะห์) ถูก .gitignore ไว้ตามปกติ (ใช้ในเครื่อง)
+# แต่ CI ต้องมี DB นี้เป็น 'ความจำ' ข้ามวัน ไม่งั้น cross-day change detection จะไม่มีอะไรให้เทียบ
+# เลยต้อง force-add + commit DB กลับเข้า repo หลังรันเสร็จทุกครั้ง ให้รันครั้งถัดไปเห็นของเดิม
+
+on:
+  schedule:
+    - cron: "30 8 * * *"   # 08:30 UTC = 15:30 น. ไทย — เผื่อเวลาหลัง Gemini free-tier รีเซ็ตโควตา (เที่ยงคืน Pacific)
+  workflow_dispatch: {}     # กดรันมือได้จาก GitHub Actions tab (ไว้ทดสอบ)
+
+permissions:
+  contents: write   # ต้องมี เพื่อให้ step สุดท้าย push DB กลับเข้า repo ได้
+
+concurrency:
+  group: daily-watchlist-analysis
+  cancel-in-progress: false   # กันรันซ้อนกัน (เช่น กด workflow_dispatch ตอน cron กำลังรันพอดี)
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Bangkok   # ให้ pick_mode() (วันที่ 1 ของเดือน / วันจันทร์) นับตามปฏิทินไทย ไม่ใช่ UTC
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run daily analysis (calls Gemini, saves to SQLite)
+        run: python -c "from src.agent.loop import run_watchlist; run_watchlist()"
+
+      - name: Send report to Discord (auto-picks daily/weekly/monthly by date)
+        run: python -c "from src.agent.report import send_report; send_report()"
+
+      - name: Persist analysis history back to the repo
+        run: |
+          git config user.name "trade-finance-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -f data/watchlist.db
+          git diff --cached --quiet || git commit -m "chore: daily analysis $(date -u +%Y-%m-%d)"
+          git push
