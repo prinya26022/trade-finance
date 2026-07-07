@@ -10,4 +10,6 @@ if ($Ticker) {
     python -c "from src.agent.loop import analyze; analyze('$Ticker')"
 } else {
     python -c "from src.agent.loop import run_watchlist; run_watchlist()"
+    # daily run -> ส่ง report เข้า Discord (ข้ามเงียบๆ ถ้าไม่ตั้ง DISCORD_WEBHOOK_URL)
+    python -c "from src.agent.report import send_report; send_report()"
 }
