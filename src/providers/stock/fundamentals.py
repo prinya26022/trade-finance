@@ -54,31 +54,35 @@ class StockFundamentals(Fundamentals):
     def to_facts(self) -> list[Fact]:
         facts: list[Fact] = []
 
-        # (1) สเกลาร์: (label, value, unit) — ข้ามตัวที่เป็น None (ห้ามปลอม 0.0)
+        # (1) สเกลาร์: (label, value, unit, period) — ข้ามตัวที่เป็น None (ห้ามปลอม 0.0)
+        # period ต้องตรงกับ 'ฐานเวลาจริง' ของค่านั้น: Revenue/FCF Margin/FCF Yield คำนวณจาก
+        # info['totalRevenue']/info['freeCashflow'] ซึ่งเป็น TTM (ล่าสุด 12 เดือน) ไม่ใช่สิ้นปีงบ
+        # (self.period) — ติดป้าย FY ผิดจะทำให้ LLM เห็นค่า TTM (เช่น FCF ติดลบช่วงแย่ล่าสุด)
+        # ข้าง ๆ FCF series แบบ FY (เช่น FY2025 บวก) แล้วงงว่าตัวเลขขัดแย้งกันเอง (ลด confidence)
         scalars = [
-            ("Revenue", self.revenue, "USD"),
-            ("FCF Margin", self.fcf_margin, "%"),
-            ("ROIC", self.roic, "%"),
-            ("ROE", self.roe, "%"),
-            ("Revenue CAGR", self.revenue_cagr, "%"),
-            ("Net Debt / EBITDA", self.net_debt_to_ebitda, "x"),
-            ("Interest Coverage", self.interest_coverage, "x"),
-            ("Current Ratio", self.current_ratio, "x"),
-            ("P/E", self.pe, "x"),
-            ("Forward P/E", self.forward_pe, "x"),
-            ("EV/EBITDA", self.ev_ebitda, "x"),
-            ("PEG", self.peg, "x"),
-            ("P/B", self.price_to_book, "x"),
-            ("P/S", self.price_to_sales, "x"),
-            ("FCF Yield", self.fcf_yield, "%"),
-            ("Market Cap", self.market_cap, "USD"),
-            ("Avg Daily Volume", self.avg_volume, "shares"),
-            ("Goodwill", self.goodwill, "USD"),
-            ("Goodwill % Assets", self.goodwill_pct_assets, "%"),
+            ("Revenue", self.revenue, "USD", "TTM"),
+            ("FCF Margin", self.fcf_margin, "%", "TTM"),
+            ("ROIC", self.roic, "%", self.period),
+            ("ROE", self.roe, "%", self.period),
+            ("Revenue CAGR", self.revenue_cagr, "%", self.period),
+            ("Net Debt / EBITDA", self.net_debt_to_ebitda, "x", self.period),
+            ("Interest Coverage", self.interest_coverage, "x", self.period),
+            ("Current Ratio", self.current_ratio, "x", self.period),
+            ("P/E", self.pe, "x", self.period),
+            ("Forward P/E", self.forward_pe, "x", self.period),
+            ("EV/EBITDA", self.ev_ebitda, "x", self.period),
+            ("PEG", self.peg, "x", self.period),
+            ("P/B", self.price_to_book, "x", self.period),
+            ("P/S", self.price_to_sales, "x", self.period),
+            ("FCF Yield", self.fcf_yield, "%", "TTM"),
+            ("Market Cap", self.market_cap, "USD", self.period),
+            ("Avg Daily Volume", self.avg_volume, "shares", self.period),
+            ("Goodwill", self.goodwill, "USD", self.period),
+            ("Goodwill % Assets", self.goodwill_pct_assets, "%", self.period),
         ]
         facts += [
-            Fact(label, value, unit, self.period)
-            for label, value, unit in scalars
+            Fact(label, value, unit, period)
+            for label, value, unit, period in scalars
             if value is not None
         ]
 
