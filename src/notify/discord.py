@@ -6,6 +6,7 @@
 """
 import json
 import os
+import urllib.error
 import urllib.request
 
 DISCORD_CONTENT_LIMIT = 2000   # เพดานข้อความ Discord ต่อ message
@@ -24,11 +25,21 @@ def post(content: str, webhook_url: str | None = None) -> bool:
 
     data = json.dumps({"content": content}).encode("utf-8")
     req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}
+        url,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            # Discord/Cloudflare คืน 403 ถ้า User-Agent เป็นค่า default ของ urllib -> ต้องตั้งเอง
+            "User-Agent": "trade-finance-agent/1.0 (+local research tool)",
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return 200 <= resp.status < 300
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")[:300]
+        print(f"[discord] ส่งไม่สำเร็จ: HTTP {e.code} — {body}")
+        return False
     except Exception as e:
         print(f"[discord] ส่งไม่สำเร็จ: {e}")
         return False
