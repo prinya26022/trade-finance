@@ -6,6 +6,8 @@
 
 ทำงานล้วนๆ กับข้อมูลใน history store (ไม่เรียก LLM -> ไม่กินโควตา).
 """
+from datetime import datetime, timedelta
+
 from src.history.store import history
 
 # เมตริกที่ถือว่า "สำคัญพอจะเตือน" ถ้าขยับแรง (ตัวอื่นเช่น Market Cap แกว่งตามราคา = noise)
@@ -70,14 +72,9 @@ def _metric_changes(cur_facts: list[dict], prev_facts: list[dict]) -> list[dict]
     return changes
 
 
-def detect_changes(ticker: str) -> dict:
-    """คืน dict สรุปการเปลี่ยนแปลงที่แตะ thesis ระหว่าง 2 ครั้งล่าสุด.
-    changes ว่าง = ไม่มีอะไรสำคัญ (เงียบไว้ ไม่ต้องเตือน)."""
-    rows = history(ticker, limit=2)   # [ล่าสุด, ก่อนหน้า]
-    if len(rows) < 2:
-        return {"ticker": ticker, "changes": [], "note": "ยังไม่มีผลก่อนหน้าให้เทียบ"}
-
-    cur, prev = rows[0], rows[1]
+def _diff(cur: dict, prev: dict) -> list[dict]:
+    """เทียบ 2 แถวผลวิเคราะห์ (cur ใหม่กว่า prev) -> list การเปลี่ยนที่แตะ thesis.
+    เป็นแกนกลางที่ทั้ง detect_changes (คู่ล่าสุด) และ changes_over_window (สะสมหลายคู่) ใช้ร่วมกัน."""
     cs, ps = cur["summary"], prev["summary"]
     changes: list[dict] = []
 
@@ -114,10 +111,47 @@ def detect_changes(ticker: str) -> dict:
 
     # 5) เมตริกพื้นฐานสำคัญขยับ / มีงบใหม่
     changes += _metric_changes(cur.get("facts", []), prev.get("facts", []))
+    return changes
 
+
+def detect_changes(ticker: str) -> dict:
+    """คืน dict สรุปการเปลี่ยนแปลงที่แตะ thesis ระหว่าง 2 ครั้งล่าสุด.
+    changes ว่าง = ไม่มีอะไรสำคัญ (เงียบไว้ ไม่ต้องเตือน)."""
+    rows = history(ticker, limit=2)   # [ล่าสุด, ก่อนหน้า]
+    if len(rows) < 2:
+        return {"ticker": ticker, "changes": [], "note": "ยังไม่มีผลก่อนหน้าให้เทียบ"}
+
+    cur, prev = rows[0], rows[1]
     return {
         "ticker": ticker,
         "from": prev["run_at"],
         "to": cur["run_at"],
-        "changes": changes,
+        "changes": _diff(cur, prev),
     }
+
+
+def changes_over_window(ticker: str, days: int) -> list[dict]:
+    """สะสมการเปลี่ยนแปลงทุกคู่ต่อเนื่องกันในช่วง `days` วันที่ผ่านมา (ไว้ทำ weekly/monthly report).
+    เดินจากเก่าไปใหม่ เทียบทีละคู่ติดกัน -> ได้การเปลี่ยนแปลง 'สะสม' ตลอดช่วง ไม่ใช่แค่ต้น-ท้าย
+    (เพราะถ้าขยับขึ้นแล้วลงกลับมาที่เดิม ก็ยังถือว่าเคยมีสัญญาณเตือนระหว่างทาง ไม่อยากให้หายไป)."""
+    rows = history(ticker, limit=200)   # ใหม่สุดก่อน (DESC)
+    if len(rows) < 2:
+        return []
+
+    cutoff = datetime.now() - timedelta(days=days)
+    windowed = []
+    for r in rows:
+        windowed.append(r)
+        if datetime.fromisoformat(r["run_at"]) < cutoff:
+            break   # เก็บ 1 แถวที่เก่ากว่า cutoff ไว้เป็น 'จุดเทียบตั้งต้น' ของหน้าต่างนี้
+    windowed.reverse()   # กลับเป็นเก่า -> ใหม่
+
+    if len(windowed) < 2:
+        return []
+
+    out: list[dict] = []
+    for i in range(1, len(windowed)):
+        prev_row, cur_row = windowed[i - 1], windowed[i]
+        for c in _diff(cur_row, prev_row):
+            out.append({**c, "as_of": cur_row["run_at"]})
+    return out

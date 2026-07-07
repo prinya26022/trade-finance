@@ -10,6 +10,7 @@ if ($Ticker) {
     python -c "from src.agent.loop import analyze; analyze('$Ticker')"
 } else {
     python -c "from src.agent.loop import run_watchlist; run_watchlist()"
-    # daily run -> ส่ง report เข้า Discord (ข้ามเงียบๆ ถ้าไม่ตั้ง DISCORD_WEBHOOK_URL)
+    # ส่ง report เข้า Discord — auto เลือกโหมดจากวันที่ (วันที่ 1=monthly, จันทร์=weekly, อื่นๆ=daily)
+    # ข้ามเงียบๆ ถ้าไม่ตั้ง DISCORD_WEBHOOK_URL
     python -c "from src.agent.report import send_report; send_report()"
 }

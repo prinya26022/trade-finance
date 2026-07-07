@@ -43,3 +43,28 @@ def post(content: str, webhook_url: str | None = None) -> bool:
     except Exception as e:
         print(f"[discord] ส่งไม่สำเร็จ: {e}")
         return False
+
+
+def _chunk_lines(content: str, limit: int = DISCORD_CONTENT_LIMIT) -> list[str]:
+    """แบ่ง content เป็นหลายก้อน แต่ละก้อน <= limit ตัวอักษร ตัดที่ขอบบรรทัด (ไม่ตัดกลางคำ/กลางประโยค)."""
+    chunks, cur = [], ""
+    for line in content.split("\n"):
+        candidate = f"{cur}\n{line}" if cur else line
+        if len(candidate) > limit:
+            if cur:
+                chunks.append(cur)
+            cur = line
+        else:
+            cur = candidate
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
+def post_chunks(content: str, webhook_url: str | None = None) -> bool:
+    """เหมือน post() แต่แบ่งข้อความยาวเป็นหลาย message แทนตัดทอน — ใช้กับ report ที่อาจยาว
+    (เช่น monthly ทบทวน thesis ทุกตัว) กัน 'เสียข้อมูลเงียบๆ' ที่ post() เดี่ยวๆ จะตัดทิ้ง."""
+    ok = True
+    for chunk in _chunk_lines(content):
+        ok = post(chunk, webhook_url) and ok
+    return ok
