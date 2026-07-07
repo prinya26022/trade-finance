@@ -104,6 +104,18 @@ function AnalysisCard({ a, changes }: { a: Analysis; changes: Change[] }) {
         <Tip def="ตัวเลขงบที่ AI อ้าง ตรงกับงบจริงกี่ % — ยิ่งสูงยิ่งเชื่อได้ ต่ำ = ระวัง">
           <span>facts {pct(a.facts_grounded_ratio)}</span>
         </Tip>
+        {a.extraction_accuracy != null && (
+          <Tip
+            def={
+              "ความแม่นของ 'การคำนวณของเราเอง' (ROE/margin ฯลฯ) เทียบกับตัวเลขที่ yfinance " +
+              "คำนวณเองอิสระ — ไม่ใช่ AI, จับบั๊กในโค้ดคำนวณ (ไม่ใช่ AI มั่ว)"
+            }
+          >
+            <span className={a.extraction_accuracy >= 0.8 ? "ok" : "bad"}>
+              extract {pct(a.extraction_accuracy)}
+            </span>
+          </Tip>
+        )}
         <span style={{ marginLeft: "auto" }}>{a.run_at.replace("T", " ")}</span>
       </div>
     </div>

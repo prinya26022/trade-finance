@@ -40,7 +40,9 @@ def init_db() -> None:
                 news_grounded_ratio  REAL,
                 facts_grounded_ratio REAL,
                 summary_json         TEXT NOT NULL,
-                facts_json           TEXT
+                facts_json           TEXT,
+                extraction_accuracy  REAL,
+                extraction_json      TEXT
             )
             """
         )
@@ -48,10 +50,15 @@ def init_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_analyses_ticker_run ON analyses (ticker, run_at)"
         )
-        # migration: DB ที่สร้างก่อนมี facts_json -> เพิ่มคอลัมน์ถ้ายังไม่มี
+        # migration: DB เก่าที่สร้างก่อนมีคอลัมน์พวกนี้ -> เพิ่มทีละคอลัมน์ถ้ายังไม่มี
         cols = [row[1] for row in conn.execute("PRAGMA table_info(analyses)").fetchall()]
-        if "facts_json" not in cols:
-            conn.execute("ALTER TABLE analyses ADD COLUMN facts_json TEXT")
+        for col, coltype in [
+            ("facts_json", "TEXT"),
+            ("extraction_accuracy", "REAL"),
+            ("extraction_json", "TEXT"),
+        ]:
+            if col not in cols:
+                conn.execute(f"ALTER TABLE analyses ADD COLUMN {col} {coltype}")
 
 
 def _facts_to_json(facts) -> str | None:
@@ -62,10 +69,11 @@ def _facts_to_json(facts) -> str | None:
     return json.dumps(rows, ensure_ascii=False)
 
 
-def save_analysis(summary, grounding: dict, facts=None) -> int:
+def save_analysis(summary, grounding: dict, facts=None, extraction: dict | None = None) -> int:
     """บันทึกผล 1 ครั้ง; คืน id ของแถวที่เพิ่ม.
     summary = Pydantic Summary, grounding = dict จาก loop (มี key 'facts' ซ้อนอยู่),
-    facts = list[Fact] ดิบ (เก็บไว้ให้ change-detection เทียบตัวเลขข้ามวัน)."""
+    facts = list[Fact] ดิบ (เก็บไว้ให้ change-detection เทียบตัวเลขข้ามวัน),
+    extraction = dict จาก check_extraction_accuracy (Phase 4 — ความแม่นการคำนวณของเราเอง)."""
     grounding_facts = grounding.get("facts", {})
     with _connect() as conn:
         cur = conn.execute(
@@ -73,8 +81,8 @@ def save_analysis(summary, grounding: dict, facts=None) -> int:
             INSERT INTO analyses (
                 ticker, run_at, fundamental_strength, valuation_view, sentiment,
                 price, confidence, price_ok, news_grounded_ratio, facts_grounded_ratio,
-                summary_json, facts_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                summary_json, facts_json, extraction_accuracy, extraction_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 summary.ticker,
@@ -89,6 +97,8 @@ def save_analysis(summary, grounding: dict, facts=None) -> int:
                 grounding_facts.get("facts_grounded_ratio"),
                 summary.model_dump_json(),                # เก็บ Summary ทั้งก้อนเป็น JSON
                 _facts_to_json(facts),                    # เก็บ facts ดิบ (อาจเป็น None ถ้าไม่ส่งมา)
+                extraction.get("accuracy") if extraction else None,
+                json.dumps(extraction, ensure_ascii=False) if extraction else None,
             ),
         )
         return cur.lastrowid
@@ -101,6 +111,8 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     d["summary"] = json.loads(d.pop("summary_json"))
     facts_json = d.pop("facts_json", None)
     d["facts"] = json.loads(facts_json) if facts_json else []   # [] ถ้าแถวเก่าไม่มี
+    extraction_json = d.pop("extraction_json", None)
+    d["extraction"] = json.loads(extraction_json) if extraction_json else None  # None ถ้าแถวเก่าไม่มี
     return d
 
 

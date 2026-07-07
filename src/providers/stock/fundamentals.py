@@ -156,7 +156,11 @@ def _ratio_series(numer_names, denom_names, df, pct=True) -> list[tuple[str, flo
     for col in df.columns:
         n, d = df.loc[numer_row, col], df.loc[denom_row, col]
         if pd.notna(n) and pd.notna(d) and d != 0:
-            ratio = n / d
+            # cast เป็น native Python float ก่อนคำนวณ (เหมือน _first/_series) — เผื่อไว้ ไม่งั้น
+            # ค่าที่ได้เป็น numpy.float64 ซึ่งดู 'เหมือน' float ปกติ (subclass ของ float จริง จึง
+            # JSON serialize ผ่านมาตลอดไม่มีปัญหา) แต่พอเอาไปเทียบ <= จะได้ numpy.bool_ ซึ่ง
+            # json.dumps() serialize ไม่ได้ (ไม่ใช่ subclass ของ bool) — เจอตอนทำ eval เทียบ tolerance
+            ratio = float(n) / float(d)
             out.append((_period_label(col), round(ratio * 100, 2) if pct else round(ratio, 2)))
     return out
 

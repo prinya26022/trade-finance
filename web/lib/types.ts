@@ -38,6 +38,20 @@ export type ChangeReport = {
   note?: string;
 };
 
+export type ExtractionCheck = {
+  metric: string;
+  ours: number;
+  reference: number;
+  within_tolerance: boolean;
+};
+
+// Phase 4: ความแม่นของ 'การคำนวณของเราเอง' เทียบกับ yfinance's own ratios (ไม่ใช่ LLM)
+export type ExtractionResult = {
+  ticker: string;
+  checks: ExtractionCheck[];
+  accuracy: number | null;
+};
+
 export type Analysis = {
   id: number;
   ticker: string;
@@ -50,5 +64,7 @@ export type Analysis = {
   price_ok: boolean;
   news_grounded_ratio: number;
   facts_grounded_ratio: number;
+  extraction_accuracy: number | null;
+  extraction: ExtractionResult | null;
   summary: Summary;
 };

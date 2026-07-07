@@ -25,6 +25,7 @@ load_dotenv(Path(__file__).parents[2] / ".env")   # ให้ DISCORD_WEBHOOK_UR
 STRENGTH_EMOJI = {"strong": "🟢", "mixed": "🟡", "weak": "🔴"}
 SEVERITY_EMOJI = {"alert": "🔴", "warn": "🟠", "info": "🔵"}
 WINDOW_DAYS = {"daily": None, "weekly": 7, "monthly": 30}   # None = เทียบแค่คู่ล่าสุด
+EXTRACTION_WARN_THRESHOLD = 0.8   # ต่ำกว่านี้ = การคำนวณของเราเองน่าสงสัย ควรเปิดดู debug tool
 TITLE = {
     "daily": "📊 Daily Watchlist Report",
     "weekly": "📅 Weekly Watchlist Report",
@@ -43,10 +44,21 @@ def pick_mode(today: date | None = None) -> str:
     return "daily"
 
 
+def _extraction_suffix(a: dict) -> str:
+    """ต่อท้ายบรรทัดสถานะ: ความแม่นการคำนวณของเราเอง (Phase 4 — เทียบกับ yfinance ไม่ใช่ LLM).
+    ไม่มีข้อมูล (แถวเก่า/ไม่มีคู่เทียบ) -> ไม่แสดงอะไรเลย เงียบไว้ ไม่ใช่ error."""
+    extraction = a.get("extraction")
+    if not extraction or extraction.get("accuracy") is None:
+        return ""
+    acc = extraction["accuracy"]
+    warn = " ⚠️" if acc < EXTRACTION_WARN_THRESHOLD else ""
+    return f" · extract {acc:.0%}{warn}"
+
+
 def _status_line(a: dict) -> str:
     s = a["summary"]
     em = STRENGTH_EMOJI.get(s["fundamental_strength"], "⚪")
-    return f"{em} `{a['ticker']:<5}` {s['fundamental_strength']} / {s['valuation_view']}"
+    return f"{em} `{a['ticker']:<5}` {s['fundamental_strength']} / {s['valuation_view']}{_extraction_suffix(a)}"
 
 
 def _full_picture(a: dict, header_prefix: str = "") -> list[str]:
@@ -55,7 +67,7 @@ def _full_picture(a: dict, header_prefix: str = "") -> list[str]:
     เพราะทั้งคู่ต้องการ 'สรุปทั้งภาพ' ไม่ใช่แค่ diff."""
     s = a["summary"]
     em = STRENGTH_EMOJI.get(s["fundamental_strength"], "⚪")
-    lines = [f"{header_prefix}**{a['ticker']}**  {em} {s['fundamental_strength']} / {s['valuation_view']}"]
+    lines = [f"{header_prefix}**{a['ticker']}**  {em} {s['fundamental_strength']} / {s['valuation_view']}{_extraction_suffix(a)}"]
     if s.get("beginner_summary"):
         lines.append(s["beginner_summary"])
     for w in s.get("weak_points", [])[:2]:
