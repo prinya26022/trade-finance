@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -18,6 +18,26 @@ export async function getWatchlist(): Promise<WatchlistItem[]> {
 
 export async function getChanges(): Promise<ChangeReport[]> {
   const res = await fetch(`${API_BASE}/api/changes`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+export async function getTickerChanges(ticker: string): Promise<ChangeReport> {
+  const res = await fetch(`${API_BASE}/api/changes/${ticker}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+export async function getPortfolio(): Promise<Portfolio> {
+  const res = await fetch(`${API_BASE}/api/portfolio`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// ประวัติวิเคราะห์ของ ticker เดียว (ใหม่ก่อน) — ไว้ทำหน้า detail + กราฟ trend
+export async function getHistory(ticker: string): Promise<Analysis[]> {
+  const res = await fetch(`${API_BASE}/api/analyses/${ticker}`, { cache: "no-store" });
+  if (res.status === 404) return []; // ยังไม่เคยวิเคราะห์ ticker นี้
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }

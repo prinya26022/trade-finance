@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from src.history.store import init_db, latest_per_ticker, history
 from src.watchlist.store import list_all, add as add_ticker, remove as remove_ticker
 from src.agent.changes import detect_changes
+from src.agent.performance import portfolio_edge
 
 app = FastAPI(title="Investment Research Agent API")
 
@@ -72,6 +73,13 @@ def get_ticker_history(ticker: str, limit: int = 50):
     if not rows:
         raise HTTPException(status_code=404, detail=f"no analyses for {ticker}")
     return rows
+
+
+@app.get("/api/portfolio")
+def get_portfolio():
+    """สรุปเฉพาะโพซิชันที่ 'ถืออยู่จริง' — ผลตอบแทน vs benchmark ตั้งแต่วันซื้อ (Phase 5.5).
+    ไม่เรียก LLM (ใช้แค่ราคาย้อนหลัง yfinance). positions ว่าง = ยังไม่มี holding."""
+    return portfolio_edge()
 
 
 @app.get("/api/changes")

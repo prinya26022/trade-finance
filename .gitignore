@@ -26,6 +26,7 @@ data/*.sqlite3
 node_modules/
 .next/
 next-env.d.ts
+*.tsbuildinfo
 
 # --- Logs (จาก scheduled run) ---
 logs/

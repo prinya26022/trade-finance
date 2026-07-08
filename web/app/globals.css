@@ -133,3 +133,124 @@ ul.list li { font-size: 13px; line-height: 1.4; }
 .error { background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.35); color: var(--red); padding: 16px; border-radius: 10px; font-size: 14px; }
 .error code { background: rgba(0,0,0,.3); padding: 2px 6px; border-radius: 5px; }
 .disclaimer { margin-top: 28px; font-size: 12px; color: var(--muted); }
+
+/* ---- Phase 7a: portfolio header + triage + holding ---- */
+.muted { color: var(--muted); }
+.ok { color: var(--green); }
+.bad { color: var(--red); }
+
+/* Portfolio summary (เฉพาะเมื่อมี holding) */
+.portfolio {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px 16px; margin-bottom: 18px;
+}
+.portfolio-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.portfolio-rows { display: flex; flex-direction: column; gap: 6px; }
+.pf-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.pf-ticker { font-weight: 700; min-width: 56px; }
+.pf-days { margin-left: auto; }
+.edge { font-weight: 700; }
+.edge-win  { color: var(--green); }
+.edge-lose { color: var(--red); }
+
+/* Triage section headers */
+.triage-head {
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  margin: 22px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+}
+.triage-alert { color: var(--amber); }
+.triage-quiet { color: var(--muted); }
+.triage-empty { color: var(--muted); font-size: 13px; margin: 0 0 4px; }
+
+/* Holding vs watching tags on cards */
+.hold-tag {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
+  padding: 2px 7px; border-radius: 999px;
+  background: rgba(210,153,34,.15); color: var(--amber); border: 1px solid rgba(210,153,34,.35);
+}
+.watch-tag { font-size: 11px; color: var(--muted); }
+.card-holding { border-color: rgba(210,153,34,.4); }
+.hold-line {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  margin: 0 0 12px; padding: 8px 12px; background: var(--panel-2); border-radius: 8px;
+  font-size: 12.5px; font-variant-numeric: tabular-nums;
+}
+
+/* ---- Phase 7b: health meter ---- */
+.ticker-link { color: var(--text); text-decoration: none; }
+.ticker-link:hover { color: var(--blue); }
+.card-health { display: flex; align-items: center; gap: 10px; margin: -4px 0 12px; }
+.deep-link { margin-left: auto; font-size: 12px; color: var(--muted); text-decoration: none; }
+.deep-link:hover { color: var(--blue); }
+
+.health { display: inline-flex; align-items: center; gap: 7px; font-variant-numeric: tabular-nums; }
+.health-dots { display: inline-flex; gap: 3px; }
+.hdot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+.health-strong .hdot.on { background: var(--green); }
+.health-ok .hdot.on { background: var(--amber); }
+.health-weak .hdot.on { background: var(--red); }
+.health-num { font-weight: 700; font-size: 13px; }
+.health-strong .health-num { color: var(--green); }
+.health-ok .health-num { color: var(--amber); }
+.health-weak .health-num { color: var(--red); }
+.health-label { font-size: 12px; color: var(--muted); }
+.health-sm .hdot { width: 7px; height: 7px; }
+.health-sm .health-num { font-size: 12px; }
+
+/* ---- Phase 7b: detail page ---- */
+.back { display: inline-block; color: var(--muted); text-decoration: none; font-size: 13px; margin-bottom: 18px; }
+.back:hover { color: var(--blue); }
+
+.detail-hero { margin-bottom: 16px; }
+.hero-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+.hero-ticker { margin: 0; font-size: 30px; letter-spacing: -0.01em; }
+.hero-price { font-size: 20px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.hero-entry { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.verdict {
+  margin: 0 0 12px; padding: 14px 16px; font-size: 15px; line-height: 1.6;
+  background: rgba(88,166,255,.08); border: 1px solid rgba(88,166,255,.25);
+  border-left: 3px solid var(--blue); border-radius: 10px;
+}
+.thesis-box {
+  margin: 0 0 16px; padding: 12px 14px; font-size: 13.5px; line-height: 1.55;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+}
+.detail-changes { margin-bottom: 18px; }
+
+/* charts */
+.charts-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px; margin-bottom: 8px;
+}
+.chart-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.chart-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 6px; font-size: 11.5px; color: var(--muted); }
+.legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.legend-dot { width: 9px; height: 9px; border-radius: 2px; }
+.chart { width: 100%; height: auto; display: block; }
+.chart-grid { stroke: var(--border); stroke-width: 1; }
+.chart-axis { fill: var(--muted); font-size: 9px; }
+.spark { display: inline-block; vertical-align: middle; }
+
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 6px; }
+
+.timeline { display: flex; flex-direction: column; gap: 8px; }
+.tl-row {
+  display: flex; align-items: center; gap: 12px; font-size: 12.5px;
+  padding: 8px 12px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; font-variant-numeric: tabular-nums;
+}
+.tl-date { color: var(--muted); }
+.tl-price { font-weight: 600; }
+.tl-row .badge { margin-left: auto; }
+
+/* มือถือ: ฟอร์ม add เต็มความกว้าง ไม่ดันขวา */
+@media (max-width: 520px) {
+  .wrap { padding: 20px 14px 48px; }
+  .add-form { margin-left: 0; width: 100%; }
+  .add-form .input { flex: 1; min-width: 0; }
+  .grid { grid-template-columns: 1fr; }
+  .two-col { grid-template-columns: 1fr; gap: 4px; }
+  .hero-ticker { font-size: 24px; }
+}
