@@ -26,6 +26,7 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       DISCORD_WEBHOOK_URL_QUALITY: ${{ secrets.DISCORD_WEBHOOK_URL_QUALITY }}
+      DISCORD_WEBHOOK_URL_PORTFOLIO: ${{ secrets.DISCORD_WEBHOOK_URL_PORTFOLIO }}
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +45,9 @@ jobs:
 
       - name: Send extraction-accuracy quality alert (separate Discord channel, silent if healthy)
         run: python -c "from src.agent.report import send_quality_report; send_quality_report()"
+
+      - name: Send portfolio alert for holdings (separate Discord channel, silent if no breach)
+        run: python -c "from src.agent.report import send_portfolio_alert; send_portfolio_alert()"
 
       - name: Persist analysis history back to the repo
         run: |

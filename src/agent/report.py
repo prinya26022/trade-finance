@@ -10,9 +10,12 @@
 เรียก build_report(mode=...) ตรงๆ เพื่อทดสอบ/บังคับโหมด, หรือปล่อย None ให้ pick_mode()
 เลือกจากวันที่ปัจจุบัน (ใช้ตอน scheduled run จริงผ่าน send_report()).
 
-แยกอีกช่องหนึ่ง: build_quality_report()/send_quality_report() — คนละหัวข้อกับข้างบน (นั่นคือ
-"ระบบคำนวณของเราเองยังแม่นอยู่ไหม" ไม่ใช่ "หุ้นตัวนี้น่าสนใจไหม") จึงส่งไปช่อง Discord แยก
-(DISCORD_WEBHOOK_URL_QUALITY) ไม่ปนกับ report หลัก.
+แยกอีก 2 ช่อง (คนละหัวข้อกับ report หลัก จึงส่งไปช่อง Discord อื่น):
+- build_quality_report()/send_quality_report() — "ระบบคำนวณของเราเองยังแม่นอยู่ไหม"
+  (DISCORD_WEBHOOK_URL_QUALITY)
+- build_portfolio_alert()/send_portfolio_alert() — เงื่อนไขออกที่โดนแตะ 'เฉพาะโพซิชันที่ถือ
+  อยู่จริง' (ไม่ใช่แค่จับตา) เป็นสัญญาณที่ต้องรู้ทันที ต่างจาก research feed ทั่วไปที่เช็ค
+  วันละครั้งพอ จึงแยกช่อง (DISCORD_WEBHOOK_URL_PORTFOLIO) ให้ตั้ง push notification เฉพาะได้
 """
 import os
 from datetime import date
@@ -162,10 +165,10 @@ def build_report(mode: str | None = None, dashboard_url: str = "http://localhost
         holding_breaches = {tk: b for tk, b in breach_by_ticker.items() if tk in holdings}
         watching_breaches = {tk: b for tk, b in breach_by_ticker.items() if tk not in holdings}
 
+        # holding breach เต็มรูปแบบไปช่อง Portfolio Alert แยกแล้ว (ต้องรู้ทันที) — ในนี้แค่
+        # เตือนสั้นๆ ว่ามีอยู่ กันไม่ให้คนอ่านแค่ report หลักพลาดไปเลยว่ามีเรื่องด่วนรออยู่
         if holding_breaches:
-            lines.append("🚨 **THESIS พัง — ถืออยู่จริง ต้องตัดสินใจ**")
-            for tk, b in holding_breaches.items():
-                lines += _breach_block(tk, b, "🔴")
+            lines.append(f"🚨 มีเงื่อนไขออกโดนแตะ {len(holding_breaches)} โพซิชันที่ถืออยู่ — ดูช่อง Portfolio Alert")
             lines.append("")
         if watching_breaches:
             lines.append("👀 **เงื่อนไขออกโดนแตะ — แค่จับตาอยู่ (ยังไม่ถือ)**")
@@ -217,6 +220,57 @@ def send_report(mode: str | None = None) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Portfolio alert (Phase 5.5) — เงื่อนไขออกที่โดนแตะเฉพาะโพซิชันที่ถืออยู่จริง (ไม่ใช่แค่
+# จับตา) แยกช่องจาก report หลักเพราะเป็นสัญญาณที่ต้องรู้ทันที ต่างจาก research feed ทั่วไป
+# ที่เช็ควันละครั้งพอ — ตั้ง push notification เฉพาะช่องนี้ได้ (DISCORD_WEBHOOK_URL_PORTFOLIO)
+# ─────────────────────────────────────────────────────────────────────────────
+def build_portfolio_alert() -> str | None:
+    """แจ้งเตือนเงื่อนไขออกที่โดนแตะของ 'โพซิชันที่ถืออยู่จริง' เท่านั้น — alert-only:
+    คืน None ถ้าไม่มี holding เลย หรือไม่มีตัวไหน breach (เงียบไว้ ไม่ใช่ error)."""
+    holdings = _holding_tickers()
+    if not holdings:
+        return None
+
+    assessment_by_ticker = {
+        a["ticker"]: a["summary"].get("thesis_assessment", "")
+        for a in latest_per_ticker() if a["ticker"] in holdings
+    }
+
+    breach_lines: list[str] = []
+    for tk in sorted(holdings):
+        breaches = [c for c in detect_changes(tk)["changes"] if c["type"] in BREACH_TYPES]
+        if not breaches:
+            continue
+        breach_lines.append(f"🔴 **{tk}**")
+        for c in breaches:
+            breach_lines.append(f"   • {c['detail']}")
+        if assessment_by_ticker.get(tk):
+            breach_lines.append(f"   🤖 {assessment_by_ticker[tk]}")
+
+    if not breach_lines:
+        return None   # ไม่มี holding ไหน breach = ไม่ต้องแจ้ง (เงียบตามหลัก alert-only)
+
+    lines = [f"🚨 **Portfolio Alert — ต้องตัดสินใจ ({date.today().isoformat()})**", ""]
+    lines += breach_lines
+    lines.append("")
+    lines.append("🔎 ดู P&L เต็ม: `python -m src.agent.performance`")
+    return "\n".join(lines)
+
+
+def send_portfolio_alert() -> bool:
+    """ส่ง portfolio alert เข้าช่อง Discord แยก (DISCORD_WEBHOOK_URL_PORTFOLIO).
+    ไม่มี breach หรือไม่ได้ตั้ง webhook นี้ไว้ -> ข้ามเงียบๆ (ไม่ถือว่า fail)."""
+    report = build_portfolio_alert()
+    if report is None:
+        return True
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL_PORTFOLIO")
+    if not webhook:
+        print("[portfolio-alert] ไม่มี DISCORD_WEBHOOK_URL_PORTFOLIO — ข้ามการส่ง")
+        return False
+    return post_chunks(report, webhook_url=webhook)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Quality report (Phase 4) — คนละหัวข้อกับ daily/weekly/monthly ข้างบน (นั่นคือ
 # "หุ้นตัวนี้น่าสนใจไหม", อันนี้คือ "ระบบคำนวณของเราเองยังทำงานถูกไหม") จึงแยกส่งไปช่อง
 # Discord อื่น (DISCORD_WEBHOOK_URL_QUALITY) ไม่ปนกับ report หลัก
@@ -262,11 +316,16 @@ def send_quality_report() -> bool:
 
 
 if __name__ == "__main__":
-    # ทดสอบ:  python -m src.agent.report --mode weekly   |   python -m src.agent.report --quality
+    # ทดสอบ:  python -m src.agent.report --mode weekly
+    #         python -m src.agent.report --quality
+    #         python -m src.agent.report --portfolio
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "--quality":
         ok = send_quality_report()
         print("quality report:", "sent" if ok else "skipped/failed")
+    elif len(sys.argv) > 1 and sys.argv[1] == "--portfolio":
+        ok = send_portfolio_alert()
+        print("portfolio alert:", "sent" if ok else "skipped/failed")
     else:
         forced_mode = sys.argv[2] if len(sys.argv) > 1 and sys.argv[1] == "--mode" else None
         send_report(forced_mode)

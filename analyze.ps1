@@ -16,4 +16,7 @@ if ($Ticker) {
     # ส่ง quality alert (Phase 4 — ความแม่นการคำนวณของเราเอง) เข้าช่องแยก คนละหัวข้อกับข้างบน
     # เงียบถ้าทุกตัวปกติ หรือถ้าไม่ตั้ง DISCORD_WEBHOOK_URL_QUALITY
     python -c "from src.agent.report import send_quality_report; send_quality_report()"
+    # ส่ง portfolio alert (Phase 5.5 — เงื่อนไขออกโดนแตะเฉพาะโพซิชันที่ถืออยู่จริง) เข้าช่องแยก
+    # เงียบถ้าไม่มี breach หรือถ้าไม่ตั้ง DISCORD_WEBHOOK_URL_PORTFOLIO
+    python -c "from src.agent.report import send_portfolio_alert; send_portfolio_alert()"
 }
