@@ -2,10 +2,14 @@
 
 เก็บ ticker ที่เราจับตา พร้อม asset_type ("stock" | "crypto") ตั้งแต่แรก
 เพื่อให้ระบบ asset-agnostic — loop จะอ่านจากที่นี่แล้วเลือก provider ตาม asset_type
+
+Phase 5.5: เพิ่มมิติ 'สถานะการถือครอง' — แยก 'จับตา' (watching) ออกจาก 'ถืออยู่จริง'
+(holding + entry_price/date/shares) เพราะ invalidation/thesis-stop มีน้ำหนักต่างกันมาก
+ระหว่างของที่ถืออยู่ (เรื่องด่วนต้องตัดสินใจ) กับที่แค่จับตา (แค่ยังไม่ถึงจังหวะ).
 """
 import sqlite3
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date
 
 DB_PATH = Path(__file__).parents[2] / "data" / "watchlist.db"
 
@@ -17,21 +21,35 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """สร้างตารางถ้ายังไม่มี — เรียกครั้งเดียวตอนเริ่ม"""
+    """สร้างตารางถ้ายังไม่มี + เพิ่มคอลัมน์ Phase 5.5 ถ้า DB เก่ายังไม่มี (migration)."""
     with _connect() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS watchlist (
                 ticker      TEXT PRIMARY KEY,
                 asset_type  TEXT NOT NULL DEFAULT 'stock',
-                added_at    TEXT NOT NULL
+                added_at    TEXT NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'watching',   -- 'watching' | 'holding'
+                entry_price REAL,                               -- ราคาที่ซื้อ (เฉพาะ holding)
+                entry_date  TEXT,                               -- วันที่ซื้อ (ไว้เทียบ benchmark)
+                shares      REAL                                -- จำนวน/น้ำหนัก (optional)
             )
             """
         )
+        # migration: DB เก่ามีแค่ 3 คอลัมน์แรก -> เพิ่มทีละคอลัมน์ถ้ายังไม่มี
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(watchlist)").fetchall()]
+        for col, decl in [
+            ("status", "TEXT NOT NULL DEFAULT 'watching'"),
+            ("entry_price", "REAL"),
+            ("entry_date", "TEXT"),
+            ("shares", "REAL"),
+        ]:
+            if col not in cols:
+                conn.execute(f"ALTER TABLE watchlist ADD COLUMN {col} {decl}")
 
 
 def add(ticker: str, asset_type: str = "stock") -> None:
-    """เพิ่ม ticker (ถ้ามีอยู่แล้วเฉยๆ ไม่ error)"""
+    """เพิ่ม ticker (ถ้ามีอยู่แล้วเฉยๆ ไม่ error). สถานะเริ่มต้น = 'watching'."""
     with _connect() as conn:
         conn.execute(
             # ใช้ ? เป็น placeholder (parameterized) กัน SQL injection — อย่าเอา f-string มายัด SQL
@@ -45,9 +63,68 @@ def remove(ticker: str) -> None:
         conn.execute("DELETE FROM watchlist WHERE ticker = ?", (ticker.upper(),))
 
 
-def list_all() -> list[sqlite3.Row]:
-    """คืนทุก ticker ในรายการ (เรียงตามลำดับที่เพิ่ม)"""
+def set_holding(ticker: str, entry_price: float, entry_date: str | None = None,
+                shares: float | None = None) -> None:
+    """ตั้งว่า 'ถืออยู่จริง' พร้อมราคา/วันที่ซื้อ (เพิ่มเข้า watchlist ให้ถ้ายังไม่มี).
+    entry_date ไม่ระบุ -> ใช้วันนี้ (แต่ edge vs benchmark จะแม่นเมื่อใส่วันซื้อจริง)."""
+    ticker = ticker.upper()
+    entry_date = entry_date or date.today().isoformat()
     with _connect() as conn:
-        return conn.execute(
-            "SELECT ticker, asset_type, added_at FROM watchlist ORDER BY added_at"
-        ).fetchall()
+        conn.execute(
+            "INSERT OR IGNORE INTO watchlist (ticker, asset_type, added_at) VALUES (?, 'stock', ?)",
+            (ticker, datetime.now().isoformat()),
+        )
+        conn.execute(
+            "UPDATE watchlist SET status='holding', entry_price=?, entry_date=?, shares=? WHERE ticker=?",
+            (float(entry_price), entry_date, shares, ticker),
+        )
+
+
+def set_watching(ticker: str) -> None:
+    """เปลี่ยนกลับเป็น 'จับตา' (ขายออกแล้ว/ยังไม่ซื้อ) — เก็บ entry เดิมไว้เผื่อดูประวัติ."""
+    with _connect() as conn:
+        conn.execute("UPDATE watchlist SET status='watching' WHERE ticker=?", (ticker.upper(),))
+
+
+def get_entry(ticker: str) -> sqlite3.Row | None:
+    """คืนแถวเดียวของ ticker (ไว้ให้ performance/edge อ่าน entry_price/date)."""
+    with _connect() as conn:
+        return conn.execute("SELECT * FROM watchlist WHERE ticker = ?", (ticker.upper(),)).fetchone()
+
+
+def list_all() -> list[sqlite3.Row]:
+    """คืนทุก ticker ในรายการ (พร้อมคอลัมน์ holding, เรียงตามลำดับที่เพิ่ม)."""
+    with _connect() as conn:
+        return conn.execute("SELECT * FROM watchlist ORDER BY added_at").fetchall()
+
+
+if __name__ == "__main__":
+    # CLI จัดการสถานะถือครอง (สะพานก่อนมี UI):
+    #   python -m src.watchlist.store list
+    #   python -m src.watchlist.store hold DUOL 130.50 --date 2026-01-15 --shares 10
+    #   python -m src.watchlist.store watch DUOL
+    import argparse
+
+    init_db()
+    parser = argparse.ArgumentParser(prog="python -m src.watchlist.store", description="จัดการ watchlist/holding")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("list")
+    h = sub.add_parser("hold")
+    h.add_argument("ticker")
+    h.add_argument("entry_price", type=float)
+    h.add_argument("--date", default=None, help="วันที่ซื้อ YYYY-MM-DD (ไม่ใส่ = วันนี้)")
+    h.add_argument("--shares", type=float, default=None)
+    sub.add_parser("watch").add_argument("ticker")
+    args = parser.parse_args()
+
+    if args.cmd == "list":
+        for r in list_all():
+            tag = "📌 HOLD" if r["status"] == "holding" else "👀 watch"
+            entry = f" @ {r['entry_price']} ({r['entry_date']})" if r["status"] == "holding" and r["entry_price"] else ""
+            print(f"  {tag}  {r['ticker']:6}{entry}")
+    elif args.cmd == "hold":
+        set_holding(args.ticker, args.entry_price, args.date, args.shares)
+        print(f"ตั้ง {args.ticker.upper()} = ถืออยู่ @ {args.entry_price} ({args.date or 'วันนี้'})")
+    elif args.cmd == "watch":
+        set_watching(args.ticker)
+        print(f"ตั้ง {args.ticker.upper()} = จับตา (watching)")
