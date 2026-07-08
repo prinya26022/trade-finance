@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 
 from src.history.store import latest_per_ticker, history
 from src.agent.changes import detect_changes, changes_over_window
+from src.agent.performance import portfolio_edge
 from src.watchlist.store import list_all
 from src.notify.discord import post_chunks
 
@@ -74,6 +75,34 @@ def _is_first_run(ticker: str) -> bool:
     return len(history(ticker, limit=2)) == 1
 
 
+def _holding_tickers() -> set[str]:
+    """ticker ที่สถานะ 'holding' (ถืออยู่จริง) — ใช้แยกความด่วนของ breach จากของที่แค่จับตา."""
+    return {r["ticker"] for r in list_all() if r["status"] == "holding"}
+
+
+def _portfolio_section() -> list[str]:
+    """P&L + edge เทียบ benchmark ของทุก holding — ตอบด่าน 182 (มี edge จริงไหม ไม่ใช่แค่โชค).
+    ใช้ราคาจาก yfinance เท่านั้น (ไม่เรียก LLM); ว่างถ้าไม่มี holding เลย -> ไม่โชว์ section นี้."""
+    try:
+        result = portfolio_edge()
+    except Exception as e:
+        print(f"[warn] portfolio_edge failed: {e}")
+        return []
+    if not result["positions"]:
+        return []
+
+    lines = [f"📌 **พอร์ตของคุณ** (เทียบ {result['benchmark']})"]
+    for p in result["positions"]:
+        sign = "🟢" if p["edge"] >= 0 else "🔴"
+        lines.append(
+            f"  {sign} `{p['ticker']:<5}` you {p['your_return']:+.1f}% · {result['benchmark']} "
+            f"{p['benchmark_return']:+.1f}% · edge {p['edge']:+.1f}% ({p['holding_days']}d)"
+        )
+    lines.append(f"  รวม: ชนะ {result['benchmark']} {result['beating_benchmark']}/{result['total_positions']} ตัว")
+    lines.append("")
+    return lines
+
+
 BREACH_TYPES = {"invalidation", "no_margin_safety"}   # เงื่อนไขออก/มูลค่า ที่ผู้ใช้ตั้งเอง (ด่าน 4)
 
 
@@ -105,28 +134,46 @@ def build_report(mode: str | None = None, dashboard_url: str = "http://localhost
             lines += _full_picture(a)
         lines.append("")
 
-    # (1) สิ่งที่เปลี่ยน — เฉพาะตัวที่มีประวัติให้เทียบ (veterans)
+    # (1) พอร์ตของคุณ — P&L/edge เทียบ benchmark (ไม่ผูกกับ veterans เพราะไม่ต้องมีผลวิเคราะห์
+    # LLM ก็คำนวณได้ ราคาล้วนๆ) แสดงทุกโหมด เพราะเป็นสถานะเงินจริง ไม่ใช่แค่ข้อมูลวิเคราะห์
+    lines += _portfolio_section()
+
+    # (2) สิ่งที่เปลี่ยน — เฉพาะตัวที่มีประวัติให้เทียบ (veterans)
     if veterans:
         changes_by_ticker = _gather_changes([a["ticker"] for a in veterans], WINDOW_DAYS[mode])
         assessment_by_ticker = {a["ticker"]: a["summary"].get("thesis_assessment", "") for a in veterans}
+        holdings = _holding_tickers()
 
-        # (1a) THESIS พัง — เงื่อนไขออกที่ผู้ใช้ตั้งเองโดนแตะ (สำคัญสุด อยู่บนสุด) + LLM ว่ายัง support ไหม
-        breach_lines: list[str] = []
-        for tk, changes in changes_by_ticker.items():
-            breaches = [c for c in changes if c["type"] in BREACH_TYPES]
-            if not breaches:
-                continue
-            breach_lines.append(f"🔴 **{tk}**")
+        # (2a) THESIS พัง — แยก 'ถืออยู่จริง' (ต้องตัดสินใจด่วน) กับ 'แค่จับตา' (ข้อมูลประกอบ)
+        # เพราะ breach ของโพซิชันจริงกับของที่ยังไม่ซื้อ มีน้ำหนักต่างกันมาก (ด่าน 4/7)
+        def _breach_block(tk: str, breaches: list[dict], emoji: str) -> list[str]:
+            block = [f"{emoji} **{tk}**"]
             for c in breaches:
-                breach_lines.append(f"   • {c['detail']}")
+                block.append(f"   • {c['detail']}")
             if assessment_by_ticker.get(tk):
-                breach_lines.append(f"   🤖 {assessment_by_ticker[tk]}")
-        if breach_lines:
-            lines.append("🚨 **THESIS พัง — เงื่อนไขออกของคุณโดนแตะ**")
-            lines += breach_lines
+                block.append(f"   🤖 {assessment_by_ticker[tk]}")
+            return block
+
+        breach_by_ticker = {
+            tk: [c for c in changes if c["type"] in BREACH_TYPES]
+            for tk, changes in changes_by_ticker.items()
+        }
+        breach_by_ticker = {tk: b for tk, b in breach_by_ticker.items() if b}
+        holding_breaches = {tk: b for tk, b in breach_by_ticker.items() if tk in holdings}
+        watching_breaches = {tk: b for tk, b in breach_by_ticker.items() if tk not in holdings}
+
+        if holding_breaches:
+            lines.append("🚨 **THESIS พัง — ถืออยู่จริง ต้องตัดสินใจ**")
+            for tk, b in holding_breaches.items():
+                lines += _breach_block(tk, b, "🔴")
+            lines.append("")
+        if watching_breaches:
+            lines.append("👀 **เงื่อนไขออกโดนแตะ — แค่จับตาอยู่ (ยังไม่ถือ)**")
+            for tk, b in watching_breaches.items():
+                lines += _breach_block(tk, b, "🟡")
             lines.append("")
 
-        # (1b) การเปลี่ยนแปลงอื่น ๆ (ไม่ใช่ breach)
+        # (2b) การเปลี่ยนแปลงอื่น ๆ (ไม่ใช่ breach)
         other_lines: list[str] = []
         for tk, changes in changes_by_ticker.items():
             for c in changes:
@@ -138,7 +185,7 @@ def build_report(mode: str | None = None, dashboard_url: str = "http://localhost
             lines.append("⚠️ **เปลี่ยนแปลงที่ต้องดู**")
             lines += other_lines
             lines.append("")
-        elif not breach_lines:
+        elif not holding_breaches and not watching_breaches:
             lines.append("✅ ไม่มีการเปลี่ยนแปลงที่แตะ thesis ในช่วงนี้")
             lines.append("")
 

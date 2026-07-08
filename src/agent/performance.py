@@ -15,20 +15,23 @@ from src.settings.store import get_benchmark
 
 
 def _close_on_or_after(ticker: str, date_str: str) -> float | None:
-    """ราคาปิดวันแรกที่ >= date_str (เผื่อวันซื้อเป็นวันหยุด ตลาดไม่เปิด) ภายใน 7 วัน."""
-    start = datetime.fromisoformat(date_str).date()
-    hist = yf.Ticker(ticker).history(start=start.isoformat(),
-                                     end=(start + timedelta(days=7)).isoformat())
-    if hist.empty:
+    """ราคาปิดวันแรกที่ >= date_str (เผื่อวันซื้อเป็นวันหยุด ตลาดไม่เปิด) ภายใน 7 วัน.
+    คืน None เงียบๆ ถ้า yfinance ล้ม (network/ticker พัง) — ไม่ raise กัน report ทั้งฉบับพัง."""
+    try:
+        start = datetime.fromisoformat(date_str).date()
+        hist = yf.Ticker(ticker).history(start=start.isoformat(),
+                                         end=(start + timedelta(days=7)).isoformat())
+        return None if hist.empty else float(hist["Close"].iloc[0])
+    except Exception:
         return None
-    return float(hist["Close"].iloc[0])
 
 
 def _latest_close(ticker: str) -> float | None:
-    hist = yf.Ticker(ticker).history(period="5d")
-    if hist.empty:
+    try:
+        hist = yf.Ticker(ticker).history(period="5d")
+        return None if hist.empty else float(hist["Close"].iloc[-1])
+    except Exception:
         return None
-    return float(hist["Close"].iloc[-1])
 
 
 def compute_edge(ticker: str, benchmark: str | None = None) -> dict | None:
