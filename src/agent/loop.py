@@ -4,6 +4,7 @@ from src.evals.check_grounding import check_grounding, check_facts_grounding
 from src.evals.check_extraction_accuracy import check_extraction_accuracy
 from src.watchlist.store import list_all
 from src.history.store import init_db, save_analysis
+from src.thesis.store import get_thesis
 
 def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
     bundle = get_providers(asset_type)
@@ -29,7 +30,8 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
         facts = []
         print(f"[warn] fundamentals failed: {e}")
 
-    summary = summarize(price, news, facts)
+    thesis = get_thesis(ticker)                        # Phase 5: ถ้ามี thesis -> ให้ LLM รู้บริบท
+    summary = summarize(price, news, facts, thesis=thesis["thesis"] if thesis else None)
     grounding = check_grounding(summary, price, news)
     grounding["facts"] = check_facts_grounding(summary, facts)
 

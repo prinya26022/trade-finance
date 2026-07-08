@@ -42,13 +42,18 @@ class Summary(BaseModel):
     sentiment: Literal["bullish", "neutral", "bearish"]
     confidence: float
 
+    # Phase 5: ถ้าผู้ใช้เขียน thesis ไว้ -> LLM ตอบว่าข้อมูลวันนี้ยัง 'สนับสนุน' เหตุผลถือไหม
+    # (ว่างถ้ายังไม่มี thesis) — คนละชั้นกับ invalidation ที่เป็น rule เช็คด้วยเครื่อง
+    thesis_assessment: str
+
     # สรุปไทยง่ายๆ สำหรับคนไม่มีพื้นการเงิน (อยู่ท้ายสุด -> LLM เขียนหลังคิดครบทุกอย่างแล้ว)
     beginner_summary: str
 
 
-def summarize(price, news, facts) -> Summary:
+def summarize(price, news, facts, thesis: str | None = None) -> Summary:
     news_lines = "\n".join(f"- {n.title} ({n.source})" for n in news)     # ← คำนวณข้างบน
     fact_lines = "\n".join(f"- {f.label}: {f.value} {f.unit} ({f.period})" for f in facts)
+    thesis_block = f"\n## MY THESIS (why I hold/watch this)\n{thesis}\n" if thesis else ""
 
     prompt = f"""
 You are a fundamental equity analyst serving a LONG-TERM investor (holds for years,
@@ -64,7 +69,7 @@ Recent news:
 
 Fundamentals (some metrics span multiple fiscal years — read them as a TREND):
 {fact_lines}
-
+{thesis_block}
 ## HOW TO THINK (framework)
 {CHECKLIST}
 
@@ -81,6 +86,10 @@ Judge, from ONLY the data above, whether the fundamentals look STRONG or WEAK an
   headlines you were given, verbatim.
 - Do NOT give a buy/sell or timing call. Report price exactly from DATA.
 - `confidence`: a number 0.0-1.0 (how sure you are given the data completeness).
+- `thesis_assessment`: if a "MY THESIS" section is present above, write 1-3 sentences in
+  THAI judging whether TODAY's data still SUPPORTS that reason for holding, or challenges it
+  (cite the metric/news that does). Be honest — if the data undercuts the thesis, say so. If
+  there is NO thesis section, return an empty string "".
 - `beginner_summary`: write in THAI, 2-4 short sentences, for a reader with NO finance
   background. Cover: is the business good or not, is the price cheap or expensive, and the
   main thing to watch out for. You may keep finance terms but add a 2-4 word Thai gloss in

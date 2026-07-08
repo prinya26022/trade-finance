@@ -114,29 +114,41 @@ def _diff(cur: dict, prev: dict) -> list[dict]:
     return changes
 
 
-def detect_changes(ticker: str) -> dict:
-    """คืน dict สรุปการเปลี่ยนแปลงที่แตะ thesis ระหว่าง 2 ครั้งล่าสุด.
-    changes ว่าง = ไม่มีอะไรสำคัญ (เงียบไว้ ไม่ต้องเตือน)."""
-    rows = history(ticker, limit=2)   # [ล่าสุด, ก่อนหน้า]
-    if len(rows) < 2:
-        return {"ticker": ticker, "changes": [], "note": "ยังไม่มีผลก่อนหน้าให้เทียบ"}
+def _current_invalidation(ticker: str) -> list[dict]:
+    """invalidation breach ของสถานะปัจจุบัน (เงื่อนไขออกที่ผู้ใช้ตั้งเองโดนแตะ).
+    lazy import กัน circular: invalidation.py ใช้ _latest_by_label จากไฟล์นี้."""
+    from src.agent.invalidation import check_invalidation
+    return check_invalidation(ticker)["breaches"]
 
-    cur, prev = rows[0], rows[1]
-    return {
-        "ticker": ticker,
-        "from": prev["run_at"],
-        "to": cur["run_at"],
-        "changes": _diff(cur, prev),
-    }
+
+def detect_changes(ticker: str) -> dict:
+    """คืน dict สรุปสิ่งที่ต้องดู: invalidation breach (เงื่อนไขออกของผู้ใช้) มาก่อนเสมอ
+    ตามด้วยการเปลี่ยนแปลงระหว่าง 2 ครั้งล่าสุด. changes ว่าง = ไม่มีอะไรสำคัญ (เงียบไว้).
+    หมายเหตุ: invalidation เช็คได้แม้มีผลวิเคราะห์แค่ครั้งเดียว (เทียบสถานะปัจจุบันกับ rule
+    ไม่ใช่เทียบกับครั้งก่อน) จึงไม่ติด guard len(rows) < 2 เหมือน diff."""
+    breaches = _current_invalidation(ticker)   # ขึ้นก่อน (severity alert — เรื่องเงื่อนไขที่ *คุณ* ตั้ง)
+
+    rows = history(ticker, limit=2)   # [ล่าสุด, ก่อนหน้า]
+    diff_changes = _diff(rows[0], rows[1]) if len(rows) >= 2 else []
+
+    result = {"ticker": ticker, "changes": breaches + diff_changes}
+    if len(rows) >= 2:
+        result["from"], result["to"] = rows[1]["run_at"], rows[0]["run_at"]
+    else:
+        result["note"] = "ยังไม่มีผลก่อนหน้าให้เทียบ (แสดงเฉพาะ invalidation)"
+    return result
 
 
 def changes_over_window(ticker: str, days: int) -> list[dict]:
     """สะสมการเปลี่ยนแปลงทุกคู่ต่อเนื่องกันในช่วง `days` วันที่ผ่านมา (ไว้ทำ weekly/monthly report).
     เดินจากเก่าไปใหม่ เทียบทีละคู่ติดกัน -> ได้การเปลี่ยนแปลง 'สะสม' ตลอดช่วง ไม่ใช่แค่ต้น-ท้าย
     (เพราะถ้าขยับขึ้นแล้วลงกลับมาที่เดิม ก็ยังถือว่าเคยมีสัญญาณเตือนระหว่างทาง ไม่อยากให้หายไป)."""
+    # invalidation breach ปัจจุบันขึ้นก่อนเสมอ (สำคัญสุด ต้องเห็นทุก cadence — แม้มี run เดียว)
+    out: list[dict] = list(_current_invalidation(ticker))
+
     rows = history(ticker, limit=200)   # ใหม่สุดก่อน (DESC)
     if len(rows) < 2:
-        return []
+        return out
 
     cutoff = datetime.now() - timedelta(days=days)
     windowed = []
@@ -146,10 +158,6 @@ def changes_over_window(ticker: str, days: int) -> list[dict]:
             break   # เก็บ 1 แถวที่เก่ากว่า cutoff ไว้เป็น 'จุดเทียบตั้งต้น' ของหน้าต่างนี้
     windowed.reverse()   # กลับเป็นเก่า -> ใหม่
 
-    if len(windowed) < 2:
-        return []
-
-    out: list[dict] = []
     for i in range(1, len(windowed)):
         prev_row, cur_row = windowed[i - 1], windowed[i]
         for c in _diff(cur_row, prev_row):
