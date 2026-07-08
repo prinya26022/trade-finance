@@ -106,3 +106,55 @@ def all_theses() -> list[dict]:
     with _connect() as conn:
         rows = conn.execute("SELECT * FROM theses ORDER BY ticker").fetchall()
         return [_row_to_dict(r) for r in rows]
+
+
+def _parse_rule(s: str) -> dict:
+    """แปลง rule แบบกระชับ 'METRIC OP VALUE | note' -> dict (ไว้ใช้ใน CLI).
+    เช่น 'Operating Margin < 10 | core profit หลุด'."""
+    note = ""
+    if "|" in s:
+        s, note = s.split("|", 1)
+    for op in ("<=", ">=", "==", "!=", "<", ">"):   # ยาวก่อน กัน '<' ชน '<='
+        if op in s:
+            metric, value = s.split(op, 1)
+            return {"metric": metric.strip(), "op": op, "value": float(value), "note": note.strip()}
+    raise ValueError(f"rule ผิดรูป: '{s}' (ต้องมี operator เช่น \"Operating Margin < 10\")")
+
+
+if __name__ == "__main__":
+    # CLI จัดการ thesis (สะพานก่อนมี UI):
+    #   python -m src.thesis.store list
+    #   python -m src.thesis.store get SBUX
+    #   python -m src.thesis.store delete SBUX
+    #   python -m src.thesis.store set SBUX "ถือเพราะแบรนด์แข็ง คาดกำไรฟื้น" \
+    #       --fair 90 --rule "Operating Margin < 10 | core profit หลุด" --rule "ROE < 0"
+    import argparse
+    import json as _json
+
+    init_db()
+    parser = argparse.ArgumentParser(prog="python -m src.thesis.store", description="จัดการ thesis ต่อ ticker")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("list")
+    sub.add_parser("get").add_argument("ticker")
+    sub.add_parser("delete").add_argument("ticker")
+    s = sub.add_parser("set")
+    s.add_argument("ticker")
+    s.add_argument("thesis")
+    s.add_argument("--fair", type=float, default=None)
+    s.add_argument("--rule", action="append", default=[], metavar='"METRIC OP VALUE | note"')
+    args = parser.parse_args()
+
+    if args.cmd == "list":
+        rows = all_theses()
+        print(f"{len(rows)} thesis:")
+        for t in rows:
+            print(f"  {t['ticker']:6} | {t['thesis'][:45]} | rules={len(t['invalidation'])} | fair={t['fair_value']}")
+    elif args.cmd == "get":
+        print(_json.dumps(get_thesis(args.ticker), ensure_ascii=False, indent=2))
+    elif args.cmd == "delete":
+        delete_thesis(args.ticker)
+        print(f"ลบ thesis ของ {args.ticker.upper()} แล้ว")
+    elif args.cmd == "set":
+        rules = [_parse_rule(r) for r in args.rule]
+        set_thesis(args.ticker, args.thesis, invalidation=rules, fair_value=args.fair)
+        print(f"บันทึก thesis ของ {args.ticker.upper()} ({len(rules)} rules) แล้ว")

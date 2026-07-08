@@ -74,17 +74,19 @@ def _is_first_run(ticker: str) -> bool:
     return len(history(ticker, limit=2)) == 1
 
 
-def _changes_section(tickers: list[str], window_days: int | None) -> list[str]:
-    """ส่วน 'สิ่งที่เปลี่ยน': window_days=None ใช้คู่ล่าสุด (daily), ใส่เลข = สะสมทั้งช่วง (weekly/monthly)."""
-    lines: list[str] = []
+BREACH_TYPES = {"invalidation", "no_margin_safety"}   # เงื่อนไขออก/มูลค่า ที่ผู้ใช้ตั้งเอง (ด่าน 4)
+
+
+def _gather_changes(tickers: list[str], window_days: int | None) -> dict[str, list[dict]]:
+    """คืน {ticker: [changes]} — window_days=None ใช้คู่ล่าสุด (daily), ใส่เลข = สะสมทั้งช่วง."""
+    out: dict[str, list[dict]] = {}
     for tk in tickers:
         changes = (
             detect_changes(tk)["changes"] if window_days is None else changes_over_window(tk, window_days)
         )
-        for c in changes:
-            em = SEVERITY_EMOJI.get(c["severity"], "•")
-            lines.append(f"{em} **{tk}** — {c['detail']}")
-    return lines
+        if changes:
+            out[tk] = changes
+    return out
 
 
 def build_report(mode: str | None = None, dashboard_url: str = "http://localhost:3000") -> str:
@@ -105,13 +107,40 @@ def build_report(mode: str | None = None, dashboard_url: str = "http://localhost
 
     # (1) สิ่งที่เปลี่ยน — เฉพาะตัวที่มีประวัติให้เทียบ (veterans)
     if veterans:
-        change_lines = _changes_section([a["ticker"] for a in veterans], WINDOW_DAYS[mode])
-        if change_lines:
+        changes_by_ticker = _gather_changes([a["ticker"] for a in veterans], WINDOW_DAYS[mode])
+        assessment_by_ticker = {a["ticker"]: a["summary"].get("thesis_assessment", "") for a in veterans}
+
+        # (1a) THESIS พัง — เงื่อนไขออกที่ผู้ใช้ตั้งเองโดนแตะ (สำคัญสุด อยู่บนสุด) + LLM ว่ายัง support ไหม
+        breach_lines: list[str] = []
+        for tk, changes in changes_by_ticker.items():
+            breaches = [c for c in changes if c["type"] in BREACH_TYPES]
+            if not breaches:
+                continue
+            breach_lines.append(f"🔴 **{tk}**")
+            for c in breaches:
+                breach_lines.append(f"   • {c['detail']}")
+            if assessment_by_ticker.get(tk):
+                breach_lines.append(f"   🤖 {assessment_by_ticker[tk]}")
+        if breach_lines:
+            lines.append("🚨 **THESIS พัง — เงื่อนไขออกของคุณโดนแตะ**")
+            lines += breach_lines
+            lines.append("")
+
+        # (1b) การเปลี่ยนแปลงอื่น ๆ (ไม่ใช่ breach)
+        other_lines: list[str] = []
+        for tk, changes in changes_by_ticker.items():
+            for c in changes:
+                if c["type"] in BREACH_TYPES:
+                    continue
+                em = SEVERITY_EMOJI.get(c["severity"], "•")
+                other_lines.append(f"{em} **{tk}** — {c['detail']}")
+        if other_lines:
             lines.append("⚠️ **เปลี่ยนแปลงที่ต้องดู**")
-            lines += change_lines
-        else:
+            lines += other_lines
+            lines.append("")
+        elif not breach_lines:
             lines.append("✅ ไม่มีการเปลี่ยนแปลงที่แตะ thesis ในช่วงนี้")
-        lines.append("")
+            lines.append("")
 
     # (2) เนื้อหาหลักตามโหมด
     if mode == "monthly":
