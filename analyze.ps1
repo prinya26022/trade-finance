@@ -7,7 +7,9 @@ $env:PYTHONIOENCODING = "utf-8"
 Set-Location $PSScriptRoot
 
 if ($Ticker) {
-    python -c "from src.agent.loop import analyze; analyze('$Ticker')"
+    # ต้องอ่าน asset_type จาก watchlist ก่อน (ไม่ใช่ default 'stock' เฉยๆ) ไม่งั้น
+    # crypto ticker (เช่น BTC) จะหลุดไปใช้ StockPriceProvider ผิด provider
+    python -c "from src.watchlist.store import get_entry; from src.agent.loop import analyze; row = get_entry('$Ticker'); analyze('$Ticker', asset_type=(row['asset_type'] if row else 'stock'))"
 } else {
     python -c "from src.agent.loop import run_watchlist; run_watchlist()"
     # ส่ง report เข้า Discord — auto เลือกโหมดจากวันที่ (วันที่ 1=monthly, จันทร์=weekly, อื่นๆ=daily)
