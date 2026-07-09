@@ -2,7 +2,7 @@
 
 import type { Analysis, Change, WatchlistItem, EdgePosition } from "@/lib/types";
 import { GlossaryText, Tip, BADGES } from "@/lib/glossary";
-import { healthScore } from "@/lib/health";
+import { resolveHealth } from "@/lib/health";
 import { fySeries, latestValue, fmt } from "@/lib/facts";
 import { LineChart, BarChart, type Series } from "@/lib/charts";
 import { HealthMeter } from "../../health-meter";
@@ -59,7 +59,7 @@ export default function TickerDetail({
 }) {
   const a = history[0]; // ล่าสุด
   const s = a.summary;
-  const health = healthScore(a, changes);
+  const health = resolveHealth(a, changes);
   const isHolding = watchItem?.status === "holding";
   const facts = a.facts ?? [];
 
@@ -76,6 +76,13 @@ export default function TickerDetail({
   const fcf = fySeries(facts, "Free Cash Flow");
   const shares = fySeries(facts, "Diluted Shares");
   const dso = fySeries(facts, "DSO");
+
+  // health score ต่อรอบวิเคราะห์ (Phase 10) — เก็บทุกแถวตั้งแต่ analyze() คำนวณแล้ว
+  // (แถวเก่าก่อนหน้านั้น health_score เป็น null -> กรองออก ไม่ลากเส้นมั่ว)
+  const healthTrend = [...history]
+    .filter((h) => h.health_score != null)
+    .reverse()   // history() คืนใหม่->เก่า, กราฟต้องเก่า->ใหม่
+    .map((h) => ({ period: h.run_at.slice(5, 10), value: h.health_score as number }));
 
   const pctY = (v: number) => `${v.toFixed(0)}%`;
 
@@ -137,6 +144,21 @@ export default function TickerDetail({
             ))}
           </ul>
         </div>
+      )}
+
+      {/* ---- Health trend (Phase 10) ---- */}
+      {healthTrend.length >= 2 && (
+        <>
+          <div className="section-title">คะแนนสุขภาพย้อนหลัง</div>
+          <div className="charts-grid" style={{ marginBottom: 18 }}>
+            <ChartCard
+              title="Health Score"
+              hint="คะแนนที่คำนวณและบันทึกไว้ทุกครั้งที่วิเคราะห์ — ถ้าเด้งขึ้น/ลงผิดปกติวันไหน hover จุดนั้นดูเหตุผล หรือเทียบกับ badge/conf ของรอบนั้นได้"
+            >
+              <LineChart series={[{ name: "Health", color: C.blue, points: healthTrend }]} fmtY={(v) => v.toFixed(0)} />
+            </ChartCard>
+          </div>
+        </>
       )}
 
       {/* ---- Charts ---- */}
@@ -222,6 +244,11 @@ export default function TickerDetail({
                 <span className="tl-price">${h.price?.toFixed(2)}</span>
                 <span className={`badge b-${h.sentiment}`}>{h.sentiment}</span>
                 <span className="muted">conf {h.confidence}</span>
+                {h.health_score != null && (
+                  <Tip def={h.health?.reasons.join(" · ") ?? ""}>
+                    <span className="muted">health {h.health_score.toFixed(1)}</span>
+                  </Tip>
+                )}
               </div>
             ))}
           </div>

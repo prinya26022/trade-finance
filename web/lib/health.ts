@@ -1,6 +1,11 @@
 // Health score 0–10 — สรุป 'สุขภาพธุรกิจโดยรวม' จากสัญญาณที่ AI/eval สรุปมาแล้ว
 // เป็น heuristic แบบ deterministic + โปร่งใส (โชว์ที่มาได้ทาง tooltip) — ไม่เรียก LLM ซ้ำ
 // ไม่ใช่คำแนะนำซื้อขาย: เป็นแค่ 'ภาพรวมคุณภาพ' ให้ triage ง่ายขึ้น
+//
+// Phase 10: Python (src/agent/health.py) เป็น source of truth แล้ว — คำนวณตอน analyze()
+// และเก็บทุกแถวประวัติ (ดู trend + debug คะแนนเด้งผิดปกติได้). ฟังก์ชัน healthScore() ที่นี่
+// เหลือไว้เป็น fallback สำหรับแถวเก่าก่อน Phase 10 เท่านั้น (a.health เป็น null) — สูตรต้องตรง
+// กับฝั่ง Python เป๊ะ ถ้าแก้ที่นี่ต้องแก้ src/agent/health.py ด้วย.
 import type { Analysis, Change } from "./types";
 
 export type Health = {
@@ -45,4 +50,11 @@ export function healthScore(a: Analysis, changes: Change[] = []): Health {
   const label = tier === "strong" ? "แข็งแรง" : tier === "ok" ? "พอใช้" : "อ่อน";
 
   return { score: rounded, tier, label, reasons };
+}
+
+// ใช้ค่าที่ persist มาจาก Python ถ้ามี (แถวใหม่ทุกแถวหลัง Phase 10) ไม่งั้น fallback คำนวณสด
+// (แถวเก่า) — เรียกอันนี้แทน healthScore() ตรงๆ ในหน้า UI ทั้งหมด
+export function resolveHealth(a: Analysis, changes: Change[] = []): Health {
+  if (a.health) return a.health;
+  return healthScore(a, changes);
 }

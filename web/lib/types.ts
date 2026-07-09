@@ -86,6 +86,15 @@ export type ExtractionResult = {
   accuracy: number | null;
 };
 
+// Phase 10: health score ที่คำนวณ+เก็บตอน analyze() (Python เป็น source of truth) — เก็บทุก
+// แถวประวัติ ต่างจากเดิมที่คำนวณสดฝั่ง frontend อย่างเดียว จึงย้อนดู trend/เหตุผลได้
+export type PersistedHealth = {
+  score: number;
+  tier: "strong" | "ok" | "weak";
+  label: string;
+  reasons: string[];
+};
+
 export type Analysis = {
   id: number;
   ticker: string;
@@ -101,5 +110,7 @@ export type Analysis = {
   extraction_accuracy: number | null;
   extraction: ExtractionResult | null;
   facts: Fact[]; // ตัวเลขงบดิบหลายปี (ว่างถ้าแถวเก่าก่อน Phase 3) — ใช้ทำกราฟ trend
+  health_score: number | null; // denormalized ไว้ query/sort เร็ว (เหมือน extraction_accuracy)
+  health: PersistedHealth | null; // None = แถวเก่าก่อน Phase 10 -> frontend fallback คำนวณสด
   summary: Summary;
 };

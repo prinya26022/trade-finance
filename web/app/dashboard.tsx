@@ -13,7 +13,7 @@ import type {
 } from "@/lib/types";
 import { addToWatchlist, removeFromWatchlist } from "@/lib/api";
 import { GlossaryText, Tip, BADGES } from "@/lib/glossary";
-import { healthScore } from "@/lib/health";
+import { resolveHealth } from "@/lib/health";
 import { HealthMeter } from "./health-meter";
 
 function pct(x: number | null | undefined) {
@@ -75,7 +75,7 @@ function AnalysisCard({
 }) {
   const s = a.summary;
   const isHolding = watchItem?.status === "holding";
-  const health = healthScore(a, changes);
+  const health = resolveHealth(a, changes);
   const topSeverity = changes.some((c) => c.severity === "alert")
     ? "alert"
     : changes.some((c) => c.severity === "warn")

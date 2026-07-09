@@ -5,6 +5,8 @@ from src.evals.check_extraction_accuracy import check_extraction_accuracy
 from src.watchlist.store import list_all
 from src.history.store import init_db, save_analysis
 from src.thesis.store import get_thesis
+from src.agent.invalidation import current_breaches
+from src.agent.health import compute_health
 
 def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
     bundle = get_providers(asset_type)
@@ -47,9 +49,15 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
             print(f"[warn] extraction accuracy eval failed: {e}")
     grounding["extraction"] = extraction
 
+    # health score (deterministic, ไม่เรียก LLM): ใช้ breaches ของ 'รอบนี้' จาก facts ในมือ
+    # ตรงๆ (ไม่ใช่ check_invalidation ที่อ่านจาก DB ซึ่งตอนนี้ยังเป็นแถวของรอบก่อนหน้า)
+    breaches = current_breaches(facts, price.price, thesis)
+    health = compute_health(summary, breaches)
+    grounding["health"] = health
+
     if persist:
         init_db()                                        # idempotent: สร้างตาราง/เพิ่มคอลัมน์ถ้ายังไม่มี
-        save_analysis(summary, grounding, facts, extraction)  # เก็บ Summary + facts + extraction eval
+        save_analysis(summary, grounding, facts, extraction, health)  # เก็บ Summary + facts + evals + health
     return summary, grounding
 
 def run_watchlist():
@@ -67,10 +75,11 @@ def run_watchlist():
         extraction = grounding.get("extraction") or {}
         acc = extraction.get("accuracy")
         acc_str = f"{acc:.0%}" if acc is not None else "N/A"
+        health = grounding.get("health") or {}
         print(
             f"{ticker:6} | {summary.fundamental_strength:6}/{summary.valuation_view:9} | "
             f"conf {summary.confidence} | price_ok={grounding['price_ok']} "
             f"news={grounding['news_grounded_ratio']:.0%} "
             f"facts={grounding['facts']['facts_grounded_ratio']:.0%} "
-            f"extract={acc_str}"
+            f"extract={acc_str} health={health.get('score', 'N/A')}"
         )

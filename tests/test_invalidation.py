@@ -61,3 +61,24 @@ def test_no_thesis_returns_empty(tmp_db):
     result = check_invalidation("TSLA")
     assert result["breaches"] == []
     assert result["note"]
+
+
+def test_current_breaches_uses_in_memory_facts_not_stale_db_row(tmp_db):
+    """current_breaches (ใช้ตอน analyze() คำนวณ health score ของรอบนี้) ต้องดู facts
+    ที่ส่งเข้ามาตรงๆ ไม่ใช่แถวเก่าที่ยังไม่ถูก save — ต่างจาก check_invalidation ที่อ่านจาก DB."""
+    from src.agent.invalidation import current_breaches
+    from src.thesis.store import set_thesis, get_thesis
+
+    # DB มีแถวเก่า (Operating Margin 31 -> ไม่ breach) แต่รอบนี้กำลังจะคำนวณด้วยค่าใหม่ (8 -> breach)
+    _seed(tmp_db, op_margin=31.0,
+          thesis_rules=[{"metric": "Operating Margin", "op": "<", "value": 10}])
+    thesis = get_thesis("AAPL")
+
+    fresh_facts = [{"label": "Operating Margin", "value": 8.0, "unit": "%", "period": "FY2026"}]
+    breaches = current_breaches(fresh_facts, price=100.0, thesis=thesis)
+    assert len(breaches) == 1   # ใช้ค่าใหม่ (8) ไม่ใช่ค่าเก่าใน DB (31)
+
+
+def test_current_breaches_no_thesis_returns_empty(tmp_db):
+    from src.agent.invalidation import current_breaches
+    assert current_breaches([], price=100.0, thesis=None) == []

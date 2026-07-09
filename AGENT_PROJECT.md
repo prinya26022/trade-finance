@@ -102,8 +102,15 @@ let the LLM grade itself on facts it may have made up.
 Phases 1-8 are COMPLETE (incl. Phase 6 pytest+CI: tests run offline on every push).
 Phase 9 (crypto thin slice) DONE: second asset_type wired end-to-end (price/news/tokenomics
 fundamentals via yfinance + crypto framework), reusing watchlist/loop/eval/dashboard — proving
-the asset-agnostic design. Remaining: deeper crypto on-chain metrics (active addresses, fees,
-TVL), macro/rates valuation context, thesis/holding UI, deeper equity valuation (reverse-DCF).
+the asset-agnostic design.
+Phase 10 (persisted health score) DONE: health score moved from a frontend-only computed value
+to a Python source of truth (src/agent/health.py), computed at analyze() time using in-memory
+facts + this run's invalidation breaches (not stale DB reads), and stored on every history row
+(health_score, health_reasons_json) — so it's a real eval signal with trend + a reasons trail
+to debug sudden drops, not just a live snapshot. Dashboard/detail page read the persisted value
+(resolveHealth), falling back to the old client-side formula only for pre-Phase-10 rows.
+Remaining: deeper crypto on-chain metrics (active addresses, fees, TVL), macro/rates valuation
+context, thesis/holding UI, deeper equity valuation (reverse-DCF).
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls

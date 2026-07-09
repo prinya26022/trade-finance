@@ -8,6 +8,7 @@
 ตรงกับด่าน 4 (invalidation point) ที่ checklist บอกว่าคนข้ามบ่อยสุด.
 """
 import operator
+from dataclasses import asdict, is_dataclass
 
 from src.thesis.store import get_thesis
 from src.history.store import history
@@ -21,24 +22,12 @@ _OPS = {
 }
 
 
-def check_invalidation(ticker: str) -> dict:
-    """เทียบ invalidation rules ของ ticker กับ fact ล่าสุด + fair_value กับราคาล่าสุด.
-    คืน dict:
-      breaches         : rule ที่โดนแตะ (thesis สั่น -> ควรทบทวน/ออกตามที่วางไว้)
-      no_margin_safety : True ถ้าราคาปัจจุบัน >= fair_value ที่ตั้งไว้ (ส่วนเผื่อพลาดหายไป)
-      note             : ข้อความอธิบายกรณีเช็คไม่ได้ (ไม่มี thesis / ไม่มีข้อมูล)
-    ทุกอย่างว่าง = thesis ยังอยู่ครบ (เงียบไว้)."""
-    thesis = get_thesis(ticker)
-    if thesis is None:
-        return {"ticker": ticker, "breaches": [], "no_margin_safety": False, "note": "ยังไม่ได้ตั้ง thesis"}
-
-    rows = history(ticker, limit=1)
-    if not rows:
-        return {"ticker": ticker, "breaches": [], "no_margin_safety": False, "note": "ยังไม่มีผลวิเคราะห์"}
-    latest = rows[0]
-
-    latest_by_label = _latest_by_label(latest.get("facts", []))   # {label: (period, value)}
-    breaches = []
+def _compute_breaches(latest_by_label: dict, price: float | None, thesis: dict) -> tuple[list[dict], bool]:
+    """แกนกลาง (pure, ไม่แตะ DB): เทียบ rule ของ thesis กับ {label: (period, value)} ที่ให้มา
+    + fair_value กับราคาที่ให้มา. ใช้ร่วมกันทั้งจาก check_invalidation (อ่านจาก DB, ไว้โชว์บน
+    dashboard) และ current_breaches (จาก facts ในมือระหว่าง analyze() กำลังรัน — กันอ่านค่าเก่า
+    ของรอบก่อนหน้า ตอนคำนวณ health score ของรอบปัจจุบัน)."""
+    breaches: list[dict] = []
     for rule in thesis["invalidation"]:
         metric = rule["metric"]
         if metric not in latest_by_label:
@@ -56,7 +45,6 @@ def check_invalidation(ticker: str) -> dict:
     # fair_value: ราคาปัจจุบันเกินมูลค่าที่ประเมิน = margin of safety หาย (ด่าน 3)
     no_margin_safety = False
     fair = thesis.get("fair_value")
-    price = latest.get("price")
     if fair and price is not None and price >= fair:
         no_margin_safety = True
         breaches.append({
@@ -65,5 +53,39 @@ def check_invalidation(ticker: str) -> dict:
             "detail": f"ราคา {price:g} ถึง/เกิน fair value ที่ตั้งไว้ ({fair:g}) — margin of safety หาย",
             "severity": "warn",
         })
+    return breaches, no_margin_safety
 
+
+def check_invalidation(ticker: str) -> dict:
+    """เทียบ invalidation rules ของ ticker กับ fact ล่าสุด 'ที่บันทึกแล้ว' ใน DB + fair_value
+    กับราคาล่าสุด. ใช้โชว์บน dashboard/report (ข้อมูลล่าสุดที่ persist แล้วเสมอ).
+    คืน dict:
+      breaches         : rule ที่โดนแตะ (thesis สั่น -> ควรทบทวน/ออกตามที่วางไว้)
+      no_margin_safety : True ถ้าราคาปัจจุบัน >= fair_value ที่ตั้งไว้ (ส่วนเผื่อพลาดหายไป)
+      note             : ข้อความอธิบายกรณีเช็คไม่ได้ (ไม่มี thesis / ไม่มีข้อมูล)
+    ทุกอย่างว่าง = thesis ยังอยู่ครบ (เงียบไว้)."""
+    thesis = get_thesis(ticker)
+    if thesis is None:
+        return {"ticker": ticker, "breaches": [], "no_margin_safety": False, "note": "ยังไม่ได้ตั้ง thesis"}
+
+    rows = history(ticker, limit=1)
+    if not rows:
+        return {"ticker": ticker, "breaches": [], "no_margin_safety": False, "note": "ยังไม่มีผลวิเคราะห์"}
+    latest = rows[0]
+
+    latest_by_label = _latest_by_label(latest.get("facts", []))   # {label: (period, value)}
+    breaches, no_margin_safety = _compute_breaches(latest_by_label, latest.get("price"), thesis)
     return {"ticker": ticker, "breaches": breaches, "no_margin_safety": no_margin_safety, "note": ""}
+
+
+def current_breaches(facts, price: float | None, thesis: dict | None) -> list[dict]:
+    """เหมือน check_invalidation แต่รับ facts/price/thesis ที่มีอยู่ในมือตรงๆ (ตอน analyze()
+    กำลังรัน ก่อนบันทึกลง DB) แทนอ่านจาก DB — ใช้คำนวณ health score ของรอบปัจจุบันให้ตรงกับ
+    ข้อมูลรอบนี้จริงๆ ไม่ใช่แอบอ่านผลของรอบก่อนหน้า. facts รับได้ทั้ง list[Fact] (dataclass)
+    และ list[dict] (จาก DB)."""
+    if thesis is None:
+        return []
+    rows = [asdict(f) if is_dataclass(f) else dict(f) for f in facts]
+    latest_by_label = _latest_by_label(rows)
+    breaches, _ = _compute_breaches(latest_by_label, price, thesis)
+    return breaches
