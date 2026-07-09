@@ -21,6 +21,7 @@ env/
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+data/sec_cik_map.json
 
 # --- Node / Next.js (web/) ---
 node_modules/

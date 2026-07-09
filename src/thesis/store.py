@@ -66,6 +66,7 @@ def _validate_rules(rules: list[dict]) -> list[dict]:
 def set_thesis(ticker: str, thesis: str, invalidation: list[dict] | None = None,
                fair_value: float | None = None) -> None:
     """เพิ่ม/แก้ thesis ของ ticker (upsert). invalidation = list ของ rule (อาจว่าง)."""
+    init_db()   # idempotent: กันกรณีตารางยังไม่ถูกสร้าง (เช่น DB ที่ CI commit ก่อนมีฟีเจอร์นี้)
     ticker = ticker.upper()
     rules = _validate_rules(invalidation or [])
     now = datetime.now().isoformat(timespec="seconds")
@@ -92,17 +93,20 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 
 def get_thesis(ticker: str) -> dict | None:
     """คืน thesis ของ ticker (dict มี key 'invalidation' เป็น list แล้ว) หรือ None ถ้ายังไม่มี."""
+    init_db()   # idempotent: กัน 'no such table: theses' บน DB ที่สร้างก่อนมีฟีเจอร์นี้
     with _connect() as conn:
         row = conn.execute("SELECT * FROM theses WHERE ticker = ?", (ticker.upper(),)).fetchone()
         return _row_to_dict(row) if row else None
 
 
 def delete_thesis(ticker: str) -> None:
+    init_db()
     with _connect() as conn:
         conn.execute("DELETE FROM theses WHERE ticker = ?", (ticker.upper(),))
 
 
 def all_theses() -> list[dict]:
+    init_db()
     with _connect() as conn:
         rows = conn.execute("SELECT * FROM theses ORDER BY ticker").fetchall()
         return [_row_to_dict(r) for r in rows]

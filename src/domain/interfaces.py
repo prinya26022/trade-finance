@@ -14,6 +14,8 @@ class NewsItem:
     url: str
     published_at: str
     source: str
+    category: str = ""      # หมวดเหตุการณ์ (เช่น 8-K item) — ว่างถ้าเป็นข่าว aggregator ทั่วไป
+    material: bool = False   # True = เหตุการณ์ที่ต้องยื่นตามกฎ (8-K) ไม่ใช่ข่าวมือสอง
 
 @dataclass
 class Fact:

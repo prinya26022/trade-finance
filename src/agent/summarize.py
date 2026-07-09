@@ -51,7 +51,12 @@ class Summary(BaseModel):
 
 
 def summarize(price, news, facts, thesis: str | None = None) -> Summary:
-    news_lines = "\n".join(f"- {n.title} ({n.source})" for n in news)     # ← คำนวณข้างบน
+    # material (8-K ที่บริษัทถูกกฎหมายบังคับให้ยื่น) ทำ marker ให้เด่น เพื่อให้ LLM ถ่วงน้ำหนักสูงกว่าข่าว aggregator
+    news_lines = "\n".join(
+        (f"- ⚑ [SEC 8-K, company-filed material event] {n.title}"
+         if n.material else f"- {n.title} ({n.source})")
+        for n in news
+    )
     fact_lines = "\n".join(f"- {f.label}: {f.value} {f.unit} ({f.period})" for f in facts)
     thesis_block = f"\n## MY THESIS (why I hold/watch this)\n{thesis}\n" if thesis else ""
 
@@ -83,7 +88,10 @@ Judge, from ONLY the data above, whether the fundamentals look STRONG or WEAK an
 - NEWS (long-term lens): put an item in `thesis_relevant_news` ONLY if it could touch the
   thesis, the invalidation point, the moat, or the fundamentals. Daily price/noise items do
   NOT belong there — if all news is noise, return []. `key_news` still lists the real
-  headlines you were given, verbatim.
+  headlines you were given, verbatim. Items marked "⚑ [SEC 8-K ...]" are material events the
+  company was LEGALLY REQUIRED to file (leadership change, M&A, restructuring, restatement,
+  earnings) — weight these ABOVE aggregator headlines, and treat a thesis-relevant 8-K
+  (e.g. layoffs/restructuring, CEO/CFO change, restatement) as a signal worth surfacing.
 - Do NOT give a buy/sell or timing call. Report price exactly from DATA.
 - `confidence`: a number 0.0-1.0 (how sure you are given the data completeness).
 - `thesis_assessment`: if a "MY THESIS" section is present above, write 1-3 sentences in
