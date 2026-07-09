@@ -99,7 +99,8 @@ let the LLM grade itself on facts it may have made up.
 - **Later:** add crypto as a second `asset_type` (on-chain / tokenomics module), reusing
   everything else; deeper valuation (reverse-DCF / margin of safety / peer comparison).
 
-Phases 1-4 are COMPLETE. Phase 5 in progress.
+Phases 1-8 are COMPLETE (incl. Phase 6 pytest+CI: tests run offline on every push).
+Remaining: crypto asset_type, macro/rates valuation context, thesis/holding UI, deeper valuation.
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls

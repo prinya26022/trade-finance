@@ -1,0 +1,28 @@
+name: tests
+
+# รัน pytest ทุก push/PR — กัน regression หลุดขึ้น main (โดยเฉพาะบั๊กคลาส
+# schema/serialization ที่เคยหลุดไป CI มาแล้ว). ทั้ง suite offline: ไม่แตะ
+# yfinance/Gemini เลย จึงเร็ว + เสถียร ไม่ต้องใช้ secret ใดๆ
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest

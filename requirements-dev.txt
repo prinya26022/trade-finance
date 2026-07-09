@@ -1,0 +1,4 @@
+# เครื่องมือ dev/test เท่านั้น (แยกจาก requirements.txt ที่เป็น runtime ล้วน)
+# ติดตั้ง:  pip install -r requirements-dev.txt
+-r requirements.txt
+pytest

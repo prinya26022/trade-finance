@@ -75,6 +75,7 @@ def save_analysis(summary, grounding: dict, facts=None, extraction: dict | None 
     facts = list[Fact] ดิบ (เก็บไว้ให้ change-detection เทียบตัวเลขข้ามวัน),
     extraction = dict จาก check_extraction_accuracy (Phase 4 — ความแม่นการคำนวณของเราเอง)."""
     grounding_facts = grounding.get("facts", {})
+    init_db()   # idempotent: กัน 'no such table: analyses' ถ้ายังไม่เคยสร้าง (เช่น เรียกตรงไม่ผ่าน loop)
     with _connect() as conn:
         cur = conn.execute(
             """
@@ -118,6 +119,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 
 def latest_per_ticker() -> list[dict]:
     """ผลล่าสุดของแต่ละ ticker (มุมมองหลักของ dashboard)."""
+    init_db()   # idempotent: กัน 'no such table' บน DB/โปรเซสที่ยังไม่เคยสร้างตาราง
     with _connect() as conn:
         rows = conn.execute(
             """
@@ -133,6 +135,7 @@ def latest_per_ticker() -> list[dict]:
 
 def history(ticker: str, limit: int = 50) -> list[dict]:
     """ประวัติการวิเคราะห์ของ ticker เดียว เรียงใหม่ก่อน (ไว้ทำ timeline/trend)."""
+    init_db()   # idempotent: กัน 'no such table' บน DB/โปรเซสที่ยังไม่เคยสร้างตาราง
     with _connect() as conn:
         rows = conn.execute(
             "SELECT * FROM analyses WHERE ticker = ? ORDER BY run_at DESC LIMIT ?",
