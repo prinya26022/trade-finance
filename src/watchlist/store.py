@@ -50,6 +50,7 @@ def init_db() -> None:
 
 def add(ticker: str, asset_type: str = "stock") -> None:
     """เพิ่ม ticker (ถ้ามีอยู่แล้วเฉยๆ ไม่ error). สถานะเริ่มต้น = 'watching'."""
+    init_db()   # idempotent: กัน 'no such table' / คอลัมน์ Phase 5.5 ขาดบน DB เก่า (เช่น ที่ CI commit ไว้)
     with _connect() as conn:
         conn.execute(
             # ใช้ ? เป็น placeholder (parameterized) กัน SQL injection — อย่าเอา f-string มายัด SQL
@@ -59,6 +60,7 @@ def add(ticker: str, asset_type: str = "stock") -> None:
 
 
 def remove(ticker: str) -> None:
+    init_db()
     with _connect() as conn:
         conn.execute("DELETE FROM watchlist WHERE ticker = ?", (ticker.upper(),))
 
@@ -69,6 +71,7 @@ def set_holding(ticker: str, entry_price: float, entry_date: str | None = None,
     entry_date ไม่ระบุ -> ใช้วันนี้ (แต่ edge vs benchmark จะแม่นเมื่อใส่วันซื้อจริง)."""
     ticker = ticker.upper()
     entry_date = entry_date or date.today().isoformat()
+    init_db()
     with _connect() as conn:
         conn.execute(
             "INSERT OR IGNORE INTO watchlist (ticker, asset_type, added_at) VALUES (?, 'stock', ?)",
@@ -82,18 +85,21 @@ def set_holding(ticker: str, entry_price: float, entry_date: str | None = None,
 
 def set_watching(ticker: str) -> None:
     """เปลี่ยนกลับเป็น 'จับตา' (ขายออกแล้ว/ยังไม่ซื้อ) — เก็บ entry เดิมไว้เผื่อดูประวัติ."""
+    init_db()
     with _connect() as conn:
         conn.execute("UPDATE watchlist SET status='watching' WHERE ticker=?", (ticker.upper(),))
 
 
 def get_entry(ticker: str) -> sqlite3.Row | None:
     """คืนแถวเดียวของ ticker (ไว้ให้ performance/edge อ่าน entry_price/date)."""
+    init_db()   # idempotent: กันคอลัมน์ Phase 5.5 ขาดบน DB เก่า (เช่น ที่ CI commit ไว้)
     with _connect() as conn:
         return conn.execute("SELECT * FROM watchlist WHERE ticker = ?", (ticker.upper(),)).fetchone()
 
 
 def list_all() -> list[sqlite3.Row]:
     """คืนทุก ticker ในรายการ (พร้อมคอลัมน์ holding, เรียงตามลำดับที่เพิ่ม)."""
+    init_db()   # idempotent: กันคอลัมน์ Phase 5.5 ขาดบน DB เก่า (เช่น ที่ CI commit ไว้)
     with _connect() as conn:
         return conn.execute("SELECT * FROM watchlist ORDER BY added_at").fetchall()
 
