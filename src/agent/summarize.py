@@ -18,6 +18,22 @@ ROOT = Path(__file__).parents[2]
 load_dotenv(ROOT / ".env")
 CHECKLIST = (ROOT / "stock_analysis_checklist.md").read_text(encoding="utf-8")
 
+# framework สำหรับ crypto (คนละโลกกับหุ้น: ไม่มีงบ/กำไร — ดู tokenomics + สภาพคล่อง + adoption)
+CRYPTO_FRAMEWORK = """\
+Judge a crypto asset for a LONG-TERM holder using ONLY the data given:
+1) Supply & dilution: hard cap (scarce) or uncapped (inflationary)? How much supply is
+   already issued vs still to come ('Dilution Ahead')? High remaining dilution = future
+   selling pressure / value dilution. Fully Diluted Valuation far above Market Cap = big
+   unissued-supply overhang.
+2) Liquidity: 'Volume / Market Cap' — higher = easier to enter/exit, more real trading;
+   very low = illiquid and risky to hold in size.
+3) Network / adoption (from NEWS only): real usage, integrations, upgrades — or serious
+   risks (hacks/exploits, regulatory action, delistings, chain halts). Ignore price hype.
+4) Risk flags: large token unlocks, centralization/governance concerns, security incidents.
+5) Guardrails: research, NOT advice. No buy/sell/timing calls, never extrapolate price. If
+   data is too thin to judge a dimension, say so — never invent numbers.
+"""
+
 
 class WeakPoint(BaseModel):
     area: str            # หมวดที่อ่อน เช่น "Valuation", "Growth", "Leverage", "Cash Flow"
@@ -50,7 +66,7 @@ class Summary(BaseModel):
     beginner_summary: str
 
 
-def summarize(price, news, facts, thesis: str | None = None) -> Summary:
+def summarize(price, news, facts, thesis: str | None = None, asset_type: str = "stock") -> Summary:
     # material (8-K ที่บริษัทถูกกฎหมายบังคับให้ยื่น) ทำ marker ให้เด่น เพื่อให้ LLM ถ่วงน้ำหนักสูงกว่าข่าว aggregator
     news_lines = "\n".join(
         (f"- ⚑ [SEC 8-K, company-filed material event] {n.title}"
@@ -60,11 +76,31 @@ def summarize(price, news, facts, thesis: str | None = None) -> Summary:
     fact_lines = "\n".join(f"- {f.label}: {f.value} {f.unit} ({f.period})" for f in facts)
     thesis_block = f"\n## MY THESIS (why I hold/watch this)\n{thesis}\n" if thesis else ""
 
-    prompt = f"""
-You are a fundamental equity analyst serving a LONG-TERM investor (holds for years,
-exits only when the thesis breaks — not on daily price/news moves). Analyze ONLY the
-data provided below — do not invent numbers you were not given. Research, not advice.
+    # ต่างกันแค่ 3 จุด (role / data header / framework) + note เตือนว่าเป็น crypto —
+    # ที่เหลือ (schema, grounding, guardrails) reuse ทั้งหมด นี่คือจุดที่ asset-agnostic คุ้ม
+    if asset_type == "crypto":
+        role = ("a crypto asset analyst serving a LONG-TERM investor (holds through cycles, "
+                "exits only when the thesis breaks — not on daily price/news moves)")
+        data_header = "Tokenomics & market metrics (point-in-time snapshot — NOT fiscal-year statements):"
+        framework = CRYPTO_FRAMEWORK
+        asset_note = (
+            "\nNOTE: This is a CRYPTO asset — there are NO earnings, margins, P/E or cash flows. "
+            "Judge `fundamental_strength` from tokenomics (supply schedule, dilution ahead, "
+            "scarcity/hard cap) and liquidity (24h volume vs market cap), plus adoption/network "
+            "signals in the news. `valuation_view` is a ROUGH relative read (market cap vs supply "
+            "dynamics, liquidity, adoption) — use 'unclear' if the data can't support a view.\n"
+        )
+    else:
+        role = ("a fundamental equity analyst serving a LONG-TERM investor (holds for years, "
+                "exits only when the thesis breaks — not on daily price/news moves)")
+        data_header = "Fundamentals (some metrics span multiple fiscal years — read them as a TREND):"
+        framework = CHECKLIST
+        asset_note = ""
 
+    prompt = f"""
+You are {role}. Analyze ONLY the
+data provided below — do not invent numbers you were not given. Research, not advice.
+{asset_note}
 ## DATA
 Ticker: {price.ticker}
 Price: {price.price} {price.currency} (as of {price.as_of})
@@ -72,11 +108,11 @@ Price: {price.price} {price.currency} (as of {price.as_of})
 Recent news:
 {news_lines}
 
-Fundamentals (some metrics span multiple fiscal years — read them as a TREND):
+{data_header}
 {fact_lines}
 {thesis_block}
 ## HOW TO THINK (framework)
-{CHECKLIST}
+{framework}
 
 ## TASK
 Judge, from ONLY the data above, whether the fundamentals look STRONG or WEAK and WHERE.

@@ -100,7 +100,10 @@ let the LLM grade itself on facts it may have made up.
   everything else; deeper valuation (reverse-DCF / margin of safety / peer comparison).
 
 Phases 1-8 are COMPLETE (incl. Phase 6 pytest+CI: tests run offline on every push).
-Remaining: crypto asset_type, macro/rates valuation context, thesis/holding UI, deeper valuation.
+Phase 9 (crypto thin slice) DONE: second asset_type wired end-to-end (price/news/tokenomics
+fundamentals via yfinance + crypto framework), reusing watchlist/loop/eval/dashboard — proving
+the asset-agnostic design. Remaining: deeper crypto on-chain metrics (active addresses, fees,
+TVL), macro/rates valuation context, thesis/holding UI, deeper equity valuation (reverse-DCF).
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls

@@ -31,14 +31,16 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
         print(f"[warn] fundamentals failed: {e}")
 
     thesis = get_thesis(ticker)                        # Phase 5: ถ้ามี thesis -> ให้ LLM รู้บริบท
-    summary = summarize(price, news, facts, thesis=thesis["thesis"] if thesis else None)
+    summary = summarize(price, news, facts, thesis=thesis["thesis"] if thesis else None,
+                        asset_type=asset_type)          # crypto ใช้ framework/prompt คนละชุด
     grounding = check_grounding(summary, price, news)
     grounding["facts"] = check_facts_grounding(summary, facts)
 
     # Phase 4: เช็คว่า 'การคำนวณของเราเอง' แม่นไหม (ไม่เรียก LLM, ไม่กิน quota) — แยกจาก
     # facts grounding ข้างบนที่เช็คว่า LLM พูดตรงกับ Fact ของเราไหม (คนละชั้นของความถูกต้อง)
+    # เฉพาะหุ้น: eval นี้เทียบกับ ROE/margin ที่ yfinance คำนวณเอง — crypto ไม่มีเมตริกพวกนี้
     extraction = None
-    if fundamentals_obj is not None:
+    if asset_type == "stock" and fundamentals_obj is not None:
         try:
             extraction = check_extraction_accuracy(fundamentals_obj, ticker)
         except Exception as e:
