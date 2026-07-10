@@ -109,8 +109,14 @@ facts + this run's invalidation breaches (not stale DB reads), and stored on eve
 (health_score, health_reasons_json) — so it's a real eval signal with trend + a reasons trail
 to debug sudden drops, not just a live snapshot. Dashboard/detail page read the persisted value
 (resolveHealth), falling back to the old client-side formula only for pre-Phase-10 rows.
+Phase 11 (portfolio page + holding management UI) DONE: /portfolio page shows dollar PnL
+(cost basis / market value / unrealized $ + %), edge vs benchmark, health, and breach flags per
+holding, anchored on edge+thesis (not raw profit) to stay a research tool, not a money tracker.
+portfolio_edge() extended with dollar figures + portfolio weights (uses shares). Holdings are now
+managed from the web (set/add-shares/sell) via PUT/POST/DELETE endpoints — add_shares does
+weighted-average cost automatically — replacing the CLI-only bridge.
 Remaining: deeper crypto on-chain metrics (active addresses, fees, TVL), macro/rates valuation
-context, thesis/holding UI, deeper equity valuation (reverse-DCF).
+context, deeper equity valuation (reverse-DCF).
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls

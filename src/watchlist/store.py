@@ -83,6 +83,31 @@ def set_holding(ticker: str, entry_price: float, entry_date: str | None = None,
         )
 
 
+def add_shares(ticker: str, price: float, shares: float) -> dict:
+    """ซื้อเพิ่มใน position ที่ 'ถืออยู่' แล้ว — คำนวณ entry_price ใหม่เป็น weighted average
+    ให้อัตโนมัติ (กันเลขผิดจากการคำนวณมือ). เก็บ entry_date เดิมไว้ (วันที่เริ่มสร้าง position)
+    เพื่อให้ 'edge vs benchmark' ยังเทียบตั้งแต่วันแรก — ผลตอบแทนที่ได้จะเป็นของทั้ง position
+    รวมกัน (ไม่ใช่แยกราย lot แบบ FIFO/LIFO).
+    คืน dict สรุปก่อน/หลัง ไว้ print ให้เห็นเลขที่คำนวณได้ (ตรวจสอบได้ ไม่ใช่กล่องดำ)."""
+    ticker = ticker.upper()
+    row = get_entry(ticker)
+    if row is None or row["status"] != "holding":
+        raise ValueError(f"{ticker} ยังไม่ได้ตั้งเป็น holding — ใช้ 'hold' ตั้งครั้งแรกก่อน")
+    if row["entry_price"] is None or row["shares"] is None:
+        raise ValueError(f"{ticker} ไม่มี entry_price/shares เดิมให้เฉลี่ย — ใช้ 'hold' ตั้งค่าใหม่ทั้งหมดแทน")
+
+    old_price, old_shares = float(row["entry_price"]), float(row["shares"])
+    new_shares = old_shares + shares
+    new_price = (old_price * old_shares + price * shares) / new_shares
+
+    set_holding(ticker, new_price, entry_date=row["entry_date"], shares=new_shares)
+    return {
+        "ticker": ticker, "old_price": old_price, "old_shares": old_shares,
+        "add_price": price, "add_shares": shares,
+        "new_price": new_price, "new_shares": new_shares,
+    }
+
+
 def set_watching(ticker: str) -> None:
     """เปลี่ยนกลับเป็น 'จับตา' (ขายออกแล้ว/ยังไม่ซื้อ) — เก็บ entry เดิมไว้เผื่อดูประวัติ."""
     init_db()
@@ -108,7 +133,9 @@ if __name__ == "__main__":
     # CLI จัดการสถานะถือครอง (สะพานก่อนมี UI):
     #   python -m src.watchlist.store list
     #   python -m src.watchlist.store hold DUOL 130.50 --date 2026-01-15 --shares 10
+    #   python -m src.watchlist.store add DUOL 140 --shares 5      (ซื้อเพิ่ม -> เฉลี่ยราคาให้อัตโนมัติ)
     #   python -m src.watchlist.store watch DUOL
+    #   python -m src.watchlist.store remove SBUX                 (ขายหมด/เลิกจับตา -> เอาออกจาก watchlist)
     import argparse
 
     init_db()
@@ -120,7 +147,12 @@ if __name__ == "__main__":
     h.add_argument("entry_price", type=float)
     h.add_argument("--date", default=None, help="วันที่ซื้อ YYYY-MM-DD (ไม่ใส่ = วันนี้)")
     h.add_argument("--shares", type=float, default=None)
+    a = sub.add_parser("add", help="ซื้อเพิ่มใน position ที่ถืออยู่แล้ว (เฉลี่ยราคาให้อัตโนมัติ)")
+    a.add_argument("ticker")
+    a.add_argument("price", type=float)
+    a.add_argument("--shares", type=float, required=True)
     sub.add_parser("watch").add_argument("ticker")
+    sub.add_parser("remove").add_argument("ticker")
     args = parser.parse_args()
 
     if args.cmd == "list":
@@ -131,6 +163,16 @@ if __name__ == "__main__":
     elif args.cmd == "hold":
         set_holding(args.ticker, args.entry_price, args.date, args.shares)
         print(f"ตั้ง {args.ticker.upper()} = ถืออยู่ @ {args.entry_price} ({args.date or 'วันนี้'})")
+    elif args.cmd == "add":
+        r = add_shares(args.ticker, args.price, args.shares)
+        print(
+            f"{r['ticker']}: เดิม {r['old_shares']:g} หุ้น @ {r['old_price']:.2f} "
+            f"+ ซื้อเพิ่ม {r['add_shares']:g} หุ้น @ {r['add_price']:.2f} "
+            f"-> รวม {r['new_shares']:g} หุ้น เฉลี่ย {r['new_price']:.2f}"
+        )
     elif args.cmd == "watch":
         set_watching(args.ticker)
         print(f"ตั้ง {args.ticker.upper()} = จับตา (watching)")
+    elif args.cmd == "remove":
+        remove(args.ticker)
+        print(f"เอา {args.ticker.upper()} ออกจาก watchlist (ประวัติ analyses เดิมยังอยู่)")

@@ -11,7 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from src.history.store import init_db, latest_per_ticker, history
-from src.watchlist.store import list_all, add as add_ticker, remove as remove_ticker
+from src.watchlist.store import (
+    list_all, add as add_ticker, remove as remove_ticker,
+    set_holding, add_shares, set_watching,
+)
 from src.agent.changes import detect_changes
 from src.agent.performance import portfolio_edge
 
@@ -21,7 +24,7 @@ app = FastAPI(title="Investment Research Agent API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
-    allow_methods=["GET", "POST", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -29,6 +32,17 @@ app.add_middleware(
 class WatchlistAdd(BaseModel):
     ticker: str
     asset_type: str = "stock"
+
+
+class HoldingSet(BaseModel):
+    entry_price: float
+    entry_date: str | None = None   # ISO YYYY-MM-DD; None -> วันนี้
+    shares: float | None = None
+
+
+class SharesAdd(BaseModel):
+    price: float
+    shares: float
 
 
 @app.on_event("startup")
@@ -58,6 +72,31 @@ def delete_watchlist(ticker: str):
     """เอา ticker ออกจาก watchlist (ประวัติ analyses เดิมยังอยู่)."""
     remove_ticker(ticker)
     return {"removed": ticker.upper()}
+
+
+# ---- holding management (แทน CLI: hold / add / watch) — ไม่เรียก LLM ----
+
+@app.put("/api/watchlist/{ticker}/holding")
+def put_holding(ticker: str, body: HoldingSet):
+    """ตั้ง/แก้ position ที่ถืออยู่ (entry_price/date/shares) — upsert เข้า watchlist ให้ถ้ายังไม่มี."""
+    set_holding(ticker.upper(), body.entry_price, body.entry_date, body.shares)
+    return dict(next(r for r in list_all() if r["ticker"] == ticker.upper()))
+
+
+@app.post("/api/watchlist/{ticker}/holding/add")
+def post_add_shares(ticker: str, body: SharesAdd):
+    """ซื้อเพิ่ม -> เฉลี่ย entry_price อัตโนมัติ (weighted average). 400 ถ้ายังไม่ใช่ holding."""
+    try:
+        return add_shares(ticker.upper(), body.price, body.shares)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/watchlist/{ticker}/holding")
+def delete_holding(ticker: str):
+    """ขายออก/เลิกถือ -> กลับเป็น 'watching' (เก็บ entry เดิมไว้ดูประวัติ, ยังอยู่ใน watchlist)."""
+    set_watching(ticker.upper())
+    return {"ticker": ticker.upper(), "status": "watching"}
 
 
 @app.get("/api/analyses")

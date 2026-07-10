@@ -245,6 +245,44 @@ ul.list li { font-size: 13px; line-height: 1.4; }
 .tl-price { font-weight: 600; }
 .tl-row .badge { margin-left: auto; }
 
+/* ---- Phase 11: portfolio page ---- */
+.nav-row { margin-bottom: 12px; }
+.top-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.nav-link { color: var(--blue); text-decoration: none; font-size: 14px; white-space: nowrap; }
+.nav-link:hover { text-decoration: underline; }
+
+.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.kpi-label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.kpi-val { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi-sub { font-size: 14px; font-weight: 600; margin-left: 4px; }
+
+.hold-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px;
+  padding: 12px 14px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; }
+.form-title { font-size: 13px; font-weight: 600; }
+.hold-form .input { width: auto; max-width: 150px; }
+
+.empty { padding: 24px; text-align: center; color: var(--muted); background: var(--panel);
+  border: 1px dashed var(--border); border-radius: 12px; }
+
+.table-scroll { overflow-x: auto; }
+.pf-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.pf-table th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px;
+  padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.pf-table td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.pf-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pf-table th.num { text-align: right; }
+.row-breach { background: rgba(248,81,73,.06); }
+.breach-flag { margin-left: 6px; color: var(--red); cursor: help; }
+.muted-sm { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.actions { display: flex; gap: 6px; white-space: nowrap; }
+.btn-sm { font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--text); cursor: pointer; }
+.btn-sm:hover:not(:disabled) { border-color: var(--blue); }
+.btn-sm:disabled { opacity: .5; cursor: default; }
+.btn-danger:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+.add-row td { background: var(--panel-2); }
+
 /* มือถือ: ฟอร์ม add เต็มความกว้าง ไม่ดันขวา */
 @media (max-width: 520px) {
   .wrap { padding: 20px 14px 48px; }
@@ -253,4 +291,5 @@ ul.list li { font-size: 13px; line-height: 1.4; }
   .grid { grid-template-columns: 1fr; }
   .two-col { grid-template-columns: 1fr; gap: 4px; }
   .hero-ticker { font-size: 24px; }
+  .hold-form .input { max-width: none; flex: 1; min-width: 0; }
 }

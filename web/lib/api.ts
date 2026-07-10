@@ -59,3 +59,34 @@ export async function removeFromWatchlist(ticker: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/watchlist/${ticker}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`API ${res.status}`);
 }
+
+// --- holding management (Phase 11) — แทน CLI hold/add/watch ---
+export async function setHolding(
+  ticker: string,
+  body: { entry_price: number; entry_date?: string | null; shares?: number | null }
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/watchlist/${ticker}/holding`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+}
+
+export async function addShares(
+  ticker: string,
+  body: { price: number; shares: number }
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/watchlist/${ticker}/holding/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+}
+
+// ขายออก/เลิกถือ -> กลับเป็น watching (ยังอยู่ใน watchlist)
+export async function sellHolding(ticker: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/watchlist/${ticker}/holding`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+}

@@ -38,12 +38,18 @@ export type WatchlistItem = {
 };
 
 // Phase 5.5: edge ของโพซิชันที่ถืออยู่ vs benchmark ตั้งแต่วันซื้อ
+// Phase 11: + dollar figures (null ถ้าไม่ได้ใส่ shares)
 export type EdgePosition = {
   ticker: string;
   benchmark: string;
   entry_price: number;
   entry_date: string;
   current_price: number;
+  shares: number | null;
+  cost_basis: number | null;      // เงินต้น ($)
+  market_value: number | null;    // มูลค่าตอนนี้ ($)
+  unrealized_pnl: number | null;  // กำไร/ขาดทุน $ ที่ยังไม่ realize
+  weight: number | null;          // % ของพอร์ต
   your_return: number; // %
   benchmark_return: number; // %
   edge: number; // % (บวก = ชนะ index)
@@ -55,6 +61,10 @@ export type Portfolio = {
   positions: EdgePosition[];
   beating_benchmark: number;
   total_positions: number;
+  total_value: number | null;   // มูลค่าพอร์ตรวม ($)
+  total_cost: number | null;    // เงินต้นรวม ($)
+  total_pnl: number | null;     // กำไร/ขาดทุนรวม ($)
+  total_return: number | null;  // % ผลตอบแทนรวมของพอร์ต
 };
 
 export type Change = {

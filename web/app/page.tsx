@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getAnalyses, getWatchlist, getChanges, getPortfolio } from "@/lib/api";
 import type { Analysis, WatchlistItem, ChangeReport, Portfolio } from "@/lib/types";
 import Dashboard from "./dashboard";
@@ -10,6 +11,10 @@ const EMPTY_PORTFOLIO: Portfolio = {
   positions: [],
   beating_benchmark: 0,
   total_positions: 0,
+  total_value: null,
+  total_cost: null,
+  total_pnl: null,
+  total_return: null,
 };
 
 export default async function Home() {
@@ -32,7 +37,10 @@ export default async function Home() {
   return (
     <main className="wrap">
       <header className="top">
-        <h1>Investment Research Agent</h1>
+        <div className="top-head">
+          <h1>Investment Research Agent</h1>
+          <Link href="/portfolio" className="nav-link">Portfolio →</Link>
+        </div>
         <p>Latest fundamental analysis per watchlist ticker · research, not advice</p>
       </header>
 
