@@ -1,6 +1,6 @@
 "use client";
 
-import type { Analysis, Change, WatchlistItem, EdgePosition, Investigation } from "@/lib/types";
+import type { Analysis, Change, WatchlistItem, EdgePosition, Investigation, Timeline } from "@/lib/types";
 import { GlossaryText, Tip, BADGES } from "@/lib/glossary";
 import { resolveHealth } from "@/lib/health";
 import { fySeries, latestValue, fmt } from "@/lib/facts";
@@ -51,6 +51,7 @@ export default function TickerDetail({
   watchItem,
   edge,
   investigation,
+  timeline,
 }: {
   ticker: string;
   history: Analysis[];
@@ -58,6 +59,7 @@ export default function TickerDetail({
   watchItem?: WatchlistItem;
   edge?: EdgePosition;
   investigation?: Investigation | null;
+  timeline?: Timeline | null;
 }) {
   const a = history[0]; // ล่าสุด
   const s = a.summary;
@@ -175,6 +177,38 @@ export default function TickerDetail({
             <span className="inv-brain">🧠 สรุป</span>
             <GlossaryText text={investigation.conclusion} />
           </div>
+        </div>
+      )}
+
+      {/* ---- Company biography timeline (Phase 14) ---- */}
+      {timeline && timeline.events.length > 0 && (
+        <div className="biography">
+          <div className="section-title" style={{ margin: "0 0 6px" }}>
+            📖 ชีวประวัติบริษัท
+            <span className="inv-meta">{timeline.events.length} เหตุการณ์หลายปี</span>
+          </div>
+          {timeline.narrative && (
+            <p className="verdict" style={{ borderLeftColor: "var(--amber)", background: "rgba(210,153,34,.08)", borderColor: "rgba(210,153,34,.25)" }}>
+              {timeline.narrative}
+            </p>
+          )}
+          <ol className="bio-events">
+            {timeline.events.map((e, i) => (
+              <li key={i} className={`bio-${e.kind === "8-K" ? "event" : "fund"}`}>
+                <span className="bio-date">{e.date}</span>
+                <span className={`bio-tag bio-tag-${e.kind === "8-K" ? "event" : "fund"}`}>
+                  {e.kind === "8-K" ? "เหตุการณ์" : "พื้นฐาน"}
+                </span>
+                {e.url ? (
+                  <a href={e.url} target="_blank" rel="noreferrer" className="bio-detail">
+                    <GlossaryText text={e.detail} />
+                  </a>
+                ) : (
+                  <span className="bio-detail"><GlossaryText text={e.detail} /></span>
+                )}
+              </li>
+            ))}
+          </ol>
         </div>
       )}
 

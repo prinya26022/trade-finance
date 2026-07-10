@@ -134,9 +134,19 @@ function-calling) so it's unit-tested offline with a scripted fake policy. Every
 + observation) is logged, persisted (investigations table), served (/api/investigation/{ticker}),
 and rendered on the ticker detail page as a "how the agent investigated" transcript — both a demo
 artifact and an eval artifact. Opt-in (CLI / on-demand) so daily runs stay cheap on quota.
+Phase 14 (company biography timeline) DONE: the on-brand answer to "why is this business where
+it is over the years" — deliberately NOT news→price attribution (that's the backtest/hindsight
+trap). src/agent/timeline.py::build_timeline merges multi-year material events (full 8-K history
+via edgar.material_8k_history) with fundamental inflection points (margin swings >= 3pp, revenue
+declines, FCF sign-flips — computed from facts + XBRL), fully deterministic and unit-tested.
+narrate_timeline has the LLM weave that skeleton into a THAI multi-year story (injectable
+generator for offline tests; explicitly told not to attribute price moves). Exposed at
+/api/timeline (events computed live, no LLM) + a persisted narrative, rendered as a biography
+section on the ticker detail page, and added as a get_event_timeline tool the Phase 13 agent can
+call mid-investigation.
 Remaining: deeper crypto on-chain metrics (active addresses, fees, TVL), macro/rates valuation
 context, deeper equity valuation (reverse-DCF), extending XBRL coverage beyond margins/ROE,
-triggering investigation from the UI + folding its conclusion into the daily analysis.
+triggering investigation/narration from the UI.
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls

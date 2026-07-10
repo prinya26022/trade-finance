@@ -56,6 +56,22 @@ export type EdgePosition = {
   holding_days: number;
 };
 
+// Phase 14: company biography timeline — เหตุการณ์ material หลายปี + จุดพลิกพื้นฐาน
+export type TimelineEvent = {
+  date: string;
+  period: string;
+  kind: "8-K" | "fundamental";
+  label: string;
+  detail: string;
+  url?: string;
+};
+
+export type Timeline = {
+  ticker: string;
+  events: TimelineEvent[];
+  narrative: string | null;
+};
+
 // Phase 13: agentic investigation transcript — ทุกสเต็ปที่ agent ตัดสินใจ+เรียก tool เอง
 export type InvestigationStep = {
   tool: string;

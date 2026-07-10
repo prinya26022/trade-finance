@@ -137,6 +137,45 @@ def recent_8k(ticker: str, limit: int = 5, high_only: bool = True, days: int = 1
     return out
 
 
+def material_8k_history(ticker: str, max_items: int = 40) -> list[dict]:
+    """ประวัติ 8-K signal สูง 'ย้อนหลังหลายปี' (ไม่ cap วันเหมือน recent_8k) — สำหรับ timeline
+    ชีวประวัติบริษัท (Phase 14). ต่างจาก recent_8k ที่มองแค่ 'ข่าวล่าสุด': อันนี้เอาทั้งช่วงที่
+    submissions 'recent' block ครอบ (~1000 filing ล่าสุด = หลายปีสำหรับบริษัทส่วนใหญ่).
+    คืน list ของ dict {date, category, url} เรียงใหม่ก่อน; [] ถ้าดึงไม่ได้."""
+    cik = ticker_to_cik(ticker)
+    if cik is None:
+        return []
+    try:
+        data = _get_json(_SUBMISSIONS.format(cik=cik))
+    except Exception:
+        return []
+
+    recent = data.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    dates = recent.get("filingDate", [])
+    accns = recent.get("accessionNumber", [])
+    docs = recent.get("primaryDocument", [])
+    items = recent.get("items", [])
+
+    out: list[dict] = []
+    for i, form in enumerate(forms):
+        if form != "8-K":
+            continue
+        items_field = items[i] if i < len(items) else ""
+        category, is_high = _category(items_field)
+        if not is_high:
+            continue
+        filed = dates[i] if i < len(dates) else ""
+        out.append({
+            "date": filed,
+            "category": category,
+            "url": _filing_url(cik, accns[i], docs[i]) if i < len(docs) else "",
+        })
+        if len(out) >= max_items:
+            break
+    return out
+
+
 if __name__ == "__main__":
     # python -m src.providers.stock.edgar AAPL   -> 8-K material ล่าสุด
     import sys

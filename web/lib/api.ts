@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, Timeline } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -47,6 +47,13 @@ export async function getInvestigation(ticker: string): Promise<Investigation | 
   const res = await fetch(`${API_BASE}/api/investigation/${ticker}`, { cache: "no-store" });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// ชีวประวัติบริษัท (Phase 14) — เหตุการณ์ material หลายปี + เรื่องเล่า (narrative อาจ null)
+export async function getTimeline(ticker: string): Promise<Timeline | null> {
+  const res = await fetch(`${API_BASE}/api/timeline/${ticker}`, { cache: "no-store" });
+  if (!res.ok) return null; // timeline ล้ม (EDGAR ล่ม) ไม่ควรทำหน้า detail พังทั้งหน้า
   return res.json();
 }
 

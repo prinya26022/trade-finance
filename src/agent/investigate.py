@@ -169,6 +169,14 @@ def build_toolbox(ticker: str) -> list[ToolSpec]:
         pts = xbrl[match]
         return f"{match} (จาก 10-K จริง): " + ", ".join(f"{p} = {v:,.0f}" for p, v in pts)
 
+    def _get_event_timeline(args: dict) -> str:
+        # Phase 14: เหตุการณ์ material หลายปี (8-K + จุดพลิกพื้นฐาน) — ไว้เข้าใจ 'เรื่องราว'
+        from src.agent.timeline import build_timeline
+        events = build_timeline(ticker)[:20]
+        if not events:
+            return "ไม่มี timeline (ดึง EDGAR/XBRL ไม่ได้)"
+        return "\n".join(f"{e['date']} [{e['kind']}] {e['detail']}" for e in events)
+
     return [
         ToolSpec("list_metrics", "List all financial metrics available for this company (call this first to see what you can inspect).",
                  {}, _list_metrics),
@@ -178,6 +186,8 @@ def build_toolbox(ticker: str) -> list[ToolSpec]:
                  {}, _get_recent_news),
         ToolSpec("check_sec_filing", "Cross-check a raw figure straight from the company's SEC 10-K filing (e.g. 'Revenues', 'NetIncomeLoss', 'OperatingIncomeLoss', 'StockholdersEquity', 'Assets') — the authoritative source.",
                  {"concept": {"type": "STRING", "description": "us-gaap concept", "required": True}}, _check_sec_filing),
+        ToolSpec("get_event_timeline", "Get the multi-year timeline of material events (SEC 8-K filings: leadership changes, restructuring, M&A) interleaved with fundamental inflection points (margin/revenue/cash-flow turns). Use this to understand how the business got to where it is.",
+                 {}, _get_event_timeline),
     ]
 
 

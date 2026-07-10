@@ -18,6 +18,8 @@ from src.watchlist.store import (
 from src.agent.changes import detect_changes
 from src.agent.performance import portfolio_edge
 from src.agent.investigate_store import latest_investigation
+from src.agent.timeline import build_timeline
+from src.agent.timeline_store import get_narrative
 
 app = FastAPI(title="Investment Research Agent API")
 
@@ -132,6 +134,16 @@ def get_changes():
 @app.get("/api/changes/{ticker}")
 def get_ticker_changes(ticker: str):
     return detect_changes(ticker.upper())
+
+
+@app.get("/api/timeline/{ticker}")
+def get_timeline(ticker: str):
+    """Phase 14 — ชีวประวัติบริษัท: เหตุการณ์ material หลายปี (deterministic, ไม่เรียก LLM จึง
+    คำนวณสดตอน render ได้) + 'เรื่องเล่า' ที่ narrate ไว้ (ถ้ามี — null ถ้ายังไม่เคย narrate)."""
+    events = build_timeline(ticker.upper())
+    narrative = get_narrative(ticker.upper())
+    return {"ticker": ticker.upper(), "events": events,
+            "narrative": narrative["narrative"] if narrative else None}
 
 
 @app.get("/api/investigation/{ticker}")
