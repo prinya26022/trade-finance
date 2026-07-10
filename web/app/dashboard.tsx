@@ -214,6 +214,18 @@ function AnalysisCard({
             </span>
           </Tip>
         )}
+        {a.xbrl_accuracy != null && (
+          <Tip
+            def={
+              "ความแม่นเทียบกับตัวเลขจาก SEC XBRL (10-K ที่บริษัทยื่นเองตามกฎหมาย) — ground truth " +
+              "ที่อิสระจาก yfinance 100% (ต่างจาก extract ข้างซ้ายที่เทียบ yfinance กับ yfinance เอง)"
+            }
+          >
+            <span className={a.xbrl_accuracy >= 0.8 ? "ok" : "bad"}>
+              xbrl {pct(a.xbrl_accuracy)}
+            </span>
+          </Tip>
+        )}
         <span style={{ marginLeft: "auto" }}>{a.run_at.replace("T", " ")}</span>
       </div>
     </div>

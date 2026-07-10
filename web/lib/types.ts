@@ -119,6 +119,8 @@ export type Analysis = {
   facts_grounded_ratio: number;
   extraction_accuracy: number | null;
   extraction: ExtractionResult | null;
+  xbrl_accuracy: number | null; // Phase 12: เทียบกับ SEC XBRL จริง (ground truth อิสระจาก yfinance)
+  xbrl: ExtractionResult | null;
   facts: Fact[]; // ตัวเลขงบดิบหลายปี (ว่างถ้าแถวเก่าก่อน Phase 3) — ใช้ทำกราฟ trend
   health_score: number | null; // denormalized ไว้ query/sort เร็ว (เหมือน extraction_accuracy)
   health: PersistedHealth | null; // None = แถวเก่าก่อน Phase 10 -> frontend fallback คำนวณสด

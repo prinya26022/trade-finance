@@ -115,8 +115,17 @@ holding, anchored on edge+thesis (not raw profit) to stay a research tool, not a
 portfolio_edge() extended with dollar figures + portfolio weights (uses shares). Holdings are now
 managed from the web (set/add-shares/sell) via PUT/POST/DELETE endpoints — add_shares does
 weighted-average cost automatically — replacing the CLI-only bridge.
+Phase 12 (SEC XBRL ground-truth eval) DONE: src/providers/stock/xbrl.py pulls real 10-K figures
+(Revenue/NetIncome/OperatingIncome/StockholdersEquity/Assets) via data.sec.gov/api/xbrl/
+companyfacts, reusing edgar.py's CIK lookup — disk-cached 7 days. check_xbrl_accuracy compares
+our computed margins/ROE against ratios computed from these raw XBRL numbers directly: a real
+independent ground truth, unlike Phase 4's check_extraction_accuracy which only checks
+consistency against yfinance's own numbers (same ultimate source as ours). Verified 100% match
+across the whole watchlist on real data. Wired into analyze() (stock only), persisted per row
+(xbrl_accuracy/xbrl_json), surfaced in the dashboard meta row and folded into the quality report
+alongside Phase 4's check (both layers flagged separately, alert-only).
 Remaining: deeper crypto on-chain metrics (active addresses, fees, TVL), macro/rates valuation
-context, deeper equity valuation (reverse-DCF).
+context, deeper equity valuation (reverse-DCF), extending XBRL coverage beyond margins/ROE.
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls

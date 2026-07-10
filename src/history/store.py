@@ -44,7 +44,9 @@ def init_db() -> None:
                 extraction_accuracy  REAL,
                 extraction_json      TEXT,
                 health_score         REAL,
-                health_reasons_json  TEXT
+                health_reasons_json  TEXT,
+                xbrl_accuracy        REAL,
+                xbrl_json            TEXT
             )
             """
         )
@@ -60,6 +62,8 @@ def init_db() -> None:
             ("extraction_json", "TEXT"),
             ("health_score", "REAL"),
             ("health_reasons_json", "TEXT"),
+            ("xbrl_accuracy", "REAL"),
+            ("xbrl_json", "TEXT"),
         ]:
             if col not in cols:
                 conn.execute(f"ALTER TABLE analyses ADD COLUMN {col} {coltype}")
@@ -74,13 +78,15 @@ def _facts_to_json(facts) -> str | None:
 
 
 def save_analysis(summary, grounding: dict, facts=None, extraction: dict | None = None,
-                   health: dict | None = None) -> int:
+                   health: dict | None = None, xbrl: dict | None = None) -> int:
     """บันทึกผล 1 ครั้ง; คืน id ของแถวที่เพิ่ม.
     summary = Pydantic Summary, grounding = dict จาก loop (มี key 'facts' ซ้อนอยู่),
     facts = list[Fact] ดิบ (เก็บไว้ให้ change-detection เทียบตัวเลขข้ามวัน),
-    extraction = dict จาก check_extraction_accuracy (Phase 4 — ความแม่นการคำนวณของเราเอง),
+    extraction = dict จาก check_extraction_accuracy (Phase 4 — เทียบกับ yfinance เอง),
     health = dict จาก compute_health (score/tier/label/reasons) — เก็บทุกแถวเพื่อดู trend
-    ย้อนหลัง + เห็นเหตุผลตอนนั้น ถ้าคะแนนเด้งผิดปกติวันไหน (None = ยังไม่คำนวณให้)."""
+    ย้อนหลัง + เห็นเหตุผลตอนนั้น ถ้าคะแนนเด้งผิดปกติวันไหน (None = ยังไม่คำนวณให้),
+    xbrl = dict จาก check_xbrl_accuracy (Phase 12 — เทียบกับ SEC XBRL ตัวจริง, ground truth
+    ที่อิสระจาก yfinance) — None ถ้าดึง EDGAR ไม่ได้/ไม่ใช่หุ้น."""
     grounding_facts = grounding.get("facts", {})
     init_db()   # idempotent: กัน 'no such table: analyses' ถ้ายังไม่เคยสร้าง (เช่น เรียกตรงไม่ผ่าน loop)
     with _connect() as conn:
@@ -90,8 +96,8 @@ def save_analysis(summary, grounding: dict, facts=None, extraction: dict | None 
                 ticker, run_at, fundamental_strength, valuation_view, sentiment,
                 price, confidence, price_ok, news_grounded_ratio, facts_grounded_ratio,
                 summary_json, facts_json, extraction_accuracy, extraction_json,
-                health_score, health_reasons_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                health_score, health_reasons_json, xbrl_accuracy, xbrl_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 summary.ticker,
@@ -110,6 +116,8 @@ def save_analysis(summary, grounding: dict, facts=None, extraction: dict | None 
                 json.dumps(extraction, ensure_ascii=False) if extraction else None,
                 health.get("score") if health else None,
                 json.dumps(health, ensure_ascii=False) if health else None,
+                xbrl.get("accuracy") if xbrl else None,
+                json.dumps(xbrl, ensure_ascii=False) if xbrl else None,
             ),
         )
         return cur.lastrowid
@@ -126,6 +134,8 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     d["extraction"] = json.loads(extraction_json) if extraction_json else None  # None ถ้าแถวเก่าไม่มี
     health_reasons_json = d.pop("health_reasons_json", None)
     d["health"] = json.loads(health_reasons_json) if health_reasons_json else None  # None ถ้าแถวเก่าไม่มี
+    xbrl_json = d.pop("xbrl_json", None)
+    d["xbrl"] = json.loads(xbrl_json) if xbrl_json else None  # None ถ้าแถวเก่าไม่มี/ดึง EDGAR ไม่ได้
     return d
 
 

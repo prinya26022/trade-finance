@@ -2,6 +2,7 @@ from src.providers.registry import get_providers
 from src.agent.summarize import summarize
 from src.evals.check_grounding import check_grounding, check_facts_grounding
 from src.evals.check_extraction_accuracy import check_extraction_accuracy
+from src.evals.check_xbrl_accuracy import check_xbrl_accuracy
 from src.watchlist.store import list_all
 from src.history.store import init_db, save_analysis
 from src.thesis.store import get_thesis
@@ -49,6 +50,17 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
             print(f"[warn] extraction accuracy eval failed: {e}")
     grounding["extraction"] = extraction
 
+    # Phase 12: เช็คกับ SEC XBRL (บริษัทยื่นเองตามกฎหมาย) — ground truth ที่อิสระจาก yfinance
+    # จริงๆ (ต่างจาก extraction ข้างบนที่เทียบ yfinance กับ yfinance เอง). ยิง EDGAR เพิ่ม (cache
+    # 7 วัน) จึงห่อ try/except เหมือนกัน — ล้มแล้วไม่กระทบ pipeline หลัก
+    xbrl = None
+    if asset_type == "stock" and fundamentals_obj is not None:
+        try:
+            xbrl = check_xbrl_accuracy(fundamentals_obj, ticker)
+        except Exception as e:
+            print(f"[warn] xbrl accuracy eval failed: {e}")
+    grounding["xbrl"] = xbrl
+
     # health score (deterministic, ไม่เรียก LLM): ใช้ breaches ของ 'รอบนี้' จาก facts ในมือ
     # ตรงๆ (ไม่ใช่ check_invalidation ที่อ่านจาก DB ซึ่งตอนนี้ยังเป็นแถวของรอบก่อนหน้า)
     breaches = current_breaches(facts, price.price, thesis)
@@ -57,7 +69,7 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
 
     if persist:
         init_db()                                        # idempotent: สร้างตาราง/เพิ่มคอลัมน์ถ้ายังไม่มี
-        save_analysis(summary, grounding, facts, extraction, health)  # เก็บ Summary + facts + evals + health
+        save_analysis(summary, grounding, facts, extraction, health, xbrl)  # เก็บ Summary + facts + evals + health
     return summary, grounding
 
 def run_watchlist():
@@ -75,11 +87,14 @@ def run_watchlist():
         extraction = grounding.get("extraction") or {}
         acc = extraction.get("accuracy")
         acc_str = f"{acc:.0%}" if acc is not None else "N/A"
+        xbrl = grounding.get("xbrl") or {}
+        xbrl_acc = xbrl.get("accuracy")
+        xbrl_str = f"{xbrl_acc:.0%}" if xbrl_acc is not None else "N/A"
         health = grounding.get("health") or {}
         print(
             f"{ticker:6} | {summary.fundamental_strength:6}/{summary.valuation_view:9} | "
             f"conf {summary.confidence} | price_ok={grounding['price_ok']} "
             f"news={grounding['news_grounded_ratio']:.0%} "
             f"facts={grounding['facts']['facts_grounded_ratio']:.0%} "
-            f"extract={acc_str} health={health.get('score', 'N/A')}"
+            f"extract={acc_str} xbrl={xbrl_str} health={health.get('score', 'N/A')}"
         )

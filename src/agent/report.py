@@ -275,22 +275,28 @@ def send_portfolio_alert() -> bool:
 # "หุ้นตัวนี้น่าสนใจไหม", อันนี้คือ "ระบบคำนวณของเราเองยังทำงานถูกไหม") จึงแยกส่งไปช่อง
 # Discord อื่น (DISCORD_WEBHOOK_URL_QUALITY) ไม่ปนกับ report หลัก
 # ─────────────────────────────────────────────────────────────────────────────
+def _flag_mismatches(a: dict, key: str, source_label: str, ref_label: str, threshold: float) -> str | None:
+    """ตรวจ eval หนึ่งชั้น (extraction หรือ xbrl) ของ ticker เดียว -> 1 บรรทัด flag ถ้าต่ำกว่าเกณฑ์."""
+    result = a.get(key)
+    if not result or result.get("accuracy") is None:
+        return None
+    acc = result["accuracy"]
+    if acc >= threshold:
+        return None
+    mismatches = [c for c in result["checks"] if not c["within_tolerance"]]
+    detail = "; ".join(f"{c['metric']} ours={c['ours']:.2f} vs {ref_label}={c['reference']:.2f}" for c in mismatches)
+    return f"🔴 **{a['ticker']}** — {source_label} accuracy {acc:.0%} ({detail})"
+
+
 def build_quality_report(threshold: float = EXTRACTION_WARN_THRESHOLD) -> str | None:
-    """สรุป ticker ที่ extraction accuracy ต่ำกว่าเกณฑ์ — alert-only เหมือน daily report:
-    คืน None ถ้าทุกตัวปกติ (เงียบไว้ ไม่ใช่ error ไม่ต้องส่งอะไร)."""
+    """สรุป ticker ที่ accuracy ต่ำกว่าเกณฑ์ — ทั้ง extraction (Phase 4, เทียบ yfinance เอง) และ
+    xbrl (Phase 12, เทียบ SEC XBRL จริง — ground truth ที่อิสระกว่า) — alert-only เหมือน daily
+    report: คืน None ถ้าทุกตัวปกติ (เงียบไว้ ไม่ใช่ error ไม่ต้องส่งอะไร)."""
     flagged = []
     for a in latest_per_ticker():
-        extraction = a.get("extraction")
-        if not extraction or extraction.get("accuracy") is None:
-            continue
-        acc = extraction["accuracy"]
-        if acc < threshold:
-            mismatches = [c for c in extraction["checks"] if not c["within_tolerance"]]
-            detail = "; ".join(
-                f"{c['metric']} ours={c['ours']:.2f} vs yfinance={c['reference']:.2f}"
-                for c in mismatches
-            )
-            flagged.append(f"🔴 **{a['ticker']}** — extraction accuracy {acc:.0%} ({detail})")
+        f1 = _flag_mismatches(a, "extraction", "extraction", "yfinance", threshold)
+        f2 = _flag_mismatches(a, "xbrl", "xbrl (SEC ground truth)", "xbrl", threshold)
+        flagged += [f for f in (f1, f2) if f]
 
     if not flagged:
         return None   # ไม่มีอะไรผิดปกติ = ไม่ต้องส่ง (เงียบตามหลัก alert-only)
@@ -298,7 +304,7 @@ def build_quality_report(threshold: float = EXTRACTION_WARN_THRESHOLD) -> str | 
     lines = [f"🔬 **Extraction Accuracy Alert — {date.today().isoformat()}**", ""]
     lines += flagged
     lines.append("")
-    lines.append("ตรวจสอบเพิ่ม: `python -m src.providers.stock.fundamentals <TICKER>`")
+    lines.append("ตรวจสอบเพิ่ม: `python -m src.providers.stock.fundamentals <TICKER>` หรือ `python -m src.evals.check_xbrl_accuracy`")
     return "\n".join(lines)
 
 
