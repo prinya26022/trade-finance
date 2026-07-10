@@ -1,6 +1,6 @@
 "use client";
 
-import type { Analysis, Change, WatchlistItem, EdgePosition } from "@/lib/types";
+import type { Analysis, Change, WatchlistItem, EdgePosition, Investigation } from "@/lib/types";
 import { GlossaryText, Tip, BADGES } from "@/lib/glossary";
 import { resolveHealth } from "@/lib/health";
 import { fySeries, latestValue, fmt } from "@/lib/facts";
@@ -50,12 +50,14 @@ export default function TickerDetail({
   changes,
   watchItem,
   edge,
+  investigation,
 }: {
   ticker: string;
   history: Analysis[];
   changes: Change[];
   watchItem?: WatchlistItem;
   edge?: EdgePosition;
+  investigation?: Investigation | null;
 }) {
   const a = history[0]; // ล่าสุด
   const s = a.summary;
@@ -143,6 +145,36 @@ export default function TickerDetail({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* ---- Agentic investigation transcript (Phase 13) ---- */}
+      {investigation && (
+        <div className="investigation">
+          <div className="section-title" style={{ margin: "0 0 6px" }}>
+            🔬 การสืบของ agent
+            <span className="inv-meta">
+              {investigation.steps.length} สเต็ป · {investigation.run_at.slice(0, 10)}
+              {investigation.stopped === "max_steps" && " · ชนเพดาน"}
+            </span>
+          </div>
+          <ol className="inv-steps">
+            {investigation.steps.map((st, i) => (
+              <li key={i}>
+                <div className="inv-tool">
+                  🔧 <code>{st.tool}</code>
+                  {Object.keys(st.args).length > 0 && (
+                    <span className="inv-args">({Object.values(st.args).join(", ")})</span>
+                  )}
+                </div>
+                <div className="inv-obs"><GlossaryText text={st.observation} /></div>
+              </li>
+            ))}
+          </ol>
+          <div className="inv-conclusion">
+            <span className="inv-brain">🧠 สรุป</span>
+            <GlossaryText text={investigation.conclusion} />
+          </div>
         </div>
       )}
 

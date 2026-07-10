@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { getHistory, getTickerChanges, getWatchlist, getPortfolio } from "@/lib/api";
-import type { Analysis, ChangeReport, WatchlistItem, Portfolio, EdgePosition } from "@/lib/types";
+import { getHistory, getTickerChanges, getWatchlist, getPortfolio, getInvestigation } from "@/lib/api";
+import type { Analysis, ChangeReport, WatchlistItem, Portfolio, EdgePosition, Investigation } from "@/lib/types";
 import TickerDetail from "./detail";
 
 // ดึงสดทุกครั้ง (เหมือนหน้าแรก) — ไม่ cache
@@ -18,19 +18,22 @@ export default async function TickerPage({
   let change: ChangeReport | null = null;
   let watchItem: WatchlistItem | undefined;
   let edge: EdgePosition | undefined;
+  let investigation: Investigation | null = null;
   let error: string | null = null;
   try {
-    const [h, c, watchlist, portfolio]: [Analysis[], ChangeReport, WatchlistItem[], Portfolio] =
+    const [h, c, watchlist, portfolio, inv]: [Analysis[], ChangeReport, WatchlistItem[], Portfolio, Investigation | null] =
       await Promise.all([
         getHistory(ticker),
         getTickerChanges(ticker),
         getWatchlist(),
         getPortfolio(),
+        getInvestigation(ticker),
       ]);
     history = h;
     change = c;
     watchItem = watchlist.find((w) => w.ticker === ticker);
     edge = portfolio.positions.find((p) => p.ticker === ticker);
+    investigation = inv;
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
@@ -54,6 +57,7 @@ export default async function TickerPage({
           changes={change?.changes ?? []}
           watchItem={watchItem}
           edge={edge}
+          investigation={investigation}
         />
       )}
 

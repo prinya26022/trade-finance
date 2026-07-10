@@ -17,6 +17,7 @@ from src.watchlist.store import (
 )
 from src.agent.changes import detect_changes
 from src.agent.performance import portfolio_edge
+from src.agent.investigate_store import latest_investigation
 
 app = FastAPI(title="Investment Research Agent API")
 
@@ -131,3 +132,13 @@ def get_changes():
 @app.get("/api/changes/{ticker}")
 def get_ticker_changes(ticker: str):
     return detect_changes(ticker.upper())
+
+
+@app.get("/api/investigation/{ticker}")
+def get_investigation(ticker: str):
+    """transcript การสืบล่าสุดของ agent (Phase 13) — 204 ถ้ายังไม่เคยสืบ ticker นี้.
+    read-only: ไม่ trigger การสืบใหม่ (นั่นยิง Gemini — ทำผ่าน CLI/ปุ่มแยก ไม่ใช่ตอน render)."""
+    inv = latest_investigation(ticker.upper())
+    if inv is None:
+        raise HTTPException(status_code=404, detail=f"no investigation for {ticker}")
+    return inv

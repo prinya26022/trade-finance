@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -38,6 +38,14 @@ export async function getPortfolio(): Promise<Portfolio> {
 export async function getHistory(ticker: string): Promise<Analysis[]> {
   const res = await fetch(`${API_BASE}/api/analyses/${ticker}`, { cache: "no-store" });
   if (res.status === 404) return []; // ยังไม่เคยวิเคราะห์ ticker นี้
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// transcript การสืบล่าสุดของ agent (Phase 13) — null ถ้ายังไม่เคยสืบ ticker นี้
+export async function getInvestigation(ticker: string): Promise<Investigation | null> {
+  const res = await fetch(`${API_BASE}/api/investigation/${ticker}`, { cache: "no-store" });
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }

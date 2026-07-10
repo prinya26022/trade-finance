@@ -56,6 +56,21 @@ export type EdgePosition = {
   holding_days: number;
 };
 
+// Phase 13: agentic investigation transcript — ทุกสเต็ปที่ agent ตัดสินใจ+เรียก tool เอง
+export type InvestigationStep = {
+  tool: string;
+  args: Record<string, unknown>;
+  observation: string;
+};
+
+export type Investigation = {
+  ticker: string;
+  run_at: string;
+  steps: InvestigationStep[];
+  conclusion: string;
+  stopped: "concluded" | "max_steps" | "error";
+};
+
 export type Portfolio = {
   benchmark: string;
   positions: EdgePosition[];

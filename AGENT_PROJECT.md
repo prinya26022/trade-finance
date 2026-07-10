@@ -124,8 +124,19 @@ consistency against yfinance's own numbers (same ultimate source as ours). Verif
 across the whole watchlist on real data. Wired into analyze() (stock only), persisted per row
 (xbrl_accuracy/xbrl_json), surfaced in the dashboard meta row and folded into the quality report
 alongside Phase 4's check (both layers flagged separately, alert-only).
+Phase 13 (agentic investigation loop) DONE: closes the biggest gap vs this project's own thesis
+— until now the "agent" was a straight pipeline (gather -> one LLM call). src/agent/investigate.py
+is a real agentic loop: the LLM plans and calls tools one at a time (list_metrics,
+get_metric_trend, get_recent_news, check_sec_filing), follows the evidence, and concludes on its
+own — with a bounded step budget (stop condition) and full tool-failure handling. The loop
+(run_investigation) is separated from the brain (GeminiPolicy, manual google-genai
+function-calling) so it's unit-tested offline with a scripted fake policy. Every step (tool + args
++ observation) is logged, persisted (investigations table), served (/api/investigation/{ticker}),
+and rendered on the ticker detail page as a "how the agent investigated" transcript — both a demo
+artifact and an eval artifact. Opt-in (CLI / on-demand) so daily runs stay cheap on quota.
 Remaining: deeper crypto on-chain metrics (active addresses, fees, TVL), macro/rates valuation
-context, deeper equity valuation (reverse-DCF), extending XBRL coverage beyond margins/ROE.
+context, deeper equity valuation (reverse-DCF), extending XBRL coverage beyond margins/ROE,
+triggering investigation from the UI + folding its conclusion into the daily analysis.
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
