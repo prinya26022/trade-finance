@@ -7,7 +7,7 @@ export function HealthMeter({ health, size = "md" }: { health: Health; size?: "s
   const filled = Math.round(health.score / 2); // 0–5
   const dots = Array.from({ length: 5 }, (_, i) => i < filled);
   return (
-    <Tip def={"คะแนนสุขภาพธุรกิจ (heuristic โปร่งใส ไม่ใช่คำแนะนำซื้อขาย):\n" + health.reasons.join(" · ")}>
+    <Tip def={"คะแนนสุขภาพธุรกิจ (heuristic โปร่งใส ไม่ใช่คำแนะนำซื้อขาย):\n" + health.reasons.join("\n")}>
       <span className={`health health-${health.tier} health-${size}`}>
         <span className="health-dots">
           {dots.map((on, i) => (

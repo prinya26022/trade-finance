@@ -172,3 +172,24 @@ def history(ticker: str, limit: int = 50) -> list[dict]:
             (ticker.upper(), limit),
         ).fetchall()
         return [_row_to_dict(r) for r in rows]
+
+
+def all_rows() -> list[dict]:
+    """ทุกแถวทุก ticker ที่เคยวิเคราะห์ (รวม ticker ที่ถูกเอาออกจาก watchlist ไปแล้ว เช่น
+    ที่ขายหมดแล้ว — ประวัติ analyses ไม่ถูกลบตาม) เรียงตาม id (เก่า->ใหม่) ไว้ให้ backfill script
+    ไล่ recompute ค่าที่มาจากสูตร (เช่น health) ย้อนหลังทั้งหมดแบบ deterministic."""
+    init_db()
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM analyses ORDER BY id").fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
+def update_health(row_id: int, health: dict) -> None:
+    """เขียนทับ health_score/health_reasons_json ของแถวเดียว (id) — ใช้ตอน backfill
+    recompute คะแนนสุขภาพย้อนหลังด้วยสูตรใหม่ โดยไม่แตะคอลัมน์อื่น (facts/summary/xbrl เดิม)."""
+    init_db()
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE analyses SET health_score = ?, health_reasons_json = ? WHERE id = ?",
+            (health.get("score"), json.dumps(health, ensure_ascii=False), row_id),
+        )

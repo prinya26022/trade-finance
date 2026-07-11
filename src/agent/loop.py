@@ -64,8 +64,10 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
 
     # health score (deterministic, ไม่เรียก LLM): ใช้ breaches ของ 'รอบนี้' จาก facts ในมือ
     # ตรงๆ (ไม่ใช่ check_invalidation ที่อ่านจาก DB ซึ่งตอนนี้ยังเป็นแถวของรอบก่อนหน้า)
+    # ส่ง facts เข้าไปด้วย (Phase 17) -> strength/valuation คำนวณจากตัวเลขจริง (Piotroski-
+    # style + reverse-DCF gap) แทนที่จะพึ่ง label ของ LLM ล้วนๆ อย่างเดียว
     breaches = current_breaches(facts, price.price, thesis)
-    health = compute_health(summary, breaches)
+    health = compute_health(summary, breaches, facts)
     grounding["health"] = health
 
     # Phase 15: reverse-DCF (deterministic, ไม่เรียก LLM) — หุ้นเท่านั้น (ต้องมี FCF/market cap)

@@ -347,7 +347,7 @@ export default function TickerDetail({
                 <span className={`badge b-${h.sentiment}`}>{h.sentiment}</span>
                 <span className="muted">conf {h.confidence}</span>
                 {h.health_score != null && (
-                  <Tip def={h.health?.reasons.join(" · ") ?? ""}>
+                  <Tip def={h.health?.reasons.join("\n") ?? ""}>
                     <span className="muted">health {h.health_score.toFixed(1)}</span>
                   </Tip>
                 )}

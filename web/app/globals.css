@@ -92,11 +92,11 @@ ul.list li { font-size: 13px; line-height: 1.4; }
 .term > .tip {
   visibility: hidden; opacity: 0; transition: opacity .12s ease;
   position: absolute; left: 0; top: 140%; z-index: 50;
-  width: max-content; max-width: 260px;
+  width: max-content; max-width: 300px;
   background: var(--panel-2); color: var(--text);
   border: 1px solid var(--border); border-radius: 8px;
   padding: 8px 10px; font-size: 12px; line-height: 1.45; font-weight: 400;
-  box-shadow: 0 8px 24px rgba(0,0,0,.45); white-space: normal; text-align: left;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45); white-space: pre-line; text-align: left;
 }
 .term:hover > .tip { visibility: visible; opacity: 1; }
 .badge .term, .badges .term { border-bottom: none; } /* badge ไม่ต้องขีดเส้น */
