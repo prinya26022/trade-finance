@@ -154,7 +154,7 @@ def _generate_with_retry(client, prompt, *, max_attempts: int = 4, base_delay: f
     for attempt in range(1, max_attempts + 1):
         try:
             return client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.5-flash",
                 contents=prompt,
                 config={
                     "response_mime_type": "application/json",   # ขอผลลัพธ์เป็น JSON

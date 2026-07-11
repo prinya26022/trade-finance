@@ -246,7 +246,7 @@ class GeminiPolicy:
     แปลเป็น Decision ให้ loop. ไม่รู้จัก loop เลย (loop เป็นคนเรียก decide/force_conclude)."""
 
     def __init__(self, ticker: str, tools: list[ToolSpec], context: str = "",
-                 model: str = "gemini-2.5-flash"):
+                 model: str = "gemini-3.5-flash"):
         from google.genai import types
         self._types = types
         self._client = __import__("google.genai", fromlist=["Client"]).Client(
