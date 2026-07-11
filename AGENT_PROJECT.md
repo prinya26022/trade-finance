@@ -144,9 +144,20 @@ generator for offline tests; explicitly told not to attribute price moves). Expo
 /api/timeline (events computed live, no LLM) + a persisted narrative, rendered as a biography
 section on the ticker detail page, and added as a get_event_timeline tool the Phase 13 agent can
 call mid-investigation.
+Phase 15 (reverse-DCF valuation) DONE: closes the "deeper equity valuation" roadmap item.
+src/agent/valuation.py::reverse_dcf solves a two-stage DCF *backwards* — instead of forecasting
+growth and deriving a price (easy to get wrong), it takes today's market cap as given and finds
+the FCF growth rate that would justify it (bisection on a deterministic, monotonic
+intrinsic_equity_value() function; fully unit-tested including a round-trip recovery test).
+That implied growth is then compared against the company's own historical revenue CAGR (already
+computed in StockFundamentals) — the gap is the headline signal: how much more (or less) growth
+is priced in than the company has actually delivered. Verified live on AAPL: market pricing in
+~16.7%/yr FCF growth vs ~1.8%/yr historical revenue CAGR, a +14.9pp gap. Wired into analyze()
+(stock only, deterministic, no LLM call), persisted per row (valuation_json), rendered as a
+valuation card on the ticker detail page, and added as a get_reverse_dcf tool the Phase 13 agent
+can call mid-investigation to ground its conclusion in what the market is actually pricing in.
 Remaining: deeper crypto on-chain metrics (active addresses, fees, TVL), macro/rates valuation
-context, deeper equity valuation (reverse-DCF), extending XBRL coverage beyond margins/ROE,
-triggering investigation/narration from the UI.
+context, extending XBRL coverage beyond margins/ROE, triggering investigation/narration from the UI.
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls

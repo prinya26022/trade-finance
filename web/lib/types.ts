@@ -72,6 +72,17 @@ export type Timeline = {
   narrative: string | null;
 };
 
+// Phase 15: reverse-DCF — growth rate ที่ราคาตลาดปัจจุบัน 'price ไว้' เทียบกับ historical CAGR จริง
+export type Valuation = {
+  implied_growth: number | null; // % ต่อปี — null ถ้าคำนวณไม่ได้ (FCF ติดลบ/นอกขอบเขตโมเดล)
+  historical_cagr: number | null; // % ต่อปีที่บริษัทโตจริงในอดีต
+  gap: number | null; // implied - historical (บวก = ตลาดคาดหวังมากกว่าที่เคยทำได้จริง)
+  discount_rate: number;
+  terminal_growth: number;
+  years: number;
+  note: string | null;
+};
+
 // Phase 13: agentic investigation transcript — ทุกสเต็ปที่ agent ตัดสินใจ+เรียก tool เอง
 export type InvestigationStep = {
   tool: string;
@@ -155,5 +166,6 @@ export type Analysis = {
   facts: Fact[]; // ตัวเลขงบดิบหลายปี (ว่างถ้าแถวเก่าก่อน Phase 3) — ใช้ทำกราฟ trend
   health_score: number | null; // denormalized ไว้ query/sort เร็ว (เหมือน extraction_accuracy)
   health: PersistedHealth | null; // None = แถวเก่าก่อน Phase 10 -> frontend fallback คำนวณสด
+  valuation: Valuation | null; // Phase 15: null = แถวเก่าก่อน Phase 15 หรือคำนวณไม่ได้
   summary: Summary;
 };

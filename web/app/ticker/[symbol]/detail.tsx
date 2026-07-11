@@ -136,6 +136,39 @@ export default function TickerDetail({
         </div>
       ) : null}
 
+      {/* ---- Reverse-DCF (Phase 15) ---- */}
+      {a.valuation && (
+        <div className="valuation-box">
+          <div className="section-title" style={{ margin: "0 0 4px" }}>
+            <Tip def="แก้สมการ DCF ย้อนกลับ: เอาราคาตลาดตอนนี้ตั้งเป็นโจทย์ แล้วหาว่าตลาดกำลัง 'price' การเติบโตของกระแสเงินสดอิสระ (FCF) ไว้ที่กี่ % ต่อปีถึงจะได้ราคานี้พอดี แล้วเทียบกับที่บริษัทเคยโตจริงในอดีต">
+              Reverse-DCF: ตลาดคาดหวังการเติบโตแค่ไหน
+            </Tip>
+          </div>
+          {a.valuation.implied_growth != null ? (
+            <>
+              <p className="valuation-line">
+                ตลาด price การเติบโตของ FCF ไว้ที่ <strong>{a.valuation.implied_growth.toFixed(1)}%/ปี</strong>
+                {a.valuation.historical_cagr != null && (
+                  <> เทียบกับที่เคยโตจริง <strong>{a.valuation.historical_cagr.toFixed(1)}%/ปี</strong></>
+                )}
+              </p>
+              {a.valuation.gap != null && (
+                <p className={`valuation-gap ${a.valuation.gap > 5 ? "gap-hot" : a.valuation.gap < -5 ? "gap-cold" : ""}`}>
+                  {a.valuation.gap >= 0 ? "▲" : "▼"} ห่างจากผลงานในอดีต {a.valuation.gap >= 0 ? "+" : ""}
+                  {a.valuation.gap.toFixed(1)} pp
+                </p>
+              )}
+              <p className="muted valuation-assump">
+                สมมติฐาน: discount rate {a.valuation.discount_rate}% · terminal growth {a.valuation.terminal_growth}% ·{" "}
+                {a.valuation.years} ปี
+              </p>
+            </>
+          ) : (
+            <p className="muted">{a.valuation.note}</p>
+          )}
+        </div>
+      )}
+
       {/* ---- Breaches / changes ---- */}
       {changes.length > 0 && (
         <div className="changes detail-changes">

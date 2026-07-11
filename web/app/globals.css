@@ -218,6 +218,16 @@ ul.list li { font-size: 13px; line-height: 1.4; }
 }
 .detail-changes { margin-bottom: 18px; }
 
+.valuation-box {
+  margin: 0 0 16px; padding: 12px 14px; font-size: 13.5px; line-height: 1.55;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+}
+.valuation-line { margin: 0 0 4px; }
+.valuation-gap { margin: 0 0 4px; font-weight: 600; }
+.valuation-gap.gap-hot { color: var(--red); }
+.valuation-gap.gap-cold { color: var(--green); }
+.valuation-assump { margin: 0; font-size: 11.5px; }
+
 /* charts */
 .charts-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

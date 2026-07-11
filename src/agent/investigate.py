@@ -121,8 +121,10 @@ def build_toolbox(ticker: str) -> list[ToolSpec]:
 
     bundle = get_providers("stock")
     try:
-        facts = bundle.fundamentals.get_fundamentals(ticker).to_facts()
+        fundamentals_obj = bundle.fundamentals.get_fundamentals(ticker)
+        facts = fundamentals_obj.to_facts()
     except Exception:
+        fundamentals_obj = None
         facts = []
     try:
         news = bundle.news.get_news(ticker, limit=6)
@@ -177,6 +179,24 @@ def build_toolbox(ticker: str) -> list[ToolSpec]:
             return "ไม่มี timeline (ดึง EDGAR/XBRL ไม่ได้)"
         return "\n".join(f"{e['date']} [{e['kind']}] {e['detail']}" for e in events)
 
+    def _get_reverse_dcf(args: dict) -> str:
+        # Phase 15: 'ตลาด price การเติบโตไว้กี่ % ต่อปี' เทียบกับที่บริษัทเคยโตจริง
+        from src.agent.valuation import reverse_dcf
+        if fundamentals_obj is None:
+            return "ไม่มีข้อมูล fundamentals (ดึงไม่ได้)"
+        result = reverse_dcf(fundamentals_obj)
+        if result is None:
+            return "คำนวณ reverse-DCF ไม่ได้ (ไม่มี FCF หรือ market cap)"
+        if result["implied_growth"] is None:
+            return f"คำนวณ implied growth ไม่ได้: {result['note']}"
+        return (
+            f"ตลาด price การเติบโตของ FCF ไว้ที่ {result['implied_growth']:.1f}%/ปี (สมมติ "
+            f"discount rate {result['discount_rate']}%, terminal growth {result['terminal_growth']}%, "
+            f"{result['years']} ปี) เทียบกับ revenue CAGR ในอดีตจริงที่ "
+            f"{result['historical_cagr']:.1f}%/ปี" if result['historical_cagr'] is not None else
+            f"ตลาด price การเติบโตของ FCF ไว้ที่ {result['implied_growth']:.1f}%/ปี (ไม่มีข้อมูล CAGR ในอดีตให้เทียบ)"
+        )
+
     return [
         ToolSpec("list_metrics", "List all financial metrics available for this company (call this first to see what you can inspect).",
                  {}, _list_metrics),
@@ -188,6 +208,8 @@ def build_toolbox(ticker: str) -> list[ToolSpec]:
                  {"concept": {"type": "STRING", "description": "us-gaap concept", "required": True}}, _check_sec_filing),
         ToolSpec("get_event_timeline", "Get the multi-year timeline of material events (SEC 8-K filings: leadership changes, restructuring, M&A) interleaved with fundamental inflection points (margin/revenue/cash-flow turns). Use this to understand how the business got to where it is.",
                  {}, _get_event_timeline),
+        ToolSpec("get_reverse_dcf", "Get the implied FCF growth rate the current market price is pricing in (reverse-DCF), compared against the company's actual historical revenue CAGR. A large gap means the market expects meaningfully more (or less) growth than the company has actually delivered.",
+                 {}, _get_reverse_dcf),
     ]
 
 

@@ -8,6 +8,7 @@ from src.history.store import init_db, save_analysis
 from src.thesis.store import get_thesis
 from src.agent.invalidation import current_breaches
 from src.agent.health import compute_health
+from src.agent.valuation import reverse_dcf
 
 def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
     bundle = get_providers(asset_type)
@@ -67,9 +68,18 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
     health = compute_health(summary, breaches)
     grounding["health"] = health
 
+    # Phase 15: reverse-DCF (deterministic, ไม่เรียก LLM) — หุ้นเท่านั้น (ต้องมี FCF/market cap)
+    valuation = None
+    if asset_type == "stock" and fundamentals_obj is not None:
+        try:
+            valuation = reverse_dcf(fundamentals_obj)
+        except Exception as e:
+            print(f"[warn] reverse-dcf failed: {e}")
+    grounding["valuation"] = valuation
+
     if persist:
         init_db()                                        # idempotent: สร้างตาราง/เพิ่มคอลัมน์ถ้ายังไม่มี
-        save_analysis(summary, grounding, facts, extraction, health, xbrl)  # เก็บ Summary + facts + evals + health
+        save_analysis(summary, grounding, facts, extraction, health, xbrl, valuation)  # เก็บ Summary + facts + evals + health + valuation
     return summary, grounding
 
 def run_watchlist():
@@ -91,10 +101,14 @@ def run_watchlist():
         xbrl_acc = xbrl.get("accuracy")
         xbrl_str = f"{xbrl_acc:.0%}" if xbrl_acc is not None else "N/A"
         health = grounding.get("health") or {}
+        valuation = grounding.get("valuation") or {}
+        implied = valuation.get("implied_growth")
+        implied_str = f"{implied:.1f}%" if implied is not None else "N/A"
         print(
             f"{ticker:6} | {summary.fundamental_strength:6}/{summary.valuation_view:9} | "
             f"conf {summary.confidence} | price_ok={grounding['price_ok']} "
             f"news={grounding['news_grounded_ratio']:.0%} "
             f"facts={grounding['facts']['facts_grounded_ratio']:.0%} "
-            f"extract={acc_str} xbrl={xbrl_str} health={health.get('score', 'N/A')}"
+            f"extract={acc_str} xbrl={xbrl_str} health={health.get('score', 'N/A')} "
+            f"implied_growth={implied_str}"
         )
