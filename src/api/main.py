@@ -23,10 +23,13 @@ from src.agent.timeline_store import get_narrative
 
 app = FastAPI(title="Investment Research Agent API")
 
-# อนุญาตให้ Next.js dev server (localhost:3000) เรียกข้าม origin ได้
+# อนุญาตให้ Next.js dev server เรียกข้าม origin ได้ — ใช้ regex แทนพอร์ตตายตัว 3000 เพราะ
+# `next dev` auto-bump ไปพอร์ตอื่น (3001, 3002, ...) เองถ้า 3000 ถูกใช้อยู่แล้ว (เช่น เครื่องที่มี
+# dev server อื่นค้างอยู่) — เจอจริง: origin ไม่ตรง allow_origins แบบเป๊ะๆ ทำให้ preflight (OPTIONS)
+# โดน Starlette ตอบ 400 "Disallowed CORS origin" ก่อนคำขอจริงจะถูกส่งไปด้วยซ้ำ
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origin_regex=r"http://localhost:\d+",
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
