@@ -67,11 +67,13 @@ function AnalysisCard({
   changes,
   watchItem,
   edge,
+  onRemove,
 }: {
   a: Analysis;
   changes: Change[];
   watchItem?: WatchlistItem;
   edge?: EdgePosition;
+  onRemove: (ticker: string) => void;
 }) {
   const s = a.summary;
   const isHolding = watchItem?.status === "holding";
@@ -98,6 +100,20 @@ function AnalysisCard({
           <span className="watch-tag">👀 watch</span>
         )}
         <span className="price">${a.price?.toFixed(2)}</span>
+        {!isHolding && (
+          <button
+            className="chip-x card-remove"
+            style={{ marginLeft: "auto" }}
+            title={`เอา ${a.ticker} ออกจาก watchlist (ประหยัดโควตา Gemini รายวัน)`}
+            onClick={() => {
+              if (confirm(`เอา ${a.ticker} ออกจาก watchlist? จะไม่ถูกวิเคราะห์อีกในรอบถัดไป`)) {
+                onRemove(a.ticker);
+              }
+            }}
+          >
+            ×
+          </button>
+        )}
       </div>
 
       <div className="card-health">
@@ -307,6 +323,7 @@ export default function Dashboard({
         changes={changesByTicker.get(a.ticker) ?? []}
         watchItem={watchByTicker.get(a.ticker)}
         edge={edgeByTicker.get(a.ticker)}
+        onRemove={handleRemove}
       />
     );
   }

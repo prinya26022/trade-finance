@@ -129,6 +129,7 @@ ul.list li { font-size: 13px; line-height: 1.4; }
 }
 .chip-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; }
 .chip-x:hover { color: var(--red); }
+.card-remove { font-size: 18px; padding: 0 4px; }
 
 .error { background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.35); color: var(--red); padding: 16px; border-radius: 10px; font-size: 14px; }
 .error code { background: rgba(0,0,0,.3); padding: 2px 6px; border-radius: 5px; }
