@@ -115,7 +115,9 @@ def test_diff_health_jump_flagged_with_driver():
     assert len(jumps) == 1
     assert jumps[0]["severity"] == "warn"
     assert "7.4 → 9.9" in jumps[0]["detail"]
-    assert "มุมมองราคา expensive→cheap" in jumps[0]["detail"]
+    # Phase 18: valuation ไม่ผูกกับ LLM label (valuation_view) อีกต่อไป (มาจาก reverse-DCF gap
+    # แทน) -> ข้อความโชว์แค่ delta ตัวเลข ไม่ใช่ 'expensive→cheap' เหมือนก่อนหน้า
+    assert "มุมมองราคา (reverse-DCF) (+2.5)" in jumps[0]["detail"]
 
 
 def test_diff_health_jump_silent_below_threshold():
@@ -135,6 +137,16 @@ def test_diff_health_jump_silent_when_health_missing():
     assert _diff(_row(health=None), _row(health=None)) == []
 
 
+def test_diff_health_jump_silent_when_score_excluded():
+    # Phase 18: ticker ที่ 'excluded' (ข้อมูลไม่พอ/ขาดทุน/crypto) score=None แต่ components
+    # ยังมี key อยู่ (ค่า None) -> ต้องไม่ crash ตอน None - number
+    excluded = {"score": None, "components": {"strength": None, "valuation": None,
+                                               "sentiment": 1.0, "breach_penalty": None}}
+    normal = _health(7.0, {"strength": 4.0, "valuation": 2.0, "sentiment": 1.0, "breach_penalty": 0.0})
+    changes = _diff(_row(health=excluded), _row(health=normal))   # ไม่ raise = pass ครึ่งหนึ่ง
+    assert not any(c["type"] == "health_jump" for c in changes)
+
+
 def test_health_jump_driver_picks_biggest_component():
     ph = {"components": {"strength": 4.0, "valuation": 0.5, "sentiment": 2.0, "confidence": 0.9, "breach_penalty": 0.0}}
     ch = {"components": {"strength": 4.0, "valuation": 3.0, "sentiment": 0.0, "confidence": 0.9, "breach_penalty": 0.0}}
@@ -142,4 +154,4 @@ def test_health_jump_driver_picks_biggest_component():
     ps = {"fundamental_strength": "strong", "valuation_view": "expensive", "sentiment": "bullish", "confidence": 0.9}
     # valuation ขยับ +2.5 (ใหญ่กว่า sentiment -2.0) -> ต้องเลือก valuation เป็นตัวขับ
     driver = _health_jump_driver(ch, ph, cs, ps)
-    assert "มุมมองราคา expensive→cheap" in driver
+    assert "มุมมองราคา (reverse-DCF) (+2.5)" in driver

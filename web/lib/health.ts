@@ -9,8 +9,9 @@
 import type { Analysis, Change } from "./types";
 
 export type Health = {
-  score: number; // 0–10 (ปัด 1 ตำแหน่ง)
-  tier: "strong" | "ok" | "weak"; // ไว้เลือกสี
+  score: number | null; // เดิม (fallback) เต็ม 10 หรือ Phase 18 เต็ม `max` — null = excluded (ข้อมูลไม่พอ/ขาดทุน/crypto)
+  max: number; // ตัวหารจริงของ score (10 fallback, 12 Phase 18) — ใช้คำนวณ % สำหรับ meter
+  tier: "strong" | "ok" | "weak" | "excluded"; // ไว้เลือกสี
   label: string; // ป้ายไทยสั้นๆ
   reasons: string[]; // ที่มาของคะแนน (โชว์ใน tooltip)
 };
@@ -49,12 +50,14 @@ export function healthScore(a: Analysis, changes: Change[] = []): Health {
   const tier = rounded >= 7 ? "strong" : rounded >= 4.5 ? "ok" : "weak";
   const label = tier === "strong" ? "แข็งแรง" : tier === "ok" ? "พอใช้" : "อ่อน";
 
-  return { score: rounded, tier, label, reasons };
+  return { score: rounded, max: 10, tier, label, reasons };
 }
 
 // ใช้ค่าที่ persist มาจาก Python ถ้ามี (แถวใหม่ทุกแถวหลัง Phase 10) ไม่งั้น fallback คำนวณสด
-// (แถวเก่า) — เรียกอันนี้แทน healthScore() ตรงๆ ในหน้า UI ทั้งหมด
+// (แถวเก่า) — เรียกอันนี้แทน healthScore() ตรงๆ ในหน้า UI ทั้งหมด. แถวที่ Python ตอบ 'excluded'
+// (Phase 18 — ข้อมูลไม่พอ/ขาดทุน/crypto) ก็ยังถือว่า 'มี a.health' อยู่ ต้อง return ตรงๆ ไม่ fallback
+// ไป formula เดิม (นั่นจะเป็นการเสกคะแนนปลอมให้ ticker ที่ Python ตั้งใจบอกว่าประเมินไม่ได้)
 export function resolveHealth(a: Analysis, changes: Change[] = []): Health {
-  if (a.health) return a.health;
+  if (a.health) return { ...a.health, max: a.health.max ?? 10 };
   return healthScore(a, changes);
 }

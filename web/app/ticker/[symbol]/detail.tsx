@@ -151,19 +151,26 @@ export default function TickerDetail({
             <>
               <p className="valuation-line">
                 ตลาด price การเติบโตของ FCF ไว้ที่ <strong>{a.valuation.implied_growth.toFixed(1)}%/ปี</strong>
-                {a.valuation.historical_cagr != null && (
-                  <> เทียบกับที่เคยโตจริง <strong>{a.valuation.historical_cagr.toFixed(1)}%/ปี</strong></>
+                {a.valuation.realistic_growth != null && (
+                  <> เทียบ realistic growth (sustainable) <strong>{a.valuation.realistic_growth.toFixed(1)}%/ปี</strong></>
                 )}
+                {a.valuation.score != null && <> — คะแนนราคา <strong>{a.valuation.score}/3</strong></>}
               </p>
               {a.valuation.gap != null && (
-                <p className={`valuation-gap ${a.valuation.gap > 5 ? "gap-hot" : a.valuation.gap < -5 ? "gap-cold" : ""}`}>
-                  {a.valuation.gap >= 0 ? "▲" : "▼"} ห่างจากผลงานในอดีต {a.valuation.gap >= 0 ? "+" : ""}
+                <p className={`valuation-gap ${a.valuation.gap >= 10 ? "gap-hot" : a.valuation.gap < 0 ? "gap-cold" : ""}`}>
+                  {a.valuation.gap >= 0 ? "▲" : "▼"} gap {a.valuation.gap >= 0 ? "+" : ""}
                   {a.valuation.gap.toFixed(1)} pp
+                  {a.valuation.historical_cagr != null && (
+                    <span className="muted"> (historical CAGR อ้างอิง {a.valuation.historical_cagr.toFixed(1)}%/ปี)</span>
+                  )}
                 </p>
               )}
+              {a.valuation.divergence_flag && (
+                <p className="valuation-flag">⚠ {a.valuation.divergence_flag}</p>
+              )}
               <p className="muted valuation-assump">
-                สมมติฐาน: discount rate {a.valuation.discount_rate}% · terminal growth {a.valuation.terminal_growth}% ·{" "}
-                {a.valuation.years} ปี
+                สมมติฐาน: WACC (CAPM) {a.valuation.wacc}% (β={a.valuation.beta_used}) · terminal growth{" "}
+                {a.valuation.terminal_growth}% · {a.valuation.years} ปี
               </p>
             </>
           ) : (

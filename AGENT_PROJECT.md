@@ -156,8 +156,48 @@ is priced in than the company has actually delivered. Verified live on AAPL: mar
 (stock only, deterministic, no LLM call), persisted per row (valuation_json), rendered as a
 valuation card on the ticker detail page, and added as a get_reverse_dcf tool the Phase 13 agent
 can call mid-investigation to ground its conclusion in what the market is actually pricing in.
+Phase 16 (health-jump explanations) DONE: compute_health() also returns a numeric `components`
+breakdown; changes.py::_diff detects health-score swings >= 1.5 points between consecutive runs
+and names the single biggest driver by diffing components, instead of just noting the score
+changed. Motivated by a real MSFT/NVDA case (score jumping ~2.5 points same-day purely from the
+LLM recategorizing "expensive" as "cheap" on identical underlying data).
+Phase 17 (health score grounded in real numbers) DONE, then superseded by Phase 18 below — kept
+for history: replaced flat LLM-label-bucket scoring with a hybrid preferring computed numbers
+(Piotroski-style checklist for strength, reverse-DCF gap for valuation) and falling back to the
+LLM's label only when the numbers weren't available.
+Phase 18 (scoring_spec.md — rigorous, backtestable health score) DONE: replaces Phase 17's
+fallback-to-LLM-label design with a stricter spec aimed at genuine cross-stock comparability
+(external doc: scoring_spec.md). Total = Fundamental(/8) + Valuation reverse-DCF(/3) +
+News(/1) = /12 — confidence dropped entirely as a scoring input (LLM metadata only, not part of
+the score).
+- Fundamental (/8): 8 Piotroski-style criteria (ROIC>WACC, ROE trend, FCF+accruals quality
+  [CFO>Net Income], revenue CAGR>3%, leverage level+trend, liquidity level+trend, margin trend,
+  no dilution) with a FIXED denominator of 8 — missing input on a checkable criterion counts as
+  fail(0), never skipped (spec explicitly forbids normalizing by computable-count, since that
+  would reward low-disclosure companies). A data gate requires >=6/8 criteria computable at all,
+  else the ticker is DISQUALIFIED (score=None) rather than scored on thin data.
+- Valuation (/3): reverse-DCF rewritten to use company-specific CAPM WACC (Rf from live ^TNX
+  10-year treasury yield via the new src/providers/stock/market.py, cached daily, + beta from
+  yfinance, clamped to [0.7, 1.6]), EV = Market Cap + Net Debt (not market cap alone), a 3-year
+  average FCF base (not just TTM), and "realistic growth" = sustainable growth
+  (reinvestment_rate x ROIC, capped at 20%, cross-checked against historical CAGR with a
+  divergence flag) instead of raw historical CAGR. Gap maps to a 0-3 step-function score per the
+  spec's fixed bands. A company whose reverse-DCF can't resolve (negative FCF, out-of-model-range
+  price) is EXCLUDED (score=None), not fallback-scored.
+- StockFundamentals gained the raw Facts the above needs: Net Income, CFO, Net Debt (dollar),
+  Capex, D&A, NWC Change, NOPAT, Invested Capital, Beta, plus multi-year ROE/Net-Debt-to-EBITDA/
+  Current-Ratio series (previously scalar-only).
+- Crypto and any stock missing >=3 years of key financials are therefore intentionally excluded
+  from this score entirely (out of scope per spec) rather than papered over.
+- Backfilled all existing history rows via backfill_health.py (reuses each row's own persisted
+  facts_json, so it's point-in-time correct) — nearly all pre-Phase-18 rows became "excluded"
+  since the new criteria need Facts that didn't exist before this phase; this is accurate (the
+  historical data genuinely isn't there), not a bug, and resolves automatically as each ticker
+  gets re-analyzed.
 Remaining: deeper crypto on-chain metrics (active addresses, fees, TVL), macro/rates valuation
-context, extending XBRL coverage beyond margins/ROE, triggering investigation/narration from the UI.
+context beyond CAPM WACC, extending XBRL coverage beyond margins/ROE, triggering investigation/
+narration from the UI, bank/insurance alternate scoring framework (FCF-based ratios don't apply),
+cyclical-industry normalization.
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls

@@ -27,6 +27,17 @@ class StockFundamentals(Fundamentals):
     interest_coverage: float | None = None   # EBIT / ดอกเบี้ย
     current_ratio: float | None = None
 
+    # --- Phase 18: ดิบสำหรับ Piotroski data-gate + reverse-DCF (CAPM/sustainable growth) ---
+    net_income: float | None = None          # scoring_spec.md เกณฑ์ #3 (accruals: CFO > Net Income)
+    cfo: float | None = None                 # Operating Cash Flow — คู่กับ net_income เช็คคุณภาพกำไร
+    net_debt: float | None = None            # ดอลลาร์ดิบ (ไม่ใช่ ratio) — ใช้ผูก EV = Market Cap + Net Debt
+    capex: float | None = None               # เข้า reinvestment_rate = (Capex − D&A + ΔNWC) / NOPAT
+    depreciation_amortization: float | None = None
+    nwc_change: float | None = None          # Change In Working Capital
+    nopat: float | None = None               # จาก ROIC calc — เป็นตัวหารของ reinvestment_rate
+    invested_capital: float | None = None    # จาก ROIC calc
+    beta: float | None = None                # β หุ้น — เข้า CAPM WACC (Rf + β×ERP)
+
     # --- Red flags (ด่าน 8) ---
     goodwill: float | None = None            # ถ้าเยอะระวัง write-off
     goodwill_pct_assets: float | None = None # goodwill เป็น % ของสินทรัพย์รวม
@@ -50,6 +61,11 @@ class StockFundamentals(Fundamentals):
     fcf_series: list[tuple[str, float]] = field(default_factory=list)          # FCF trend หลายปี
     dso_series: list[tuple[str, float]] = field(default_factory=list)          # วันเก็บหนี้ (พุ่ง = red flag)
     inventory_pct_series: list[tuple[str, float]] = field(default_factory=list)  # inventory เทียบยอดขาย (บวม = red flag)
+
+    # --- Phase 18: อนุกรมหลายปีเพิ่ม — scoring_spec.md เกณฑ์ #2/#5/#6 ต้องเช็ค trend YoY ไม่ใช่แค่ level ---
+    roe_series: list[tuple[str, float]] = field(default_factory=list)
+    net_debt_to_ebitda_series: list[tuple[str, float]] = field(default_factory=list)
+    current_ratio_series: list[tuple[str, float]] = field(default_factory=list)
 
     def to_facts(self) -> list[Fact]:
         facts: list[Fact] = []
@@ -79,6 +95,15 @@ class StockFundamentals(Fundamentals):
             ("Avg Daily Volume", self.avg_volume, "shares", self.period),
             ("Goodwill", self.goodwill, "USD", self.period),
             ("Goodwill % Assets", self.goodwill_pct_assets, "%", self.period),
+            ("Net Income", self.net_income, "USD", self.period),
+            ("CFO", self.cfo, "USD", self.period),
+            ("Net Debt", self.net_debt, "USD", self.period),
+            ("Capex", self.capex, "USD", self.period),
+            ("D&A", self.depreciation_amortization, "USD", self.period),
+            ("NWC Change", self.nwc_change, "USD", self.period),
+            ("NOPAT", self.nopat, "USD", self.period),
+            ("Invested Capital", self.invested_capital, "USD", self.period),
+            ("Beta", self.beta, "x", self.period),
         ]
         facts += [
             Fact(label, value, unit, period)
@@ -95,6 +120,9 @@ class StockFundamentals(Fundamentals):
             ("Free Cash Flow", self.fcf_series, "USD"),
             ("DSO", self.dso_series, "days"),
             ("Inventory % Revenue", self.inventory_pct_series, "%"),
+            ("ROE", self.roe_series, "%"),
+            ("Net Debt / EBITDA", self.net_debt_to_ebitda_series, "x"),
+            ("Current Ratio", self.current_ratio_series, "x"),
         ]
         for label, points, unit in series:
             for period_label, value in points:
@@ -180,7 +208,10 @@ def _compute_free_cash_flow(info: dict, cashflow) -> float | None:
     return None
 
 
-def _compute_roic(financials, balance_sheet) -> float | None:
+def _compute_roic(financials, balance_sheet) -> tuple[float | None, float | None, float | None]:
+    """คืน (ROIC %, NOPAT ดอลลาร์, Invested Capital ดอลลาร์) — expose NOPAT/invested_capital
+    แยกเป็น Fact ของตัวเอง (Phase 18) เพราะ reinvestment_rate ของ reverse-DCF ใหม่ต้องใช้
+    NOPAT เป็นตัวหาร (reinvestment_rate = (Capex − D&A + ΔNWC) / NOPAT)."""
     operating_income = _first(["Operating Income", "EBIT"], financials)  # EBIT
     pretax_income = _first(["Pretax Income"], financials)
     tax_provision = _first(["Tax Provision"], financials)
@@ -192,15 +223,15 @@ def _compute_roic(financials, balance_sheet) -> float | None:
         balance_sheet,
     )
     if operating_income is None or total_debt is None or total_equity is None or cash is None:
-        return None
+        return None, None, None
 
     # อัตราภาษีจริง (guard หาร 0 / None) แล้วได้ NOPAT = กำไรดำเนินงานหลังภาษี
     tax_rate = tax_provision / pretax_income if pretax_income and tax_provision is not None else 0.0
     nopat = operating_income * (1 - tax_rate)
     invested_capital = total_debt + total_equity - cash  # เงินทั้งหมดที่ใส่ในธุรกิจ (หัก cash กองเฉย ๆ)
     if not invested_capital:
-        return None
-    return round((nopat / invested_capital) * 100, 2)
+        return None, nopat, invested_capital
+    return round((nopat / invested_capital) * 100, 2), nopat, invested_capital
 
 
 def _compute_roe(financials, balance_sheet) -> float | None:
@@ -224,18 +255,56 @@ def _compute_revenue_cagr(financials) -> float | None:
     return round(cagr * 100, 2)
 
 
-def _compute_net_debt_to_ebitda(balance_sheet, financials, info) -> float | None:
+def _compute_net_debt(balance_sheet) -> float | None:
+    """Net Debt ดอลลาร์ดิบ (ไม่ใช่ ratio) — เดิมคำนวณแล้วทิ้งข้างในเลย (Phase 18: แยก expose
+    เป็น Fact ของตัวเองด้วย ใช้ผูก EV = Market Cap + Net Debt ใน reverse-DCF ใหม่)."""
     net_debt = _first(["Net Debt"], balance_sheet)
+    if net_debt is not None:
+        return net_debt
+    total_debt = _first(["Total Debt"], balance_sheet)
+    cash = _first(["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"], balance_sheet)
+    if total_debt is None or cash is None:
+        return None
+    return total_debt - cash
+
+
+def _compute_net_debt_to_ebitda(balance_sheet, financials, info) -> float | None:
+    net_debt = _compute_net_debt(balance_sheet)
     if net_debt is None:
-        total_debt = _first(["Total Debt"], balance_sheet)
-        cash = _first(["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"], balance_sheet)
-        if total_debt is None or cash is None:
-            return None
-        net_debt = total_debt - cash
+        return None
     ebitda = _first(["EBITDA", "Normalized EBITDA"], financials) or info.get("ebitda")
     if not ebitda:
         return None
     return round(net_debt / ebitda, 2)
+
+
+def _net_debt_to_ebitda_series(balance_sheet, financials) -> list[tuple[str, float]]:
+    """อนุกรมรายปี — net_debt คำนวณจาก 2 แถวในงบดุลปีเดียวกัน (ไม่ใช่แถวเดียว) จึงคำนวณ
+    net_debt ต่อปีก่อน แล้วค่อยจับคู่กับ EBITDA ปีเดียวกันจากงบกำไร (คนละ DataFrame)."""
+    debt_row = _find_row(["Total Debt"], balance_sheet)
+    cash_row = _find_row(
+        ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"], balance_sheet
+    )
+    if debt_row is None or cash_row is None:
+        return []
+    net_debt_by_year: dict[int, float] = {}
+    for col in balance_sheet.columns:
+        year = getattr(col, "year", None)
+        debt, cash = balance_sheet.loc[debt_row, col], balance_sheet.loc[cash_row, col]
+        if year is not None and pd.notna(debt) and pd.notna(cash):
+            net_debt_by_year[year] = float(debt) - float(cash)
+
+    ebitda_row = _find_row(["EBITDA", "Normalized EBITDA"], financials)
+    if ebitda_row is None:
+        return []
+    out = []
+    for col in financials.columns:
+        year = getattr(col, "year", None)
+        ebitda = financials.loc[ebitda_row, col]
+        net_debt = net_debt_by_year.get(year)
+        if year is not None and pd.notna(ebitda) and ebitda and net_debt is not None:
+            out.append((f"FY{year}", round(net_debt / float(ebitda), 2)))
+    return out
 
 
 def _latest_common(numer_names, denom_names, df):
@@ -324,13 +393,14 @@ class StockFundamentalsProvider(FundamentalsProvider):
         fcf = _compute_free_cash_flow(info, cf)
         market_cap = info.get("marketCap")
         goodwill, goodwill_pct = _compute_goodwill(bs)
+        roic, nopat, invested_capital = _compute_roic(fin, bs)
 
         return StockFundamentals(
             period=_period_label(fin.columns[0]) if fin is not None and not fin.empty else "N/A",
             revenue=revenue,
             free_cash_flow=fcf,
             fcf_margin=round((fcf / revenue) * 100, 2) if fcf is not None and revenue else None,
-            roic=_compute_roic(fin, bs),
+            roic=roic,
             roe=_compute_roe(fin, bs),
             revenue_cagr=_compute_revenue_cagr(fin),
             net_debt_to_ebitda=_compute_net_debt_to_ebitda(bs, fin, info),
@@ -347,6 +417,15 @@ class StockFundamentalsProvider(FundamentalsProvider):
             fcf_yield=_fcf_yield(fcf, market_cap),
             market_cap=float(market_cap) if market_cap is not None else None,
             avg_volume=float(info["averageVolume"]) if info.get("averageVolume") is not None else None,
+            net_income=_first(["Net Income", "Net Income Common Stockholders"], fin),
+            cfo=_first(["Operating Cash Flow", "Total Cash From Operating Activities"], cf),
+            net_debt=_compute_net_debt(bs),
+            capex=_first(["Capital Expenditure", "Capital Expenditures"], cf),
+            depreciation_amortization=_first(["Depreciation And Amortization", "Depreciation Amortization Depletion"], cf),
+            nwc_change=_first(["Change In Working Capital"], cf),
+            nopat=nopat,
+            invested_capital=invested_capital,
+            beta=float(info["beta"]) if info.get("beta") is not None else None,
             gross_margin_series=_ratio_series(["Gross Profit"], ["Total Revenue"], fin),
             operating_margin_series=_ratio_series(["Operating Income", "EBIT"], ["Total Revenue"], fin),
             net_margin_series=_ratio_series(["Net Income", "Net Income Common Stockholders"], ["Total Revenue"], fin),
@@ -354,6 +433,9 @@ class StockFundamentalsProvider(FundamentalsProvider):
             fcf_series=_series(["Free Cash Flow"], cf),
             dso_series=_cross_ratio_series(["Receivables", "Accounts Receivable"], bs, ["Total Revenue", "Operating Revenue"], fin, 365),
             inventory_pct_series=_cross_ratio_series(["Inventory"], bs, ["Total Revenue", "Operating Revenue"], fin, 100),
+            roe_series=_cross_ratio_series(["Net Income", "Net Income Common Stockholders"], fin, ["Stockholders Equity", "Total Stockholder Equity"], bs, 100),
+            net_debt_to_ebitda_series=_net_debt_to_ebitda_series(bs, fin),
+            current_ratio_series=_ratio_series(["Current Assets"], ["Current Liabilities"], bs, pct=False),
         )
 
 

@@ -9,6 +9,7 @@ from src.thesis.store import get_thesis
 from src.agent.invalidation import current_breaches
 from src.agent.health import compute_health
 from src.agent.valuation import reverse_dcf
+from src.providers.stock.market import get_risk_free_rate_pct
 
 def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
     bundle = get_providers(asset_type)
@@ -62,19 +63,23 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
             print(f"[warn] xbrl accuracy eval failed: {e}")
     grounding["xbrl"] = xbrl
 
+    # risk-free rate (พันธบัตร 10 ปี ณ วันรัน, cache 1 วัน) — ล็อกค่าเดียวใช้ร่วมกันทุก
+    # ticker ในรอบนี้ ทั้ง CAPM WACC ของ health score และ reverse-DCF ด้านล่าง (Phase 18)
+    risk_free_pct = get_risk_free_rate_pct() if asset_type == "stock" else 4.0
+
     # health score (deterministic, ไม่เรียก LLM): ใช้ breaches ของ 'รอบนี้' จาก facts ในมือ
     # ตรงๆ (ไม่ใช่ check_invalidation ที่อ่านจาก DB ซึ่งตอนนี้ยังเป็นแถวของรอบก่อนหน้า)
-    # ส่ง facts เข้าไปด้วย (Phase 17) -> strength/valuation คำนวณจากตัวเลขจริง (Piotroski-
-    # style + reverse-DCF gap) แทนที่จะพึ่ง label ของ LLM ล้วนๆ อย่างเดียว
+    # ส่ง facts เข้าไปด้วย (Phase 17/18) -> strength/valuation คำนวณจากตัวเลขจริงล้วน
+    # (Piotroski fixed-denominator + reverse-DCF, ดู scoring_spec.md) ไม่ fallback ไป LLM label
     breaches = current_breaches(facts, price.price, thesis)
-    health = compute_health(summary, breaches, facts)
+    health = compute_health(summary, breaches, facts, risk_free_pct)
     grounding["health"] = health
 
-    # Phase 15: reverse-DCF (deterministic, ไม่เรียก LLM) — หุ้นเท่านั้น (ต้องมี FCF/market cap)
+    # Phase 15/18: reverse-DCF (deterministic, ไม่เรียก LLM) — หุ้นเท่านั้น (ต้องมี FCF/market cap)
     valuation = None
     if asset_type == "stock" and fundamentals_obj is not None:
         try:
-            valuation = reverse_dcf(fundamentals_obj)
+            valuation = reverse_dcf(fundamentals_obj, risk_free_pct=risk_free_pct)
         except Exception as e:
             print(f"[warn] reverse-dcf failed: {e}")
     grounding["valuation"] = valuation
@@ -103,6 +108,8 @@ def run_watchlist():
         xbrl_acc = xbrl.get("accuracy")
         xbrl_str = f"{xbrl_acc:.0%}" if xbrl_acc is not None else "N/A"
         health = grounding.get("health") or {}
+        health_score = health.get("score")
+        health_str = f"{health_score:.1f}" if health_score is not None else health.get("tier", "N/A")
         valuation = grounding.get("valuation") or {}
         implied = valuation.get("implied_growth")
         implied_str = f"{implied:.1f}%" if implied is not None else "N/A"
@@ -111,6 +118,6 @@ def run_watchlist():
             f"conf {summary.confidence} | price_ok={grounding['price_ok']} "
             f"news={grounding['news_grounded_ratio']:.0%} "
             f"facts={grounding['facts']['facts_grounded_ratio']:.0%} "
-            f"extract={acc_str} xbrl={xbrl_str} health={health.get('score', 'N/A')} "
+            f"extract={acc_str} xbrl={xbrl_str} health={health_str} "
             f"implied_growth={implied_str}"
         )

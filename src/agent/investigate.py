@@ -180,22 +180,26 @@ def build_toolbox(ticker: str) -> list[ToolSpec]:
         return "\n".join(f"{e['date']} [{e['kind']}] {e['detail']}" for e in events)
 
     def _get_reverse_dcf(args: dict) -> str:
-        # Phase 15: 'ตลาด price การเติบโตไว้กี่ % ต่อปี' เทียบกับที่บริษัทเคยโตจริง
+        # Phase 18: 'ตลาด price การเติบโตไว้กี่ % ต่อปี' เทียบกับ realistic (sustainable) growth
         from src.agent.valuation import reverse_dcf
+        from src.providers.stock.market import get_risk_free_rate_pct
         if fundamentals_obj is None:
             return "ไม่มีข้อมูล fundamentals (ดึงไม่ได้)"
-        result = reverse_dcf(fundamentals_obj)
+        result = reverse_dcf(fundamentals_obj, risk_free_pct=get_risk_free_rate_pct())
         if result is None:
             return "คำนวณ reverse-DCF ไม่ได้ (ไม่มี FCF หรือ market cap)"
         if result["implied_growth"] is None:
             return f"คำนวณ implied growth ไม่ได้: {result['note']}"
-        return (
-            f"ตลาด price การเติบโตของ FCF ไว้ที่ {result['implied_growth']:.1f}%/ปี (สมมติ "
-            f"discount rate {result['discount_rate']}%, terminal growth {result['terminal_growth']}%, "
-            f"{result['years']} ปี) เทียบกับ revenue CAGR ในอดีตจริงที่ "
-            f"{result['historical_cagr']:.1f}%/ปี" if result['historical_cagr'] is not None else
-            f"ตลาด price การเติบโตของ FCF ไว้ที่ {result['implied_growth']:.1f}%/ปี (ไม่มีข้อมูล CAGR ในอดีตให้เทียบ)"
+        out = (
+            f"ตลาด price การเติบโตของ FCF ไว้ที่ {result['implied_growth']:.1f}%/ปี "
+            f"(WACC {result['wacc']}% จาก CAPM, terminal growth {result['terminal_growth']}%, "
+            f"{result['years']} ปี, EV={result['ev']:,.0f}) เทียบกับ realistic growth "
+            f"(sustainable growth จาก reinvestment×ROIC) ที่ {result['realistic_growth']:.1f}%/ปี "
+            f"— gap {result['gap']:+.1f}pp, คะแนนราคา {result['score']}/3"
         )
+        if result.get("divergence_flag"):
+            out += f"\n⚠ {result['divergence_flag']}"
+        return out
 
     return [
         ToolSpec("list_metrics", "List all financial metrics available for this company (call this first to see what you can inspect).",

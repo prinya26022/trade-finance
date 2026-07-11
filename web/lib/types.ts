@@ -73,13 +73,22 @@ export type Timeline = {
 };
 
 // Phase 15: reverse-DCF — growth rate ที่ราคาตลาดปัจจุบัน 'price ไว้' เทียบกับ historical CAGR จริง
+// Phase 18: CAPM WACC (company-specific, ไม่ใช่ค่าคงที่เดิม), EV = Market Cap + Net Debt,
+// realistic_growth = sustainable growth (reinvestment×ROIC, capped) แทน raw historical CAGR,
+// score = 0-3 step-function จาก gap band (ตาม scoring_spec.md)
 export type Valuation = {
   implied_growth: number | null; // % ต่อปี — null ถ้าคำนวณไม่ได้ (FCF ติดลบ/นอกขอบเขตโมเดล)
-  historical_cagr: number | null; // % ต่อปีที่บริษัทโตจริงในอดีต
-  gap: number | null; // implied - historical (บวก = ตลาดคาดหวังมากกว่าที่เคยทำได้จริง)
-  discount_rate: number;
+  realistic_growth: number | null; // % ต่อปี — sustainable growth (หลัก), fallback ไป historical_cagr ถ้าคำนวณ sustainable ไม่ได้
+  historical_cagr: number | null; // % ต่อปีที่บริษัทโตจริงในอดีต (อ้างอิง/cross-check เท่านั้น)
+  gap: number | null; // implied - realistic (บวก = ตลาดคาดหวังมากกว่าที่ทำได้อย่างยั่งยืน)
+  score: number | null; // 0-3, step function จาก gap band
+  wacc: number; // % CAPM (Rf + β×ERP) ที่ใช้จริง
+  beta_used: number; // β หลัง clamp [0.7, 1.6]
   terminal_growth: number;
   years: number;
+  ev: number | null; // Market Cap + Net Debt ที่ใช้เป็นเป้าหมายแก้สมการ
+  fcf_base: number | null; // ค่าเฉลี่ย FCF 3 ปีที่ใช้เป็นฐานโมเดล
+  divergence_flag: string | null; // เตือนถ้า sustainable growth กับ historical CAGR ต่างกันมหาศาล
   note: string | null;
 };
 
@@ -140,9 +149,13 @@ export type ExtractionResult = {
 
 // Phase 10: health score ที่คำนวณ+เก็บตอน analyze() (Python เป็น source of truth) — เก็บทุก
 // แถวประวัติ ต่างจากเดิมที่คำนวณสดฝั่ง frontend อย่างเดียว จึงย้อนดู trend/เหตุผลได้
+// Phase 18: score/tier เป็น null/"excluded" ได้ — ticker ที่ข้อมูลไม่พอ (data gate <6/8 เกณฑ์),
+// ขาดทุน (reverse-DCF หาคำตอบไม่ได้), หรือ crypto (ไม่มี Fact ที่เกี่ยวข้องเลย) จะถูกตัดออกจาก
+// screen นี้แทนการ fallback ไปใช้ label ของ LLM แบบ Phase 17 เดิม
 export type PersistedHealth = {
-  score: number;
-  tier: "strong" | "ok" | "weak";
+  score: number | null;
+  max?: number; // Phase 18+ เท่านั้น (12) — แถวเก่า Phase 10-17 ไม่มี field นี้ (undefined = /10)
+  tier: "strong" | "ok" | "weak" | "excluded";
   label: string;
   reasons: string[];
 };
