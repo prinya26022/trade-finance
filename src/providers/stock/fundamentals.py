@@ -67,6 +67,9 @@ class StockFundamentals(Fundamentals):
     net_debt_to_ebitda_series: list[tuple[str, float]] = field(default_factory=list)
     current_ratio_series: list[tuple[str, float]] = field(default_factory=list)
 
+    # --- valuation_guard_growth_lens.md: rev_growth_recent (ปีล่าสุดจริง ไม่ใช่ CAGR หลายปี) ---
+    revenue_series: list[tuple[str, float]] = field(default_factory=list)
+
     def to_facts(self) -> list[Fact]:
         facts: list[Fact] = []
 
@@ -123,6 +126,7 @@ class StockFundamentals(Fundamentals):
             ("ROE", self.roe_series, "%"),
             ("Net Debt / EBITDA", self.net_debt_to_ebitda_series, "x"),
             ("Current Ratio", self.current_ratio_series, "x"),
+            ("Revenue FY", self.revenue_series, "USD"),
         ]
         for label, points, unit in series:
             for period_label, value in points:
@@ -436,6 +440,7 @@ class StockFundamentalsProvider(FundamentalsProvider):
             roe_series=_cross_ratio_series(["Net Income", "Net Income Common Stockholders"], fin, ["Stockholders Equity", "Total Stockholder Equity"], bs, 100),
             net_debt_to_ebitda_series=_net_debt_to_ebitda_series(bs, fin),
             current_ratio_series=_ratio_series(["Current Assets"], ["Current Liabilities"], bs, pct=False),
+            revenue_series=_series(["Total Revenue", "Operating Revenue"], fin),
         )
 
 

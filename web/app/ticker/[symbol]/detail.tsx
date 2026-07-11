@@ -152,9 +152,13 @@ export default function TickerDetail({
               <p className="valuation-line">
                 ตลาด price การเติบโตของ FCF ไว้ที่ <strong>{a.valuation.implied_growth.toFixed(1)}%/ปี</strong>
                 {a.valuation.realistic_growth != null && (
-                  <> เทียบ realistic growth (sustainable) <strong>{a.valuation.realistic_growth.toFixed(1)}%/ปี</strong></>
+                  <> เทียบ realistic growth <strong>{a.valuation.realistic_growth.toFixed(1)}%/ปี</strong></>
                 )}
                 {a.valuation.score != null && <> — คะแนนราคา <strong>{a.valuation.score}/3</strong></>}
+                {" "}
+                <span className={`lens-tag lens-${a.valuation.lens}`}>
+                  {a.valuation.lens === "growth" ? "growth lens" : "standard lens"}
+                </span>
               </p>
               {a.valuation.gap != null && (
                 <p className={`valuation-gap ${a.valuation.gap >= 10 ? "gap-hot" : a.valuation.gap < 0 ? "gap-cold" : ""}`}>
@@ -165,8 +169,16 @@ export default function TickerDetail({
                   )}
                 </p>
               )}
-              {a.valuation.divergence_flag && (
-                <p className="valuation-flag">⚠ {a.valuation.divergence_flag}</p>
+              {a.valuation.flags.length > 0 && (
+                <p className="valuation-flag">
+                  ⚠ ใช้ growth lens แทน sustainable growth เพราะ: {a.valuation.flags.join(", ")}
+                </p>
+              )}
+              {a.valuation.lens === "growth" && a.valuation.rule_of_40 != null && (
+                <p className="muted valuation-assump">
+                  Rule of 40: {a.valuation.rule_of_40.toFixed(1)} (growth% + FCF margin%)
+                  {a.valuation.rule_of_40 < 20 && " — ต่ำกว่า 20 ระวัง 'โตไม่จริง'"}
+                </p>
               )}
               <p className="muted valuation-assump">
                 สมมติฐาน: WACC (CAPM) {a.valuation.wacc}% (β={a.valuation.beta_used}) · terminal growth{" "}

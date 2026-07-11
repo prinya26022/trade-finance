@@ -76,19 +76,25 @@ export type Timeline = {
 // Phase 18: CAPM WACC (company-specific, ไม่ใช่ค่าคงที่เดิม), EV = Market Cap + Net Debt,
 // realistic_growth = sustainable growth (reinvestment×ROIC, capped) แทน raw historical CAGR,
 // score = 0-3 step-function จาก gap band (ตาม scoring_spec.md)
+// valuation_guard_growth_lens.md: sustainable_growth (reinvestment_rate × ROIC) พังกับหุ้น
+// asset-light + deferred-revenue (เช่น DUOL — ΔNWC บวกมากจากลูกค้าจ่ายล่วงหน้า ทำให้
+// reinvestment ติดลบทั้งที่บริษัทโตจริง) valuation_guard ตรวจจับแล้ว route ไป 'growth lens'
+// (ใช้ growth จริงล่าสุดที่ fade ลง terminal แทน) — lens ต้องแยกกลุ่มตอนวิเคราะห์ ห้ามปนกัน
 export type Valuation = {
   implied_growth: number | null; // % ต่อปี — null ถ้าคำนวณไม่ได้ (FCF ติดลบ/นอกขอบเขตโมเดล)
-  realistic_growth: number | null; // % ต่อปี — sustainable growth (หลัก), fallback ไป historical_cagr ถ้าคำนวณ sustainable ไม่ได้
+  realistic_growth: number | null; // % ต่อปี — anchor ที่ใช้เทียบ gap จริง (มาจาก lens ไหนดู field lens)
   historical_cagr: number | null; // % ต่อปีที่บริษัทโตจริงในอดีต (อ้างอิง/cross-check เท่านั้น)
-  gap: number | null; // implied - realistic (บวก = ตลาดคาดหวังมากกว่าที่ทำได้อย่างยั่งยืน)
-  score: number | null; // 0-3, step function จาก gap band
+  gap: number | null; // implied - realistic (บวก = ตลาดคาดหวังมากกว่าที่ทำได้)
+  score: number | null; // 0-3, step function จาก gap band (ปรับด้วย Rule of 40 ถ้า lens='growth')
+  lens: "standard" | "growth" | "NA"; // ใช้ sustainable_growth ตรงๆ | ใช้ growth lens แทน | คำนวณไม่ได้เลย
+  flags: string[]; // เหตุผลที่ route (FCF_NONPOSITIVE/NOPAT_UNSTABLE/NEGATIVE_REINVESTMENT/SUSTAINABLE_DIVERGES)
+  rule_of_40: number | null; // rev_growth_recent% + fcf_margin% (เฉพาะ lens='growth')
   wacc: number; // % CAPM (Rf + β×ERP) ที่ใช้จริง
   beta_used: number; // β หลัง clamp [0.7, 1.6]
   terminal_growth: number;
   years: number;
   ev: number | null; // Market Cap + Net Debt ที่ใช้เป็นเป้าหมายแก้สมการ
   fcf_base: number | null; // ค่าเฉลี่ย FCF 3 ปีที่ใช้เป็นฐานโมเดล
-  divergence_flag: string | null; // เตือนถ้า sustainable growth กับ historical CAGR ต่างกันมหาศาล
   note: string | null;
 };
 

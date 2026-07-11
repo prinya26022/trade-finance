@@ -230,6 +230,13 @@ ul.list li { font-size: 13px; line-height: 1.4; }
 .valuation-gap.gap-cold { color: var(--green); }
 .valuation-assump { margin: 0; font-size: 11.5px; }
 .valuation-flag { margin: 4px 0; font-size: 12px; color: var(--amber); }
+.lens-tag {
+  display: inline-block; font-size: 10.5px; font-weight: 600; padding: 1px 6px;
+  border-radius: 999px; vertical-align: middle; text-transform: uppercase;
+}
+.lens-tag.lens-standard { background: rgba(88,166,255,.12); color: var(--blue); }
+.lens-tag.lens-growth { background: rgba(210,153,34,.12); color: var(--amber); }
+.lens-tag.lens-NA { background: var(--panel-2); color: var(--muted); }
 
 /* charts */
 .charts-grid {

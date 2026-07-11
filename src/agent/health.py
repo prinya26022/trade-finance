@@ -178,8 +178,11 @@ def _build_duck_fundamentals(facts: list[dict]) -> SimpleNamespace:
     return SimpleNamespace(
         free_cash_flow=fcf,
         market_cap=market_cap,
+        revenue=_scalar(facts, "Revenue"),
         revenue_cagr=_scalar(facts, "Revenue CAGR"),
+        revenue_series=_fy_series(facts, "Revenue FY"),
         fcf_series=_fy_series(facts, "Free Cash Flow"),
+        fcf_margin=_scalar(facts, "FCF Margin"),
         net_debt=_scalar(facts, "Net Debt"),
         beta=_scalar(facts, "Beta"),
         capex=_scalar(facts, "Capex"),
@@ -200,9 +203,10 @@ def _valuation_score(facts: list[dict], risk_free_pct: float) -> dict:
     if dcf["score"] is None:
         reason = dcf.get("note") or "reverse-DCF คำนวณไม่ได้"
         return {"score": None, "excluded": True, "reason": f"{reason} — ตัดออกจาก screen นี้", **dcf}
+    lens_note = f", {dcf['lens']} lens ({', '.join(dcf['flags'])})" if dcf["flags"] else ""
     reason = (
         f"ราคา: ตลาดคาด FCF โต {dcf['implied_growth']:.1f}%/ปี เทียบ realistic growth "
-        f"{dcf['realistic_growth']:.1f}%/ปี (gap {dcf['gap']:+.1f}pp, WACC {dcf['wacc']:.1f}%) (+{dcf['score']}/3)"
+        f"{dcf['realistic_growth']:.1f}%/ปี (gap {dcf['gap']:+.1f}pp, WACC {dcf['wacc']:.1f}%{lens_note}) (+{dcf['score']}/3)"
     )
     return {"score": dcf["score"], "excluded": False, "reason": reason, **dcf}
 

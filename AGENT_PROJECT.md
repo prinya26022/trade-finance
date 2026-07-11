@@ -194,6 +194,25 @@ the score).
   since the new criteria need Facts that didn't exist before this phase; this is accurate (the
   historical data genuinely isn't there), not a bug, and resolves automatically as each ticker
   gets re-analyzed.
+Phase 18b (valuation_guard_growth_lens.md — fix sustainable_growth for asset-light/deferred-
+revenue stocks) DONE: Phase 18's sustainable_growth = reinvestment_rate x ROIC broke for
+companies like DUOL, where growing deferred revenue (customers pay upfront) makes yfinance's
+"Change In Working Capital" strongly positive, which the reinvestment formula's sign convention
+reads as "NWC freeing up cash" -- producing a nonsensical -8.9% realistic_growth for a company
+that actually grew revenue 41%/year, and a wrongly "very expensive" valuation score. valuation_guard()
+detects when sustainable_growth shouldn't be trusted (NOPAT margin too thin, reinvestment rate
+negative, or sustainable_growth diverging from actual historical CAGR by >15pp) and routes to a
+"growth lens" instead: realistic_growth becomes the company's actual most-recent-year revenue
+growth (capped at 35%, nobody sustains more forever) faded linearly to the terminal growth rate
+over the 10-year horizon and converted to a CAGR-equivalent, plus a Rule-of-40 modifier
+(revenue growth% + FCF margin% < 20 caps the score at 1) so a company that's "growing but burning
+cash" can't be scored "cheap" just because the growth-lens anchor looks generous. Verified live:
+DUOL's realistic_growth went from -8.9% to +18.3%, valuation score from 0/3 to 3/3, total health
+9.0 (was 6.0). Also fixed a real ordering bug surfaced while wiring this in: StockFundamentals.
+revenue_series is newest-first but health.py's _fy_series() (used to reconstruct facts into a
+duck object for the production analyze() path) returns oldest-first -- _rev_growth_recent() was
+silently reading the wrong two years through that path (caught by comparing the standalone
+script's correct output against compute_health()'s wrong one, not by a crash).
 Remaining: deeper crypto on-chain metrics (active addresses, fees, TVL), macro/rates valuation
 context beyond CAPM WACC, extending XBRL coverage beyond margins/ROE, triggering investigation/
 narration from the UI, bank/insurance alternate scoring framework (FCF-based ratios don't apply),
