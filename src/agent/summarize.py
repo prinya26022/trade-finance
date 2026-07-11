@@ -1,17 +1,12 @@
 import os
-import random
-import time
 from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
 from google import genai
-from google.genai import errors
 from pydantic import BaseModel
 
-# error ที่ "ชั่วคราว" — retry ได้ (server ล้น/rate limit). ที่ไม่อยู่ในนี้ (400 prompt ผิด,
-# 401 key ผิด) = ถาวร ยิงซ้ำก็ผิด จึงโยน error ทันทีไม่ retry
-RETRYABLE_CODES = {429, 500, 502, 503, 504}
+from src.agent.llm import generate_with_fallback
 
 # โหลด .env เข้าเป็น env var + อ่าน checklist — ครั้งเดียวตอน import (เทียบจากตำแหน่งไฟล์นี้ ไม่ใช่ cwd)
 ROOT = Path(__file__).parents[2]
@@ -142,29 +137,11 @@ Judge, from ONLY the data above, whether the fundamentals look STRONG or WEAK an
 - Fill every field of the required output schema.
 """
 
-    # ---- เรียก Gemini (มี retry+backoff) แล้วบังคับ output ให้ตรง Summary schema ----
+    # ---- เรียก Gemini (retry+backoff ต่อโมเดล + fallback ข้ามโมเดลถ้าโควตาเต็ม) แล้วบังคับ
+    # output ให้ตรง Summary schema (ดู src/agent/llm.py — MODEL_CHAIN) ----
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    response = _generate_with_retry(client, prompt)
+    response = generate_with_fallback(client, prompt, config={
+        "response_mime_type": "application/json",   # ขอผลลัพธ์เป็น JSON
+        "response_schema": Summary,                 # บังคับ JSON ให้ตรง schema นี้เป๊ะ
+    })
     return response.parsed          # Gemini parse ให้แล้ว -> คืน Summary object เลย
-
-
-def _generate_with_retry(client, prompt, *, max_attempts: int = 4, base_delay: float = 1.0):
-    """เรียก Gemini พร้อม exponential backoff — retry เฉพาะ error ชั่วคราว (5xx/429).
-    ดีเลย์ถ่างขึ้น 1s→2s→4s + jitter สุ่มเล็กน้อย (กันหลาย request เด้งพร้อมกันตอน batch)."""
-    for attempt in range(1, max_attempts + 1):
-        try:
-            return client.models.generate_content(
-                model="gemini-3.5-flash",
-                contents=prompt,
-                config={
-                    "response_mime_type": "application/json",   # ขอผลลัพธ์เป็น JSON
-                    "response_schema": Summary,                 # บังคับ JSON ให้ตรง schema นี้เป๊ะ
-                },
-            )
-        except errors.APIError as e:
-            # error ถาวร (ไม่อยู่ใน RETRYABLE) หรือ attempt สุดท้ายแล้ว -> โยนต่อ ไม่กลืน
-            if e.code not in RETRYABLE_CODES or attempt == max_attempts:
-                raise
-            delay = base_delay * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
-            print(f"[retry] Gemini {e.code}, attempt {attempt}/{max_attempts}, waiting {delay:.1f}s")
-            time.sleep(delay)

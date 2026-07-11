@@ -138,8 +138,9 @@ def narrate_timeline(ticker: str, generate=None) -> str:
 
 def _gemini_generate(prompt: str) -> str:
     import google.genai as genai
+    from src.agent.llm import generate_with_fallback
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    resp = client.models.generate_content(model="gemini-3.5-flash", contents=prompt)
+    resp = generate_with_fallback(client, prompt)
     return resp.text or ""
 
 

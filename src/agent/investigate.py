@@ -21,6 +21,8 @@ from typing import Callable, Protocol
 
 from dotenv import load_dotenv
 
+from src.agent.llm import MODEL_CHAIN
+
 load_dotenv(Path(__file__).parents[2] / ".env")
 
 MAX_STEPS = 6   # เพดาน tool call ต่อ 1 investigation — กัน loop ไม่รู้จบ + คุม Gemini quota
@@ -247,10 +249,13 @@ def _to_schema(params: dict):
 
 class GeminiPolicy:
     """ห่อ google-genai function-calling แบบ manual — เก็บ conversation state ไว้เอง แล้ว
-    แปลเป็น Decision ให้ loop. ไม่รู้จัก loop เลย (loop เป็นคนเรียก decide/force_conclude)."""
+    แปลเป็น Decision ให้ loop. ไม่รู้จัก loop เลย (loop เป็นคนเรียก decide/force_conclude).
+    ใช้โมเดลเดียวตลอด session (ไม่มี fallback ข้ามโมเดลแบบ src/agent/llm.py — บทสนทนาหลายเทิร์น
+    ของ tool-calling ทำให้สลับโมเดลกลางทางซับซ้อนกว่า one-shot call; ถ้าโควตาเต็มระหว่างสืบ จะ
+    fail ทั้ง investigation นั้น ไม่ได้ fallback ไปโมเดลอื่นอัตโนมัติ — เป็น known gap)."""
 
     def __init__(self, ticker: str, tools: list[ToolSpec], context: str = "",
-                 model: str = "gemini-3.5-flash"):
+                 model: str = MODEL_CHAIN[0]):
         from google.genai import types
         self._types = types
         self._client = __import__("google.genai", fromlist=["Client"]).Client(
