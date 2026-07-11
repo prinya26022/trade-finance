@@ -52,9 +52,10 @@ export function LineChart({
           </text>
         </g>
       ))}
-      {/* label แกน x (ปี) */}
+      {/* label แกน x (ปี) — key ด้วย index ไม่ใช่ period เพราะ period ชนกันได้ (เช่น health
+          trend ใช้ 'MM-DD' ไม่มีปี ถ้า analyze() รันมากกว่า 1 ครั้งในวันเดียวกัน) */}
       {periods.map((p, i) => (
-        <text key={p} x={x(i)} y={height - 5} className="chart-axis" textAnchor="middle">
+        <text key={i} x={x(i)} y={height - 5} className="chart-axis" textAnchor="middle">
           {shortPeriod(p)}
         </text>
       ))}
@@ -106,7 +107,7 @@ export function BarChart({
         const top = y(Math.max(p.value, 0));
         const base = y(0);
         return (
-          <g key={p.period}>
+          <g key={i}>
             <rect x={cx - bw / 2} y={Math.min(top, base)} width={bw} height={Math.abs(base - top)} rx={2} fill={color} opacity={0.85} />
             <text x={cx} y={height - 5} className="chart-axis" textAnchor="middle">
               {shortPeriod(p.period)}

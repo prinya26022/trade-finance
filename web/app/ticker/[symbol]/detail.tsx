@@ -83,10 +83,13 @@ export default function TickerDetail({
 
   // health score ต่อรอบวิเคราะห์ (Phase 10) — เก็บทุกแถวตั้งแต่ analyze() คำนวณแล้ว
   // (แถวเก่าก่อนหน้านั้น health_score เป็น null -> กรองออก ไม่ลากเส้นมั่ว)
-  const healthTrend = [...history]
-    .filter((h) => h.health_score != null)
-    .reverse()   // history() คืนใหม่->เก่า, กราฟต้องเก่า->ใหม่
-    .map((h) => ({ period: h.run_at.slice(5, 10), value: h.health_score as number }));
+  // period เป็น 'MM-DD' (ไม่มีปี) -> ถ้า analyze() รันมากกว่า 1 ครั้ง/วัน (cron + รันมือ) จะชน
+  // label กัน ทั้งทำให้ React key ซ้ำและแกน x งงว่าจุดไหนคือจุดไหน -> เก็บแค่ค่า 'ล่าสุดของวันนั้น'
+  const healthByDay = new Map<string, number>();
+  for (const h of [...history].filter((h) => h.health_score != null).reverse()) {
+    healthByDay.set(h.run_at.slice(5, 10), h.health_score as number);
+  }
+  const healthTrend = [...healthByDay].map(([period, value]) => ({ period, value }));
 
   const pctY = (v: number) => `${v.toFixed(0)}%`;
 
