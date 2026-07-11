@@ -52,3 +52,18 @@ def test_score_is_json_serializable_and_bounded():
     h = compute_health(_summary())
     json.dumps(h)   # save_analysis เก็บก้อนนี้เป็น JSON ตรงๆ ต้อง serialize ได้
     assert 0.0 <= h["score"] <= 10.0
+
+
+def test_components_sum_equals_score():
+    # components (Phase 16) ต้องบวกกันได้เท่ากับ score จริง -> changes.py ใช้ diff component
+    # เหล่านี้หา 'ตัวขับ' เวลาคะแนนกระโดด ถ้าผลรวมไม่ตรง score จะ diff ผิด
+    h = compute_health(_summary(strength="strong", valuation="cheap", sentiment="bullish", confidence=0.9))
+    c = h["components"]
+    assert set(c) == {"strength", "valuation", "sentiment", "confidence", "breach_penalty"}
+    assert round(sum(c.values()), 6) == h["score"]
+
+
+def test_components_reflect_breach_penalty():
+    breaches = [{"severity": "alert"}]
+    h = compute_health(_summary(), breaches)
+    assert h["components"]["breach_penalty"] == -3.0

@@ -19,6 +19,19 @@ MATERIAL_METRICS = {
 }
 METRIC_MOVE_THRESHOLD = 0.15   # ขยับเกิน 15% (relative) ถึงเตือน
 
+# คะแนนสุขภาพกระโดดเกินนี้ (จุด, เต็ม 10) ถึงจะเตือน — ต่ำกว่านี้ถือเป็นแกว่งเล็กน้อยปกติ
+# (เช่น confidence ขยับ 0.85->0.9 ทำให้คะแนนต่างกันแค่ 0.05 ไม่ใช่เรื่องต้องเตือน)
+HEALTH_JUMP_THRESHOLD = 1.5
+
+# เอาไว้แปล component ที่ขยับแรงสุด -> ข้อความอ่านง่าย พร้อมค่า summary ที่เปลี่ยน (ถ้ามี)
+_HEALTH_COMPONENT_LABEL = {
+    "strength": ("พื้นฐาน", "fundamental_strength"),
+    "valuation": ("มุมมองราคา", "valuation_view"),
+    "sentiment": ("มุมมองข่าว", "sentiment"),
+    "confidence": ("ความมั่นใจข้อมูล", "confidence"),
+    "breach_penalty": ("เงื่อนไขออกโดนแตะเปลี่ยน", None),
+}
+
 
 def _fy_int(period: str) -> int:
     """'FY2025' -> 2025 (ไว้หา period ล่าสุด). ไม่ใช่ FY -> -1."""
@@ -72,6 +85,23 @@ def _metric_changes(cur_facts: list[dict], prev_facts: list[dict]) -> list[dict]
     return changes
 
 
+def _health_jump_driver(ch: dict, ph: dict, cs: dict, ps: dict) -> str:
+    """หา component ที่ขยับแรงสุดระหว่าง 2 รอบ (จาก health['components']) แล้วแปลเป็นข้อความ
+    อ่านง่าย เช่น 'มุมมองราคา expensive→cheap' — ให้เห็นว่า 'อะไรขับ' คะแนนที่กระโดด ไม่ใช่แค่
+    บอกว่ากระโดด (ผู้ใช้ถามหา 'เหตุผล' ตอนคะแนนเด้งผิดปกติ)."""
+    cur_c, prev_c = ch.get("components") or {}, ph.get("components") or {}
+    deltas = {k: cur_c.get(k, 0) - prev_c.get(k, 0) for k in cur_c}
+    driver_key = max(deltas, key=lambda k: abs(deltas[k]), default=None)
+    if driver_key is None:
+        return ""
+    label, summary_key = _HEALTH_COMPONENT_LABEL.get(driver_key, (driver_key, None))
+    if driver_key == "confidence" and "confidence" in cs and "confidence" in ps:
+        return f"{label} {ps['confidence']:.2f}→{cs['confidence']:.2f}"
+    if summary_key and summary_key in cs and summary_key in ps and cs[summary_key] != ps[summary_key]:
+        return f"{label} {ps[summary_key]}→{cs[summary_key]}"
+    return f"{label} ({deltas[driver_key]:+.1f})"
+
+
 def _diff(cur: dict, prev: dict) -> list[dict]:
     """เทียบ 2 แถวผลวิเคราะห์ (cur ใหม่กว่า prev) -> list การเปลี่ยนที่แตะ thesis.
     เป็นแกนกลางที่ทั้ง detect_changes (คู่ล่าสุด) และ changes_over_window (สะสมหลายคู่) ใช้ร่วมกัน."""
@@ -111,6 +141,22 @@ def _diff(cur: dict, prev: dict) -> list[dict]:
 
     # 5) เมตริกพื้นฐานสำคัญขยับ / มีงบใหม่
     changes += _metric_changes(cur.get("facts", []), prev.get("facts", []))
+
+    # 6) คะแนนสุขภาพกระโดดแรง — สลายเป็น component ที่ขับ ให้เห็นว่า 'ทำไม' ไม่ใช่แค่ 'เปลี่ยน'
+    # (แถวเก่าก่อน Phase 10/16 ไม่มี health หรือไม่มี components -> เงียบไว้ ไม่ crash)
+    ch, ph = cur.get("health"), prev.get("health")
+    if ch and ph and ch.get("components") and ph.get("components"):
+        delta = ch["score"] - ph["score"]
+        if abs(delta) >= HEALTH_JUMP_THRESHOLD:
+            direction = "พุ่งขึ้น" if delta > 0 else "ร่วงลง"
+            driver = _health_jump_driver(ch, ph, cs, ps)
+            changes.append({
+                "type": "health_jump",
+                "detail": f"คะแนนสุขภาพ{direction} {ph['score']:.1f} → {ch['score']:.1f} "
+                          f"({delta:+.1f}) — หลักๆจาก{driver}",
+                "severity": "warn",
+            })
+
     return changes
 
 

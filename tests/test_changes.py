@@ -1,5 +1,5 @@
 """Cross-day change detection (Phase 3) — pure logic, ไม่แตะ DB/network."""
-from src.agent.changes import _fy_int, _latest_by_label, _metric_changes, _diff
+from src.agent.changes import _fy_int, _latest_by_label, _metric_changes, _diff, _health_jump_driver
 
 
 def _fact(label, value, period="FY2025", unit="%"):
@@ -53,16 +53,24 @@ def test_metric_changes_ignores_nonmaterial_metric():
     assert _metric_changes(cur, prev) == []
 
 
-def _row(strength="strong", valuation="fair", news=None, facts_ratio=1.0, facts=None):
+def _row(strength="strong", valuation="fair", sentiment="bullish", confidence=0.9,
+         news=None, facts_ratio=1.0, facts=None, health=None):
     return {
         "summary": {
             "fundamental_strength": strength,
             "valuation_view": valuation,
+            "sentiment": sentiment,
+            "confidence": confidence,
             "thesis_relevant_news": news or [],
         },
         "facts_grounded_ratio": facts_ratio,
         "facts": facts or [],
+        "health": health,
     }
+
+
+def _health(score, components):
+    return {"score": score, "tier": "ok", "label": "พอใช้", "reasons": [], "components": components}
 
 
 def test_diff_strength_flip_is_alert():
@@ -92,3 +100,46 @@ def test_diff_trust_drop():
 
 def test_diff_silent_when_nothing_material():
     assert _diff(_row(), _row()) == []
+
+
+def test_diff_health_jump_flagged_with_driver():
+    # เคสจริงที่เจอ: MSFT valuation expensive(+0.5) -> cheap(+3) = +2.5 แต้ม ตัวอื่นเท่าเดิม
+    prev = _row(valuation="expensive", health=_health(7.4, {
+        "strength": 4.0, "valuation": 0.5, "sentiment": 2.0, "confidence": 0.9, "breach_penalty": 0.0,
+    }))
+    cur = _row(valuation="cheap", health=_health(9.9, {
+        "strength": 4.0, "valuation": 3.0, "sentiment": 2.0, "confidence": 0.9, "breach_penalty": 0.0,
+    }))
+    changes = _diff(cur, prev)
+    jumps = [c for c in changes if c["type"] == "health_jump"]
+    assert len(jumps) == 1
+    assert jumps[0]["severity"] == "warn"
+    assert "7.4 → 9.9" in jumps[0]["detail"]
+    assert "มุมมองราคา expensive→cheap" in jumps[0]["detail"]
+
+
+def test_diff_health_jump_silent_below_threshold():
+    # ขยับแค่ 0.5 แต้ม (confidence ต่างนิดหน่อย) < HEALTH_JUMP_THRESHOLD -> เงียบ
+    prev = _row(health=_health(7.9, {
+        "strength": 4.0, "valuation": 2.0, "sentiment": 2.0, "confidence": -0.1, "breach_penalty": 0.0,
+    }))
+    cur = _row(health=_health(8.4, {
+        "strength": 4.0, "valuation": 2.0, "sentiment": 2.0, "confidence": 0.4, "breach_penalty": 0.0,
+    }))
+    changes = _diff(cur, prev)
+    assert not any(c["type"] == "health_jump" for c in changes)
+
+
+def test_diff_health_jump_silent_when_health_missing():
+    # แถวเก่าก่อนมี health persisted (Phase 10) -> health เป็น None -> ต้องไม่ crash/ไม่เตือน
+    assert _diff(_row(health=None), _row(health=None)) == []
+
+
+def test_health_jump_driver_picks_biggest_component():
+    ph = {"components": {"strength": 4.0, "valuation": 0.5, "sentiment": 2.0, "confidence": 0.9, "breach_penalty": 0.0}}
+    ch = {"components": {"strength": 4.0, "valuation": 3.0, "sentiment": 0.0, "confidence": 0.9, "breach_penalty": 0.0}}
+    cs = {"fundamental_strength": "strong", "valuation_view": "cheap", "sentiment": "neutral", "confidence": 0.9}
+    ps = {"fundamental_strength": "strong", "valuation_view": "expensive", "sentiment": "bullish", "confidence": 0.9}
+    # valuation ขยับ +2.5 (ใหญ่กว่า sentiment -2.0) -> ต้องเลือก valuation เป็นตัวขับ
+    driver = _health_jump_driver(ch, ph, cs, ps)
+    assert "มุมมองราคา expensive→cheap" in driver
