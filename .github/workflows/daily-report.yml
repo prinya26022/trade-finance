@@ -21,6 +21,11 @@ concurrency:
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    # default (ไม่ตั้ง) = 6 ชม. — ยาวเกินไปสำหรับ job นี้ (ปกติจบใน 3-8 นาที) เจอจริง: yfinance
+    # ค้างไม่ timeout เอง (โดน rate-limit จาก IP ของ GitHub Actions runner ที่ใช้ร่วมกันเยอะ) แล้ว
+    # job ค้างไป 2+ ชม. โดยไม่มี error ให้เห็น — ตั้งเพดานไว้กันไม่ให้กินโควตา Actions minutes เปล่าๆ
+    # และกันรอบพรุ่งนี้ไม่รัน (concurrency ด้านล่างไม่ cancel รอบเก่าให้อัตโนมัติ)
+    timeout-minutes: 20
     env:
       TZ: Asia/Bangkok   # ให้ pick_mode() (วันที่ 1 ของเดือน / วันจันทร์) นับตามปฏิทินไทย ไม่ใช่ UTC
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
