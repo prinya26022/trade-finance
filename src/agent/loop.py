@@ -1,15 +1,20 @@
+from datetime import datetime
+
 from src.providers.registry import get_providers
 from src.agent.summarize import summarize
 from src.evals.check_grounding import check_grounding, check_facts_grounding
 from src.evals.check_extraction_accuracy import check_extraction_accuracy
 from src.evals.check_xbrl_accuracy import check_xbrl_accuracy
 from src.watchlist.store import list_all
-from src.history.store import init_db, save_analysis
+from src.history.store import init_db, save_analysis, history
 from src.thesis.store import get_thesis
 from src.agent.invalidation import current_breaches
 from src.agent.health import compute_health
 from src.agent.valuation import reverse_dcf
 from src.providers.stock.market import get_risk_free_rate_pct
+
+FROZEN_INTERVAL_DAYS = 30   # ticker สถานะ 'frozen' (ขายหมดแล้วแต่อยากดูว่าฟื้นไหม) วิเคราะห์แค่ทุก
+                            # กี่วัน — ประหยัดโควตา Gemini รายวัน (20/วัน/โมเดล) แทนที่จะเช็คทุกวัน
 
 def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
     bundle = get_providers(asset_type)
@@ -89,9 +94,24 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
         save_analysis(summary, grounding, facts, extraction, health, xbrl, valuation)  # เก็บ Summary + facts + evals + health + valuation
     return summary, grounding
 
+def _due_for_analysis(ticker: str, status: str) -> bool:
+    """watching/holding วิเคราะห์ทุกวันเหมือนเดิม — frozen วิเคราะห์แค่ทุก FROZEN_INTERVAL_DAYS
+    วันนับจากรอบล่าสุด (ไม่เคยวิเคราะห์เลย -> ถึงคิวทันที) ประหยัดโควตา Gemini ให้ ticker ที่ยัง
+    ถือ/จับตาอยู่จริงก่อน."""
+    if status != "frozen":
+        return True
+    rows = history(ticker, limit=1)
+    if not rows:
+        return True
+    last_run = datetime.fromisoformat(rows[0]["run_at"])
+    return (datetime.now() - last_run).days >= FROZEN_INTERVAL_DAYS
+
 def run_watchlist():
     for row in list_all():
-        ticker, asset_type = row["ticker"], row["asset_type"]
+        ticker, asset_type, status = row["ticker"], row["asset_type"], row["status"]
+        if not _due_for_analysis(ticker, status):
+            print(f"{ticker}: skipped (frozen, not due for {FROZEN_INTERVAL_DAYS}-day recheck yet)")
+            continue
         try:
             result = analyze(ticker, asset_type)
         except Exception as e:            # ← กันไว้: 1 ตัวพัง อย่าให้ทั้ง loop ตาย

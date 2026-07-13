@@ -213,6 +213,20 @@ revenue_series is newest-first but health.py's _fy_series() (used to reconstruct
 duck object for the production analyze() path) returns oldest-first -- _rev_growth_recent() was
 silently reading the wrong two years through that path (caught by comparing the standalone
 script's correct output against compute_health()'s wrong one, not by a crash).
+Phase 18c (frozen watchlist status) DONE: a ticker fully sold has two options before this --
+stay in the watchlist (daily analysis, burns 1/20 of a scarce daily Gemini quota on something no
+longer held) or get removed entirely (never analyzed again, permanently stuck "excluded" once its
+facts predate a scoring change, as SBUX was). Added a third status, 'frozen': stays in the
+watchlist and keeps its history, but src/agent/loop.py::_due_for_analysis skips it in
+run_watchlist() unless >=30 days have passed since its last analysis -- cheap way to keep an eye
+on whether a name someone sold is fundamentally recovering, without daily cost. Folded into the
+existing daily cron rather than a second GitHub Actions workflow (one code path checks eligibility
+per ticker). Store: set_frozen()/CLI `freeze` subcommand mirroring set_watching(). API:
+PUT/DELETE /api/watchlist/{ticker}/freeze. Dashboard: a distinct blue "frozen" tag and a
+freeze/unfreeze toggle button next to remove (holding tickers can't be frozen -- sell first via
+the portfolio page). Verified live: froze SBUX, confirmed it's correctly gated out of today's
+automated run, then ran one manual one-time refresh to give it a real score now (5.0/12, 3/8
+Piotroski, bearish sentiment) rather than waiting the full 30 days for its first check.
 Remaining: deeper crypto on-chain metrics (active addresses, fees, TVL), macro/rates valuation
 context beyond CAPM WACC, extending XBRL coverage beyond margins/ROE, triggering investigation/
 narration from the UI, bank/insurance alternate scoring framework (FCF-based ratios don't apply),

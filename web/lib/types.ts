@@ -31,7 +31,8 @@ export type WatchlistItem = {
   asset_type: string;
   added_at: string;
   // Phase 5.5: สถานะถือครอง — 'watching' (แค่จับตา) | 'holding' (ถืออยู่จริง)
-  status: "watching" | "holding";
+  // Phase: 'frozen' (ขายหมดแล้วแต่อยากดูว่าฟื้นไหม — analyze() รอบเดือนแทนรายวัน ประหยัดโควตา)
+  status: "watching" | "holding" | "frozen";
   entry_price: number | null;
   entry_date: string | null;
   shares: number | null;

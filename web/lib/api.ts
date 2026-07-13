@@ -105,3 +105,15 @@ export async function sellHolding(ticker: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/watchlist/${ticker}/holding`, { method: "DELETE" });
   if (!res.ok) throw new Error(`API ${res.status}`);
 }
+
+// แช่แข็ง — ขายหมดแล้วแต่อยากดูว่าฟื้นไหม โดยไม่เปลืองโควตา (analyze() รอบเดือนแทนรายวัน)
+export async function freezeTicker(ticker: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/watchlist/${ticker}/freeze`, { method: "PUT" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+}
+
+// ยกเลิกแช่แข็ง -> กลับเป็น watching (วิเคราะห์รายวันเหมือนเดิม)
+export async function unfreezeTicker(ticker: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/watchlist/${ticker}/freeze`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+}

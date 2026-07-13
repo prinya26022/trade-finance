@@ -29,7 +29,7 @@ def init_db() -> None:
                 ticker      TEXT PRIMARY KEY,
                 asset_type  TEXT NOT NULL DEFAULT 'stock',
                 added_at    TEXT NOT NULL,
-                status      TEXT NOT NULL DEFAULT 'watching',   -- 'watching' | 'holding'
+                status      TEXT NOT NULL DEFAULT 'watching',   -- 'watching' | 'holding' | 'frozen'
                 entry_price REAL,                               -- ราคาที่ซื้อ (เฉพาะ holding)
                 entry_date  TEXT,                               -- วันที่ซื้อ (ไว้เทียบ benchmark)
                 shares      REAL                                -- จำนวน/น้ำหนัก (optional)
@@ -115,6 +115,16 @@ def set_watching(ticker: str) -> None:
         conn.execute("UPDATE watchlist SET status='watching' WHERE ticker=?", (ticker.upper(),))
 
 
+def set_frozen(ticker: str) -> None:
+    """แช่แข็ง — ขายหมดแล้วแต่ยังอยากดูว่า 'ฟื้นหรือยัง' โดยไม่เปลืองโควตา Gemini รายวัน
+    (analyze() จะข้าม ticker สถานะนี้เว้นแต่เกิน FROZEN_INTERVAL_DAYS นับจากวิเคราะห์ครั้งล่าสุด
+    ดู src/agent/loop.py::_due_for_analysis). ต่างจาก remove() ตรงที่ยังอยู่ใน watchlist และ
+    ยังได้รับการวิเคราะห์เป็นระยะ (แค่ถี่น้อยกว่า) แทนที่จะหยุดสนิท."""
+    init_db()
+    with _connect() as conn:
+        conn.execute("UPDATE watchlist SET status='frozen' WHERE ticker=?", (ticker.upper(),))
+
+
 def get_entry(ticker: str) -> sqlite3.Row | None:
     """คืนแถวเดียวของ ticker (ไว้ให้ performance/edge อ่าน entry_price/date)."""
     init_db()   # idempotent: กันคอลัมน์ Phase 5.5 ขาดบน DB เก่า (เช่น ที่ CI commit ไว้)
@@ -135,6 +145,7 @@ if __name__ == "__main__":
     #   python -m src.watchlist.store hold DUOL 130.50 --date 2026-01-15 --shares 10
     #   python -m src.watchlist.store add DUOL 140 --shares 5      (ซื้อเพิ่ม -> เฉลี่ยราคาให้อัตโนมัติ)
     #   python -m src.watchlist.store watch DUOL
+    #   python -m src.watchlist.store freeze SBUX                 (ขายหมดแต่อยากดูว่าฟื้นไหม -> วิเคราะห์รอบเดือนแทนรายวัน)
     #   python -m src.watchlist.store remove SBUX                 (ขายหมด/เลิกจับตา -> เอาออกจาก watchlist)
     import argparse
 
@@ -152,12 +163,14 @@ if __name__ == "__main__":
     a.add_argument("price", type=float)
     a.add_argument("--shares", type=float, required=True)
     sub.add_parser("watch").add_argument("ticker")
+    sub.add_parser("freeze", help="ขายหมดแล้วแต่อยากดูว่าฟื้นไหม -> วิเคราะห์รอบเดือนแทนรายวัน").add_argument("ticker")
     sub.add_parser("remove").add_argument("ticker")
     args = parser.parse_args()
 
     if args.cmd == "list":
+        TAGS = {"holding": "📌 HOLD", "frozen": "🧊 FROZEN"}
         for r in list_all():
-            tag = "📌 HOLD" if r["status"] == "holding" else "👀 watch"
+            tag = TAGS.get(r["status"], "👀 watch")
             entry = f" @ {r['entry_price']} ({r['entry_date']})" if r["status"] == "holding" and r["entry_price"] else ""
             print(f"  {tag}  {r['ticker']:6}{entry}")
     elif args.cmd == "hold":
@@ -173,6 +186,9 @@ if __name__ == "__main__":
     elif args.cmd == "watch":
         set_watching(args.ticker)
         print(f"ตั้ง {args.ticker.upper()} = จับตา (watching)")
+    elif args.cmd == "freeze":
+        set_frozen(args.ticker)
+        print(f"ตั้ง {args.ticker.upper()} = แช่แข็ง (frozen) — วิเคราะห์รอบเดือนแทนรายวัน")
     elif args.cmd == "remove":
         remove(args.ticker)
         print(f"เอา {args.ticker.upper()} ออกจาก watchlist (ประวัติ analyses เดิมยังอยู่)")

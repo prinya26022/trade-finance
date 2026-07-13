@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from src.history.store import init_db, latest_per_ticker, history
 from src.watchlist.store import (
     list_all, add as add_ticker, remove as remove_ticker,
-    set_holding, add_shares, set_watching,
+    set_holding, add_shares, set_watching, set_frozen,
 )
 from src.agent.changes import detect_changes
 from src.agent.performance import portfolio_edge
@@ -101,6 +101,21 @@ def post_add_shares(ticker: str, body: SharesAdd):
 @app.delete("/api/watchlist/{ticker}/holding")
 def delete_holding(ticker: str):
     """ขายออก/เลิกถือ -> กลับเป็น 'watching' (เก็บ entry เดิมไว้ดูประวัติ, ยังอยู่ใน watchlist)."""
+    set_watching(ticker.upper())
+    return {"ticker": ticker.upper(), "status": "watching"}
+
+
+@app.put("/api/watchlist/{ticker}/freeze")
+def put_freeze(ticker: str):
+    """แช่แข็ง — ขายหมดแล้วแต่อยากดูว่าฟื้นไหม โดยไม่เปลืองโควตา Gemini รายวัน (analyze() จะ
+    ข้าม ticker นี้เว้นแต่เกิน 30 วันนับจากวิเคราะห์ครั้งล่าสุด ดู src/agent/loop.py)."""
+    set_frozen(ticker.upper())
+    return {"ticker": ticker.upper(), "status": "frozen"}
+
+
+@app.delete("/api/watchlist/{ticker}/freeze")
+def delete_freeze(ticker: str):
+    """ยกเลิกแช่แข็ง -> กลับเป็น 'watching' (วิเคราะห์รายวันเหมือนเดิม)."""
     set_watching(ticker.upper())
     return {"ticker": ticker.upper(), "status": "watching"}
 

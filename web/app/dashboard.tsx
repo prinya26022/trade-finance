@@ -11,7 +11,7 @@ import type {
   Portfolio,
   EdgePosition,
 } from "@/lib/types";
-import { addToWatchlist, removeFromWatchlist } from "@/lib/api";
+import { addToWatchlist, removeFromWatchlist, freezeTicker, unfreezeTicker } from "@/lib/api";
 import { GlossaryText, Tip, BADGES } from "@/lib/glossary";
 import { resolveHealth } from "@/lib/health";
 import { HealthMeter } from "./health-meter";
@@ -68,15 +68,20 @@ function AnalysisCard({
   watchItem,
   edge,
   onRemove,
+  onFreeze,
+  onUnfreeze,
 }: {
   a: Analysis;
   changes: Change[];
   watchItem?: WatchlistItem;
   edge?: EdgePosition;
   onRemove: (ticker: string) => void;
+  onFreeze: (ticker: string) => void;
+  onUnfreeze: (ticker: string) => void;
 }) {
   const s = a.summary;
   const isHolding = watchItem?.status === "holding";
+  const isFrozen = watchItem?.status === "frozen";
   const health = resolveHealth(a, changes);
   const topSeverity = changes.some((c) => c.severity === "alert")
     ? "alert"
@@ -96,23 +101,39 @@ function AnalysisCard({
           <Tip def="ถืออยู่จริง — invalidation/thesis-stop มีน้ำหนักเต็ม (ต่างจากแค่จับตา)">
             <span className="hold-tag">📌 HOLD</span>
           </Tip>
+        ) : isFrozen ? (
+          <Tip def="แช่แข็ง — ขายหมดแล้วแต่อยากดูว่าฟื้นไหม วิเคราะห์แค่รอบเดือนแทนรายวัน (ประหยัดโควตา Gemini)">
+            <span className="frozen-tag">🧊 frozen</span>
+          </Tip>
         ) : (
           <span className="watch-tag">👀 watch</span>
         )}
         <span className="price">${a.price?.toFixed(2)}</span>
         {!isHolding && (
-          <button
-            className="chip-x card-remove"
-            style={{ marginLeft: "auto" }}
-            title={`เอา ${a.ticker} ออกจาก watchlist (ประหยัดโควตา Gemini รายวัน)`}
-            onClick={() => {
-              if (confirm(`เอา ${a.ticker} ออกจาก watchlist? จะไม่ถูกวิเคราะห์อีกในรอบถัดไป`)) {
-                onRemove(a.ticker);
+          <span className="card-actions">
+            <button
+              className="chip-x card-freeze"
+              title={
+                isFrozen
+                  ? `เลิกแช่แข็ง ${a.ticker} (กลับไปวิเคราะห์รายวัน)`
+                  : `แช่แข็ง ${a.ticker} (วิเคราะห์รอบเดือนแทนรายวัน ประหยัดโควตา)`
               }
-            }}
-          >
-            ×
-          </button>
+              onClick={() => (isFrozen ? onUnfreeze(a.ticker) : onFreeze(a.ticker))}
+            >
+              {isFrozen ? "▶" : "🧊"}
+            </button>
+            <button
+              className="chip-x card-remove"
+              title={`เอา ${a.ticker} ออกจาก watchlist (ประหยัดโควตา Gemini รายวัน)`}
+              onClick={() => {
+                if (confirm(`เอา ${a.ticker} ออกจาก watchlist? จะไม่ถูกวิเคราะห์อีกในรอบถัดไป`)) {
+                  onRemove(a.ticker);
+                }
+              }}
+            >
+              ×
+            </button>
+          </span>
         )}
       </div>
 
@@ -315,6 +336,24 @@ export default function Dashboard({
     }
   }
 
+  async function handleFreeze(ticker: string) {
+    try {
+      await freezeTicker(ticker);
+      router.refresh();
+    } catch {
+      /* เงียบไว้ — refresh จะสะท้อนสถานะจริง */
+    }
+  }
+
+  async function handleUnfreeze(ticker: string) {
+    try {
+      await unfreezeTicker(ticker);
+      router.refresh();
+    } catch {
+      /* เงียบไว้ — refresh จะสะท้อนสถานะจริง */
+    }
+  }
+
   function renderCard(a: Analysis) {
     return (
       <AnalysisCard
@@ -324,6 +363,8 @@ export default function Dashboard({
         watchItem={watchByTicker.get(a.ticker)}
         edge={edgeByTicker.get(a.ticker)}
         onRemove={handleRemove}
+        onFreeze={handleFreeze}
+        onUnfreeze={handleUnfreeze}
       />
     );
   }

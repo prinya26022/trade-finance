@@ -56,6 +56,18 @@ def test_hold_then_watch_roundtrip(tmp_db):
     assert store.get_entry("NVDA")["status"] == "watching"
 
 
+def test_freeze_then_watch_roundtrip(tmp_db):
+    # ขายหมดแล้วแช่แข็งไว้ (ยังอยู่ใน watchlist แต่ analyze() รอบเดือนแทนรายวัน) — กลับมา watch ได้ปกติ
+    from src.watchlist import store
+
+    store.add("SBUX")
+    store.set_frozen("SBUX")
+    assert store.get_entry("SBUX")["status"] == "frozen"
+
+    store.set_watching("SBUX")
+    assert store.get_entry("SBUX")["status"] == "watching"
+
+
 # ---- add_shares (Phase 11: ซื้อเพิ่ม -> เฉลี่ย entry_price อัตโนมัติ) ----
 
 def test_add_shares_computes_weighted_average(tmp_db):
