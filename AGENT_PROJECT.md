@@ -227,10 +227,40 @@ freeze/unfreeze toggle button next to remove (holding tickers can't be frozen --
 the portfolio page). Verified live: froze SBUX, confirmed it's correctly gated out of today's
 automated run, then ran one manual one-time refresh to give it a real score now (5.0/12, 3/8
 Piotroski, bearish sentiment) rather than waiting the full 30 days for its first check.
-Remaining: deeper crypto on-chain metrics (active addresses, fees, TVL), macro/rates valuation
-context beyond CAPM WACC, extending XBRL coverage beyond margins/ROE, triggering investigation/
-narration from the UI, bank/insurance alternate scoring framework (FCF-based ratios don't apply),
-cyclical-industry normalization.
+Phase 18d (audit fix — quality-inversion in the fundamental leg) DONE: a methodology audit
+(Claude critiquing the scoring against finance best-practice, grounded in AAPL/DUOL real numbers)
+found 4 of 8 Piotroski criteria were fooled by the traits of *great* companies -- AAPL (ROIC 82%)
+scored 4.5/12 "weak", face-invalid. Fixed: #2 ROE-trend -> ROIC>=15% level (ROE trend is
+buyback-distorted); #3 accruals CFO>NI -> CFO>=0.9*NI (knife-edge tolerance); #5 leverage net-cash
+auto-passes + drop noisy YoY trend; #6 current-ratio>1 -> interest-coverage>=3x (current<1 is a
+strength for high-bargaining-power firms). Verified the screen still discriminates (INTC/F score
+2/8, quality names 6-8/8). AAPL 4.5->7.5. Backfilled.
+
+## Audit remediation roadmap (Phase 19 — close the remaining audit gaps, in order)
+The 18d audit found more than the one face-invalid bug it fixed. Remaining, prioritized:
+- **19.1 Ground-truth the derived inputs (ROIC/NOPAT/Net Debt/FCF) vs SEC XBRL** [IN PROGRESS] --
+  the biggest unaudited surface. Phase 4/12 only validated Revenue/NetIncome/margins against SEC;
+  ROIC/NOPAT/Net Debt/FCF (which now drive 2 fundamental criteria + the whole valuation leg via
+  reinvestment_rate) are computed from yfinance and never independently checked. Extend
+  check_xbrl_accuracy to recompute these from raw XBRL concepts and compare -- so a subtly-wrong
+  NOPAT/FCF can't silently corrupt multiple criteria at once.
+- **19.2 Reduce single-input concentration** -- ROIC now drives 2 of 8 criteria (correlated error
+  if mis-measured); net-cash auto-passes 2 criteria off one Net Debt fact (double-count). Rebalance
+  so no single input decides two flags.
+- **19.3 Binary-cliff -> graded scoring** -- every criterion is pass/fail at an exact threshold, so
+  a rounding-level change swings the score ~2/12 (root of the Phase-16 "score jumped" problem).
+- **19.4 Valuation unit mismatch** -- gap = implied FCF growth minus realistic *revenue* growth
+  (apples-to-oranges); align to FCF-growth-vs-FCF-growth.
+- **19.5 Threshold/tier calibration** -- every threshold (ROIC 15%, 0.9 tolerance, WACC bounds,
+  tier cutoffs 70/45%, gap bands) is an unvalidated prior. This is the bridge to predictive
+  validation: real calibration needs data (forward-test / the deferred point-in-time backtest),
+  which answers "does the score predict returns" -- a layer the audit fundamentally cannot.
+
+Remaining (beyond the audit roadmap): deeper crypto on-chain metrics (active addresses, fees, TVL),
+macro/rates valuation context beyond CAPM WACC, triggering investigation/narration from the UI,
+bank/insurance alternate scoring framework (FCF-based ratios don't apply), cyclical-industry
+normalization, and the deferred predictive backtest (point-in-time, fundamentals-deterioration
+exit, drop sentiment -- see the design discussion; blocked on 19.1-19.5 landing first).
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls

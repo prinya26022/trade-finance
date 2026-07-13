@@ -11,6 +11,12 @@
 
 tolerance เข้มกว่า Phase 4 (5.0 -> 3.0 percentage points) เพราะเทียบปีต่อปีตรงๆ ไม่ผสม TTM/FY
 เหมือน Phase 4 ที่ต้องยอมรับความเบี่ยงเบนจาก TTM-vs-FY.
+
+Phase 19.1: ขยายจาก margin/ROE ไปครอบเมตริก 'derived' ที่ fundamentals.py คำนวณเอง —
+FCF (CFO−Capex), NOPAT (EBIT×(1−อัตราภาษี)), ROIC (NOPAT/invested capital) — เพราะเมตริกพวกนี้
+ขับ 2 เกณฑ์พื้นฐาน + valuation ทั้ง leg แต่ไม่เคยเทียบ SEC จริง. ผลตรวจ: FCF/NOPAT ตรงเป๊ะทุก
+บริษัท (คำนวณถูก 100%), ROIC ใกล้ (±5-10% จากนิยาม invested capital). Net Debt 'ไม่' อยู่ในเช็ค
+โดยตั้งใจ — มัน sign-flip ตามนิยาม (lease/short-term investment) จนไม่มี ground truth ที่ canonical.
 """
 from src.providers.stock.fundamentals import StockFundamentals
 from src.providers.stock.xbrl import get_annual_series
@@ -73,6 +79,62 @@ def check_xbrl_accuracy(fundamentals: StockFundamentals, ticker: str) -> dict:
             "reference": ref_val,
             "within_tolerance": _within_tolerance(fundamentals.roe, ref_val),
         })
+
+    # ── Phase 19.1: ground-truth เมตริก derived (NOPAT/FCF/Net Debt/ROIC) เทียบ raw XBRL ──
+    # เมตริกพวกนี้ fundamentals.py คำนวณเองจาก yfinance และ 'ไม่เคยเทียบ SEC จริง' — แต่มันขับ
+    # ทั้ง 2 เกณฑ์พื้นฐาน (ROIC) + valuation ทั้ง leg (reinvestment_rate). ถ้า NOPAT/FCF เพี้ยน
+    # จะผิดพร้อมกันหลายที่เงียบๆ. คำนวณ reference จาก XBRL ดิบด้วยสูตรเดียวกับ fundamentals.py
+    tax = dict(xbrl.get("IncomeTaxExpense", []))
+    pretax = dict(xbrl.get("PretaxIncome", []))
+    op_income = dict(xbrl.get("OperatingIncomeLoss", []))
+    cfo = dict(xbrl.get("OperatingCashFlow", []))
+    capex = dict(xbrl.get("Capex", []))          # XBRL รายงาน capex เป็นเลขบวก (เงินจ่าย) -> FCF = CFO − capex
+    cash = dict(xbrl.get("CashAndEquivalents", []))
+    ltd_nc = dict(xbrl.get("LongTermDebtNoncurrent", []))
+    ltd_c = dict(xbrl.get("LongTermDebtCurrent", []))
+
+    def _nopat_ref(p: str) -> float | None:
+        if p in op_income and p in tax and p in pretax and pretax[p]:
+            return op_income[p] * (1 - tax[p] / pretax[p])   # NOPAT = EBIT × (1 − อัตราภาษีจริง)
+        return None
+
+    def _fcf_ref(p: str) -> float | None:
+        return cfo[p] - capex[p] if p in cfo and p in capex else None
+
+    def _total_debt(p: str) -> float | None:
+        if p not in ltd_nc and p not in ltd_c:
+            return None
+        return ltd_nc.get(p, 0.0) + ltd_c.get(p, 0.0)
+
+    def _roic_ref(p: str) -> float | None:
+        # invested capital ใช้ debt/cash ตามนิยาม XBRL long-term-debt (อาจต่างจาก yfinance ที่รวม
+        # lease) — เช็คนี้จับ 'ผิดหนัก' (2 เท่า/สลับเครื่องหมาย) ไม่ใช่ความแม่นระดับทศนิยม
+        nopat, td = _nopat_ref(p), _total_debt(p)
+        if nopat is None or td is None or p not in equity or p not in cash:
+            return None
+        invested = td + equity[p] - cash[p]
+        return nopat / invested * 100 if invested else None
+
+    # (ก) FCF เทียบรายปี (fcf_series ของเราเป็น FY เทียบ FY ของ XBRL ได้ตรง — ไม่ใช่ TTM)
+    for p, ours in getattr(fundamentals, "fcf_series", []):
+        ref = _fcf_ref(p)
+        if ref is not None:
+            checks.append({"metric": f"FCF ({p})", "ours": round(ours, 2), "reference": round(ref, 2),
+                           "within_tolerance": _within_tolerance(ours, ref)})
+
+    # (ข) NOPAT / ROIC — scalar ปีล่าสุด (period) ของเรา เทียบ reference ปีเดียวกัน.
+    # หมายเหตุ: 'Net Debt' ไม่อยู่ในเช็คนี้โดยตั้งใจ — มันขึ้นกับนิยาม (lease นับเป็นหนี้ไหม, cash
+    # รวม short-term investment ไหม) จน sign พลิกได้ (เจอจริง: NVDA/AMZN ของเรา=net-debt แต่
+    # XBRL long-term-debt=net-cash) ไม่มี ground truth ที่ canonical -> นับใน accuracy จะหลอกว่า
+    # ข้อมูลเราผิดทั้งที่เป็นเรื่องนิยาม. ความเปราะของ 'net-cash detection' นี้เป็น input ให้ Phase 19.2
+    for our_val, ref_fn, label in [
+        (getattr(fundamentals, "nopat", None), _nopat_ref, "NOPAT"),
+        (getattr(fundamentals, "roic", None), _roic_ref, "ROIC"),
+    ]:
+        ref = ref_fn(period)
+        if our_val is not None and ref is not None:
+            checks.append({"metric": f"{label} ({period})", "ours": round(our_val, 2), "reference": round(ref, 2),
+                           "within_tolerance": _within_tolerance(our_val, ref)})
 
     passed = sum(1 for c in checks if c["within_tolerance"])
     return {

@@ -32,6 +32,22 @@ CONCEPTS: dict[str, tuple[list[str], str]] = {
     "OperatingIncomeLoss": (["OperatingIncomeLoss"], "duration"),
     "StockholdersEquity": (["StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"], "instant"),
     "Assets": (["Assets"], "instant"),
+    # Phase 19.1: building blocks สำหรับ ground-truth ROIC/NOPAT/Net Debt/FCF (เมตริก derived ที่
+    # fundamentals.py คำนวณเองจาก yfinance แต่ไม่เคยเทียบ SEC จริง) — ดู check_xbrl_accuracy
+    "IncomeTaxExpense": (["IncomeTaxExpenseBenefit"], "duration"),
+    "PretaxIncome": ([
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterest",
+    ], "duration"),
+    "OperatingCashFlow": ([
+        "NetCashProvidedByUsedInOperatingActivities",
+        "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+    ], "duration"),
+    "Capex": (["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"], "duration"),
+    "CashAndEquivalents": (["CashAndCashEquivalentsAtCarryingValue"], "instant"),
+    "LongTermDebtNoncurrent": (["LongTermDebtNoncurrent", "LongTermDebt"], "instant"),
+    "LongTermDebtCurrent": (["LongTermDebtCurrent"], "instant"),
 }
 
 

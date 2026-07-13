@@ -61,6 +61,43 @@ def test_flags_mismatch(monkeypatch):
     assert bad["within_tolerance"] is False
 
 
+def _fake_xbrl_with_derived():
+    """เพิ่ม concept สำหรับ FCF/NOPAT/ROIC ให้คำนวณ reference ได้ (Phase 19.1):
+    FCF = CFO(300) − Capex(100) = 200; tax rate = 40/200 = 20%; NOPAT = OpIncome(250)×0.8 = 200;
+    invested = debt(300+0) + equity(800) − cash(100) = 1000; ROIC = 200/1000 = 20%."""
+    base = _fake_xbrl_series()
+    base.update({
+        "IncomeTaxExpense": [("FY2025", 40.0)],
+        "PretaxIncome": [("FY2025", 200.0)],
+        "OperatingCashFlow": [("FY2025", 300.0)],
+        "Capex": [("FY2025", 100.0)],
+        "CashAndEquivalents": [("FY2025", 100.0)],
+        "LongTermDebtNoncurrent": [("FY2025", 300.0)],
+    })
+    return base
+
+
+def test_ground_truth_fcf_nopat_roic(monkeypatch):
+    """Phase 19.1: FCF/NOPAT/ROIC เทียบ raw XBRL — ค่าที่คำนวณให้ตรงต้องผ่าน tolerance."""
+    monkeypatch.setattr(
+        "src.evals.check_xbrl_accuracy.get_annual_series",
+        lambda ticker: _fake_xbrl_with_derived(),
+    )
+    fund = _fake_fundamentals()
+    fund.fcf_series = [("FY2025", 200.0)]   # = CFO−Capex reference
+    fund.nopat = 200.0                       # = OpIncome×(1−taxrate)
+    fund.roic = 20.0                         # = NOPAT/invested
+    fund.net_debt = 999.0                    # ตั้งใจให้ผิด — ต้อง 'ไม่' ถูกเช็ค (Net Debt ไม่อยู่ใน eval)
+    result = check_xbrl_accuracy(fund, "TEST")
+
+    metrics = {c["metric"] for c in result["checks"]}
+    assert "FCF (FY2025)" in metrics
+    assert "NOPAT (FY2025)" in metrics
+    assert "ROIC (FY2025)" in metrics
+    assert not any("Net Debt" in m for m in metrics)   # net-debt ถูกกันออกโดยตั้งใจ (definitional)
+    assert result["accuracy"] == 1.0                    # ทุกตัวตรง -> 100% (net_debt ผิดไม่นับ)
+
+
 def test_no_xbrl_data_returns_none_accuracy(monkeypatch):
     """EDGAR ล่ม/ไม่พบ CIK -> get_annual_series คืน {} -> accuracy None ไม่ raise."""
     monkeypatch.setattr("src.evals.check_xbrl_accuracy.get_annual_series", lambda ticker: {})
