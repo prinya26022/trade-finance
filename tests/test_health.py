@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 from src.agent.health import (
     compute_health, _fundamental_score, _valuation_score, _sentiment_points,
-    _normalize_facts, _criterion_roic_vs_wacc, _criterion_roe_trend,
+    _normalize_facts, _criterion_roic_vs_wacc, _criterion_roic_level,
     _criterion_fcf_and_accruals, _criterion_revenue_growth, _criterion_leverage,
-    _criterion_liquidity, _criterion_margin_improving, _criterion_not_diluting,
+    _criterion_solvency, _criterion_margin_improving, _criterion_not_diluting,
     DATA_GATE_MIN_CRITERIA,
 )
 
@@ -37,18 +37,28 @@ def test_criterion_roic_vs_wacc_uses_beta_when_present():
     assert _criterion_roic_vs_wacc(facts, RF) is False
 
 
-def test_criterion_roe_trend_needs_two_years():
-    assert _criterion_roe_trend([_fact("ROE", 20.0, "FY2024"), _fact("ROE", 25.0, "FY2025")], RF) is True
-    assert _criterion_roe_trend([_fact("ROE", 25.0, "FY2024"), _fact("ROE", 20.0, "FY2025")], RF) is False
-    assert _criterion_roe_trend([_fact("ROE", 20.0, "FY2025")], RF) is None
+def test_criterion_roic_level():
+    # audit fix: แทน ROE-trend (โดน buyback บิด) ด้วย ROIC level >= 15% — buyback-immune
+    assert _criterion_roic_level([_fact("ROIC", 20.0)], RF) is True
+    assert _criterion_roic_level([_fact("ROIC", 15.0)], RF) is True   # ขอบพอดี = ผ่าน
+    assert _criterion_roic_level([_fact("ROIC", 12.0)], RF) is False
+    assert _criterion_roic_level([], RF) is None
 
 
-def test_criterion_fcf_and_accruals_both_must_pass():
-    facts_pass = [_fact("FCF Margin", 10.0), _fact("CFO", 120.0), _fact("Net Income", 100.0)]
-    assert _criterion_fcf_and_accruals(facts_pass, RF) is True
-    # CFO < Net Income -> คุณภาพกำไรแย่ -> ไม่ผ่านแม้ FCF Margin เป็นบวก
-    facts_fail = [_fact("FCF Margin", 10.0), _fact("CFO", 80.0), _fact("Net Income", 100.0)]
-    assert _criterion_fcf_and_accruals(facts_fail, RF) is False
+def test_criterion_fcf_and_accruals_has_tolerance():
+    # audit fix: CFO >= 0.9*NI (tolerance 10%) กัน knife-edge ที่ CFO≈NI
+    # CFO/NI = 0.995 (คล้าย AAPL จริง) -> เดิม fail เพราะ < NI เป๊ะๆ, ตอนนี้ pass
+    assert _criterion_fcf_and_accruals(
+        [_fact("FCF Margin", 22.0), _fact("CFO", 99.5), _fact("Net Income", 100.0)], RF) is True
+    # CFO << NI (แต่งงบจริง) -> ยัง fail
+    assert _criterion_fcf_and_accruals(
+        [_fact("FCF Margin", 10.0), _fact("CFO", 70.0), _fact("Net Income", 100.0)], RF) is False
+    # FCF ติดลบ -> fail แม้ accruals ผ่าน
+    assert _criterion_fcf_and_accruals(
+        [_fact("FCF Margin", -5.0), _fact("CFO", 120.0), _fact("Net Income", 100.0)], RF) is False
+    # ขาดทุน (NI<=0): accruals ratio ไร้ความหมาย -> เช็คแค่ FCF > 0
+    assert _criterion_fcf_and_accruals(
+        [_fact("FCF Margin", 5.0), _fact("CFO", -10.0), _fact("Net Income", -50.0)], RF) is True
     assert _criterion_fcf_and_accruals([_fact("FCF Margin", 10.0)], RF) is None
 
 
@@ -57,22 +67,23 @@ def test_criterion_revenue_growth_threshold_is_3pct_not_0():
     assert _criterion_revenue_growth([_fact("Revenue CAGR", 1.5)], RF) is False   # เดิม (Phase 17) จะผ่านเพราะ >0
 
 
-def test_criterion_leverage_level_and_trend():
-    ok = [_fact("Net Debt / EBITDA", 1.0, "FY2024"), _fact("Net Debt / EBITDA", 0.8, "FY2025")]
-    assert _criterion_leverage(ok, RF) is True
-    bad_level = [_fact("Net Debt / EBITDA", 4.0, "FY2024"), _fact("Net Debt / EBITDA", 3.5, "FY2025")]
-    assert _criterion_leverage(bad_level, RF) is False   # level เกิน 3x แม้ trend ดีขึ้น
-    bad_trend = [_fact("Net Debt / EBITDA", 0.5, "FY2024"), _fact("Net Debt / EBITDA", 0.8, "FY2025")]
-    assert _criterion_leverage(bad_trend, RF) is False   # level ผ่านแต่หนี้เพิ่มขึ้น
-    assert _criterion_leverage([_fact("Net Debt / EBITDA", 1.0, "FY2025")], RF) is None   # ต้อง 2 ปี
+def test_criterion_leverage_net_cash_passes():
+    # audit fix: net-cash (Net Debt <= 0) ผ่านทันที — ratio ไร้ความหมายกับบริษัทเงินสดสุทธิ
+    assert _criterion_leverage([_fact("Net Debt", -900.0), _fact("Net Debt / EBITDA", -6.29)], RF) is True
+    # มีหนี้: level < 3 ผ่าน
+    assert _criterion_leverage([_fact("Net Debt", 500.0), _fact("Net Debt / EBITDA", 1.0)], RF) is True
+    # มีหนี้: level >= 3 fail (ตัด trend YoY ออกแล้ว — เช็คแค่ level)
+    assert _criterion_leverage([_fact("Net Debt", 500.0), _fact("Net Debt / EBITDA", 4.0)], RF) is False
+    # มีหนี้แต่ไม่มี ratio -> คำนวณไม่ได้
+    assert _criterion_leverage([_fact("Net Debt", 500.0)], RF) is None
 
 
-def test_criterion_liquidity_level_and_trend():
-    ok = [_fact("Current Ratio", 1.5, "FY2024"), _fact("Current Ratio", 1.6, "FY2025")]
-    assert _criterion_liquidity(ok, RF) is True
-    bad_level = [_fact("Current Ratio", 0.8, "FY2024"), _fact("Current Ratio", 0.9, "FY2025")]
-    assert _criterion_liquidity(bad_level, RF) is False
-    assert _criterion_liquidity([_fact("Current Ratio", 1.5, "FY2025")], RF) is None
+def test_criterion_solvency_interest_coverage():
+    # audit fix: แทน current-ratio ด้วย interest coverage (net-cash ผ่านทันที)
+    assert _criterion_solvency([_fact("Net Debt", -900.0)], RF) is True   # net-cash = ไม่มีดอกเบี้ยต้องจ่าย
+    assert _criterion_solvency([_fact("Net Debt", 500.0), _fact("Interest Coverage", 10.0)], RF) is True
+    assert _criterion_solvency([_fact("Net Debt", 500.0), _fact("Interest Coverage", 1.5)], RF) is False
+    assert _criterion_solvency([_fact("Net Debt", 500.0)], RF) is None   # มีหนี้แต่ไม่มี coverage
 
 
 def test_criterion_margin_improving():
@@ -101,13 +112,13 @@ def test_fy_series_dedupes_scalar_and_series_collision():
 
 # --- fundamental score / data gate ---
 
+# ผ่านครบ 8 เกณฑ์ (audit-fixed): #1 ROIC>WACC, #2 ROIC>=15, #3 FCF+accruals(tol),
+# #4 revenue>3%, #5 leverage(net-cash), #6 solvency(net-cash), #7 margin trend, #8 no dilution
 _FULL_PASS_FACTS = [
     _fact("ROIC", 20.0), _fact("Beta", 1.0),
-    _fact("ROE", 20.0, "FY2024"), _fact("ROE", 25.0, "FY2025"),
     _fact("FCF Margin", 10.0), _fact("CFO", 120.0), _fact("Net Income", 100.0),
     _fact("Revenue CAGR", 5.0),
-    _fact("Net Debt / EBITDA", 1.0, "FY2024"), _fact("Net Debt / EBITDA", 0.8, "FY2025"),
-    _fact("Current Ratio", 1.5, "FY2024"), _fact("Current Ratio", 1.6, "FY2025"),
+    _fact("Net Debt", -100.0),   # net-cash -> ผ่านทั้ง #5 (leverage) และ #6 (solvency)
     _fact("Operating Margin", 20.0, "FY2024"), _fact("Operating Margin", 22.0, "FY2025"),
     _fact("Diluted Shares", 100.0, "FY2024"), _fact("Diluted Shares", 95.0, "FY2025"),
 ]
@@ -132,10 +143,11 @@ def test_fundamental_score_disqualifies_below_data_gate():
 
 
 def test_fundamental_score_missing_criterion_counts_as_fail_not_skip():
-    # ผ่าน data gate (>=6 คำนวณได้) แต่มี 1 เกณฑ์ที่ไม่ผ่าน -> denominator ยังเป็น 8 เสมอ
-    facts = [f for f in _FULL_PASS_FACTS if f["label"] != "ROIC" and f["label"] != "Beta"]
+    # ผ่าน data gate (>=6 คำนวณได้) แต่มี 1 เกณฑ์ที่คำนวณไม่ได้ -> denominator ยังเป็น 8 เสมอ
+    # (ตัด Diluted Shares ออก -> #8 คำนวณไม่ได้ -> เหลือ 7 computable ที่ผ่านหมด)
+    facts = [f for f in _FULL_PASS_FACTS if f["label"] != "Diluted Shares"]
     result = _fundamental_score(facts, RF)
-    assert result["computable"] == 7   # ROIC>WACC เช็คไม่ได้ (ไม่มี ROIC)
+    assert result["computable"] == 7   # #8 (dilution) เช็คไม่ได้
     assert result["score"] == 7        # /8 เสมอ ไม่ใช่ 7/7
 
 
@@ -213,18 +225,16 @@ def test_compute_health_crypto_like_facts_disqualified():
 
 
 def test_compute_health_breach_penalizes_and_floors_at_zero():
-    valuation_facts = [_fact("Market Cap", 905.78), _fact("FCF Yield", -5.0)]
-    # ใช้ facts ที่ fundamental ผ่านแต่ทุกเกณฑ์ fail ให้คะแนนต่ำสุด (0) + valuation ก็ต้อง resolvable
+    # ทุกเกณฑ์ fail -> fundamental 0/8 (audit-fixed criteria) + valuation resolvable
     low_facts = [
-        _fact("ROIC", 1.0), _fact("Beta", 1.0),
-        _fact("ROE", 25.0, "FY2024"), _fact("ROE", 20.0, "FY2025"),
-        _fact("FCF Margin", -5.0), _fact("CFO", 80.0), _fact("Net Income", 100.0),
-        _fact("Revenue CAGR", 1.0),
-        _fact("Net Debt / EBITDA", 4.0, "FY2024"), _fact("Net Debt / EBITDA", 4.5, "FY2025"),
-        _fact("Current Ratio", 0.8, "FY2024"), _fact("Current Ratio", 0.7, "FY2025"),
-        _fact("Operating Margin", 22.0, "FY2024"), _fact("Operating Margin", 20.0, "FY2025"),
-        _fact("Diluted Shares", 95.0, "FY2024"), _fact("Diluted Shares", 100.0, "FY2025"),
-        _fact("Market Cap", 900.0), _fact("FCF Yield", 5.0), _fact("Revenue CAGR", 1.0),
+        _fact("ROIC", 1.0), _fact("Beta", 1.0),          # #1 ROIC<WACC, #2 ROIC<15 -> fail
+        _fact("FCF Margin", -5.0), _fact("CFO", 70.0), _fact("Net Income", 100.0),  # #3 FCF<0 -> fail
+        _fact("Revenue CAGR", 1.0),                       # #4 <3% -> fail
+        _fact("Net Debt", 500.0), _fact("Net Debt / EBITDA", 4.0),  # #5 มีหนี้ ratio>=3 -> fail
+        _fact("Interest Coverage", 1.0),                  # #6 coverage<3 -> fail
+        _fact("Operating Margin", 22.0, "FY2024"), _fact("Operating Margin", 20.0, "FY2025"),  # #7 ลด -> fail
+        _fact("Diluted Shares", 95.0, "FY2024"), _fact("Diluted Shares", 100.0, "FY2025"),     # #8 เพิ่ม -> fail
+        _fact("Market Cap", 900.0), _fact("FCF Yield", 5.0),   # valuation resolvable
     ]
     breaches = [{"severity": "alert"}]
     h = compute_health(_summary("bearish"), breaches, low_facts, RF)

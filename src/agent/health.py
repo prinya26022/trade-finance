@@ -28,10 +28,14 @@ TOTAL_MAX = 12.0             # Fundamental(8) + Valuation(3) + News(1)
 SENTIMENT_PTS = {"bullish": 1.0, "neutral": 0.5, "bearish": 0.0}   # /1 — tie-breaker เท่านั้น
 
 # เกณฑ์ตัวเลข (heuristic มาตรฐานการเงินทั่วไป ไม่ใช่กฎตายตัว — ปรับตาม backtest ได้ แต่ตั้งก่อนรัน)
-ROE_TREND_STRICT = True       # เกณฑ์ #2: ปีนี้ต้อง > ปีก่อนเป๊ะๆ (ไม่ใช่แค่ไม่ลด)
+# ── audit fix (2026-07): 4 เกณฑ์เดิม (#2 ROE-trend, #3 accruals เป๊ะ, #5 leverage trend,
+#    #6 current-ratio) backfire กับบริษัทคุณภาพสูง/net-cash — ลงโทษ AAPL (ROIC 82%, buyback,
+#    net-cash-ish) จนได้ 4.5 "อ่อน" ทั้งที่เป็นธุรกิจชั้นเยี่ยม. แก้ให้ robust ตามเหตุผลใต้แต่ละ criterion
+ROIC_MIN_PCT = 15.0           # เกณฑ์ #2: ROIC สูง = ธุรกิจผลตอบแทนต่อทุนสูง (แทน ROE-trend ที่บิดโดย buyback)
 REVENUE_CAGR_THRESHOLD_PCT = 3.0   # เกณฑ์ #4: เหนือเงินเฟ้อจริง ไม่ใช่แค่ > 0%
 LEVERAGE_MAX_X = 3.0          # เกณฑ์ #5
-CURRENT_RATIO_MIN_X = 1.0     # เกณฑ์ #6
+INTEREST_COVERAGE_MIN_X = 3.0  # เกณฑ์ #6: EBIT/ดอกเบี้ย จ่ายได้สบาย (แทน current-ratio ที่ลงโทษอำนาจต่อรองสูง)
+ACCRUALS_TOLERANCE = 0.9      # เกณฑ์ #3: CFO >= 0.9*NI (มี tolerance กัน knife-edge ที่ CFO≈NI)
 
 
 def _normalize_facts(facts) -> list[dict]:
@@ -81,22 +85,30 @@ def _criterion_roic_vs_wacc(facts, risk_free_pct):
     return roic > wacc_pct
 
 
-def _criterion_roe_trend(facts, _rf):
-    """#2: ROE ปีนี้ > ปีก่อน (trend ล้วน — ไม่เช็ค level)."""
-    pts = _fy_series(facts, "ROE")
-    return None if len(pts) < 2 else pts[-1][1] > pts[-2][1]
+def _criterion_roic_level(facts, _rf):
+    """#2: ROIC >= 15% — ธุรกิจสร้างผลตอบแทนต่อทุนสูง (moat).
+    audit fix: แทนเกณฑ์เดิม 'ROE ปีนี้ > ปีก่อน' ที่โดน buyback บิด — บริษัทที่ซื้อหุ้นคืนหนัก
+    (เช่น AAPL) equity เล็กลงจน ROE พุ่ง 150%+ แล้ว 'ลดลง' ทั้งที่กำไรไม่ได้แย่ลง = เป็น artifact
+    ของ denominator ไม่ใช่คุณภาพ. ROIC ใช้ invested capital (หนี้+ทุน−เงินสด) จึงไม่โดน buyback
+    บิด — เทียบ level กับ 15% (เกณฑ์คุณภาพสูง) เสริมกับ #1 (ROIC>WACC = สร้างมูลค่าไหม)."""
+    roic = _scalar(facts, "ROIC")
+    return None if roic is None else roic >= ROIC_MIN_PCT
 
 
 def _criterion_fcf_and_accruals(facts, _rf):
-    """#3: FCF > 0 และ CFO > Net Income (accruals check — ตัวจับการแต่งงบ) ทั้งคู่ต้องผ่าน.
-    ใช้ FCF Margin > 0 แทน FCF ดอลลาร์ตรงๆ (เทียบเท่ากันเพราะ revenue > 0 เสมอ ไม่ต้องเพิ่ม
-    Fact ใหม่)."""
+    """#3: FCF > 0 และ CFO >= 0.9*Net Income (accruals — คุณภาพกำไร) ทั้งคู่ต้องผ่าน.
+    audit fix: เดิมใช้ CFO > NI เป๊ะๆ = knife-edge ไม่มี tolerance — บริษัทคุณภาพที่ CFO≈NI
+    (เช่น AAPL CFO/NI=0.995 = กำไรเป็นเงินสดเกือบเต็ม) โดน fail เท่ากับบริษัทแต่งงบจริง เพราะ
+    cliff อยู่ที่ CFO=NI พอดี. ใส่ tolerance 10% (CFO >= 0.9*NI) = 'กำไรเป็นเงินสดอย่างน้อย 90%'.
+    NI <= 0 (ขาดทุน): accruals ratio ไร้ความหมาย -> เช็คแค่ FCF > 0."""
     fcf_margin = _scalar(facts, "FCF Margin")
     cfo = _scalar(facts, "CFO")
     net_income = _scalar(facts, "Net Income")
     if fcf_margin is None or cfo is None or net_income is None:
         return None
-    return fcf_margin > 0 and cfo > net_income
+    if net_income <= 0:
+        return fcf_margin > 0
+    return fcf_margin > 0 and cfo >= ACCRUALS_TOLERANCE * net_income
 
 
 def _criterion_revenue_growth(facts, _rf):
@@ -106,19 +118,27 @@ def _criterion_revenue_growth(facts, _rf):
 
 
 def _criterion_leverage(facts, _rf):
-    """#5: Net Debt/EBITDA < 3 และไม่เพิ่ม YoY (level+trend, ต้อง 2 ปีขึ้นไปถึงเช็คได้)."""
-    pts = _fy_series(facts, "Net Debt / EBITDA")
-    if len(pts) < 2:
-        return None
-    return pts[-1][1] < LEVERAGE_MAX_X and pts[-1][1] <= pts[-2][1]
+    """#5: มีเงินสดสุทธิ (Net Debt <= 0) ผ่านทันที, ไม่งั้น Net Debt/EBITDA < 3.
+    audit fix: เดิมเช็ค trend YoY ด้วย ('ไม่เพิ่มขึ้น') ซึ่งพังกับบริษัท net-cash — ratio เป็นเลข
+    ติดลบไร้ความหมาย (เช่น DUOL series -9.95 -> -6.29 fail เพราะ -6.29 > -9.95 ทั้งที่เทียบไม่ได้
+    ตั้งแต่แรก). net-cash = ไม่มีความเสี่ยงหนี้เลย ควรผ่าน ไม่ใช่ fail. ตัด trend ออก เหลือ level."""
+    net_debt = _scalar(facts, "Net Debt")
+    if net_debt is not None and net_debt <= 0:
+        return True   # เงินสดสุทธิ = ปลอดภัยเรื่องหนี้ 100%
+    nde = _scalar(facts, "Net Debt / EBITDA")
+    return None if nde is None else nde < LEVERAGE_MAX_X
 
 
-def _criterion_liquidity(facts, _rf):
-    """#6: Current Ratio > 1 และไม่ลด YoY (level+trend, ต้อง 2 ปีขึ้นไปถึงเช็คได้)."""
-    pts = _fy_series(facts, "Current Ratio")
-    if len(pts) < 2:
-        return None
-    return pts[-1][1] > CURRENT_RATIO_MIN_X and pts[-1][1] >= pts[-2][1]
+def _criterion_solvency(facts, _rf):
+    """#6: มีเงินสดสุทธิ (Net Debt <= 0) ผ่านทันที, ไม่งั้น Interest Coverage >= 3x (จ่ายดอกเบี้ยได้สบาย).
+    audit fix: แทนเกณฑ์เดิม 'Current Ratio > 1' ที่ลงโทษบริษัทอำนาจต่อรองสูง — AAPL รัน current
+    ratio < 1 โดยตั้งใจ (จ่าย supplier ช้า เก็บเงินเร็ว) = จุดแข็ง working-capital ไม่ใช่จุดอ่อน.
+    Interest coverage (EBIT/ดอกเบี้ย) วัด 'จ่ายหนี้ไหวไหม' ตรงกว่า และ net-cash = ไม่มีดอกเบี้ยต้องจ่าย."""
+    net_debt = _scalar(facts, "Net Debt")
+    if net_debt is not None and net_debt <= 0:
+        return True
+    cov = _scalar(facts, "Interest Coverage")
+    return None if cov is None else cov >= INTEREST_COVERAGE_MIN_X
 
 
 def _criterion_margin_improving(facts, _rf):
@@ -135,11 +155,11 @@ def _criterion_not_diluting(facts, _rf):
 
 PIOTROSKI_CRITERIA = [
     ("ROIC>WACC", _criterion_roic_vs_wacc),
-    ("ROE กำลังดีขึ้น", _criterion_roe_trend),
+    ("ROIC สูง(>=15%)", _criterion_roic_level),
     ("FCF+คุณภาพกำไร", _criterion_fcf_and_accruals),
     ("รายได้เติบโตจริง(>3%)", _criterion_revenue_growth),
     ("หนี้ไม่บานปลาย", _criterion_leverage),
-    ("สภาพคล่องแข็งแรง", _criterion_liquidity),
+    ("จ่ายดอกเบี้ยไหว/net-cash", _criterion_solvency),
     ("Margin ขยาย", _criterion_margin_improving),
     ("ไม่เจือจางหุ้น", _criterion_not_diluting),
 ]
