@@ -256,8 +256,27 @@ The 18d audit found more than the one face-invalid bug it fixed. Remaining, prio
   rows changed, exactly as predicted from the real numbers -- SBUX -1 (Net Margin ~5% now fails the
   new bar, previously passed on ROIC 17%), AMZN +1 (Net Margin ~11% now passes, previously failed
   ROIC's 15% bar at 13.5%). AAPL/DUOL/GOOGL/MSFT/NVDA untouched. Applied.
-- **19.3 Binary-cliff -> graded scoring** -- every criterion is pass/fail at an exact threshold, so
-  a rounding-level change swings the score ~2/12 (root of the Phase-16 "score jumped" problem).
+- **19.3 Binary-cliff -> graded scoring** DONE -- every criterion is pass/fail at an exact
+  threshold, so a rounding-level change swings the score ~2/12 (root of the Phase-16 "score
+  jumped" problem). Replaced every criterion with a linear 0.0-1.0 ramp across a band around
+  its threshold (full credit at threshold+band, zero at threshold-band, 0.5 exactly at the
+  threshold). Verified via backfill dry-run: 40/107 rows changed, mostly -0.1 to -1.1 (partial
+  credit near a threshold used to round up to a full point) with one flip each way at the
+  latest-row level (MSFT strong->ok, GOOGL ok->strong). Applied.
+- **19.3.1 Decouple sentiment from the score** DONE -- moved up from "Remaining" below once 19.3's
+  own audit surfaced hard evidence: measuring real score swings across 84 consecutive-pair
+  history rows and decomposing every jump >=0.5 by component showed sentiment drove 57.4% of
+  them (fundamentals 24.3%, valuation 18.4%) -- the health score was tracking daily LLM
+  bullish/neutral/bearish flips more than the business itself, directly contradicting both the
+  code's own stated intent ("tie-breaker only, must not flip /8+/3") and the project's investing
+  thesis (daily news = noise). Sentiment is still computed and shown as a reason/component for
+  transparency, just no longer summed into the score; TOTAL_MAX dropped 12->11.
+  changes.py::_health_jump_driver was also fixed to stop naming sentiment as the "driver" of a
+  jump, since it can no longer cause one. Verified: average swing across the same 84 pairs fell
+  54% (0.25->0.12); max swing (2.00) is unchanged and comes entirely from 19.4's still-open
+  valuation step-function plus one genuine new-fiscal-year data update (DUOL), not noise.
+  Backfill: GOOGL's latest row flips strong->ok (8.5/12->7.5/11) -- its "strong" rating was
+  partly propped up by bullish sentiment, not fundamentals/valuation. Applied.
 - **19.4 Valuation unit mismatch** -- gap = implied FCF growth minus realistic *revenue* growth
   (apples-to-oranges); align to FCF-growth-vs-FCF-growth.
 - **19.5 Threshold/tier calibration** -- every threshold (ROIC 15%, 0.9 tolerance, WACC bounds,
@@ -269,7 +288,7 @@ Remaining (beyond the audit roadmap): deeper crypto on-chain metrics (active add
 macro/rates valuation context beyond CAPM WACC, triggering investigation/narration from the UI,
 bank/insurance alternate scoring framework (FCF-based ratios don't apply), cyclical-industry
 normalization, and the deferred predictive backtest (point-in-time, fundamentals-deterioration
-exit, drop sentiment -- see the design discussion; blocked on 19.1-19.5 landing first).
+exit -- see the design discussion; blocked on 19.1-19.5 landing first).
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
