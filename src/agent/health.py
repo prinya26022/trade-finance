@@ -45,6 +45,30 @@ LEVERAGE_MAX_X = 3.0          # เกณฑ์ #5
 INTEREST_COVERAGE_MIN_X = 3.0  # เกณฑ์ #6: EBIT/ดอกเบี้ย จ่ายได้สบาย (แทน current-ratio ที่ลงโทษอำนาจต่อรองสูง)
 ACCRUALS_TOLERANCE = 0.9      # เกณฑ์ #3: CFO >= 0.9*NI (มี tolerance กัน knife-edge ที่ CFO≈NI)
 
+# ── audit fix 19.3 (2026-07): ทุกเกณฑ์เดิมเป็น binary cliff ที่ threshold เป๊ะๆ — ตัวเลขขยับ
+#    แค่เศษเสี้ยว (เช่น GOOGL operating margin 32.11%->32.03%, ลด 0.08pp) พลิกทั้งเกณฑ์จาก pass
+#    เป็น fail เต็มๆ (0->1 เต็มจุด, root ของปัญหา "score กระโดด" เดิม). แก้เป็น graded: ไล่ระดับ
+#    0.0-1.0 เชิงเส้นรอบ threshold ภายใน "band" ที่กำหนด แทน step function — ผ่านเต็ม (1.0) ที่
+#    threshold+band, ไม่ผ่านเลย (0.0) ที่ threshold-band, ไล่ตรงกลาง. ค่าที่ห่าง threshold มากๆ
+#    (ส่วนใหญ่ของ watchlist) ยังได้ 1.0/0.0 เท่าเดิม — กระทบเฉพาะเคสที่ใกล้ threshold จริง
+BAND_PCT = 3.0            # % ทั่วไป (ROIC-WACC gap, Net Margin, Revenue CAGR) — เท่ากับ TOLERANCE_ABS ที่ใช้ทั้งโปรเจกต์
+BAND_ACCRUALS_RATIO = 0.05   # CFO/NI ratio รอบ ACCRUALS_TOLERANCE
+BAND_LEVERAGE_X = 1.0        # Net Debt/EBITDA (x เท่า)
+BAND_COVERAGE_X = 1.5        # Interest Coverage (x เท่า)
+BAND_MARGIN_TREND_PP = 1.5   # #7 operating margin YoY delta (pp)
+BAND_DILUTION_PCT = 1.5      # #8 diluted shares YoY %change
+
+
+def _graded_above(value: float, threshold: float, band: float) -> float:
+    """ไล่ระดับ 0.0-1.0 เชิงเส้น: 1.0 ที่ value>=threshold+band, 0.0 ที่ value<=threshold-band
+    (ยิ่งค่ามากยิ่งดี — ROIC, margin, revenue growth ฯลฯ)."""
+    return max(0.0, min(1.0, (value - (threshold - band)) / (2 * band)))
+
+
+def _graded_below(value: float, threshold: float, band: float) -> float:
+    """เหมือน _graded_above แต่กลับทิศ (ยิ่งน้อยยิ่งดี — leverage ratio, dilution %)."""
+    return _graded_above(-value, -threshold, band)
+
 
 def _normalize_facts(facts) -> list[dict]:
     """list[Fact] (dataclass) หรือ list[dict] (จาก JSON) -> list[dict] รูปแบบเดียวกันหมด."""
@@ -81,64 +105,74 @@ def _fy_series(facts: list[dict], label: str) -> list[tuple[str, float]]:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PART A — Fundamental (/8), 8 เกณฑ์ตาม scoring_spec.md
-# check(facts, risk_free_pct) -> True (ผ่าน) | False (ไม่ผ่าน) | None (ข้อมูลไม่พอคำนวณ)
+# check(facts, risk_free_pct) -> float 0.0-1.0 (ไล่ระดับผ่าน, audit fix 19.3) | None (ข้อมูลไม่พอคำนวณ)
 # ─────────────────────────────────────────────────────────────────────────────
 def _criterion_roic_vs_wacc(facts, risk_free_pct):
-    """#1: ROIC > WACC (ไม่ใช่ ROIC > 0 — 'โตแล้วเผาเงิน' ต้องได้ 0 เพราะ ROIC>0 แทบไม่มีความหมาย)."""
+    """#1: ROIC vs WACC แบบไล่ระดับ (ไม่ใช่ ROIC > 0 — 'โตแล้วเผาเงิน' ต้องได้ 0 เพราะ ROIC>0
+    แทบไม่มีความหมาย). audit fix 19.3: เดิม cliff เป๊ะที่ ROIC=WACC พอดี — ไล่ระดับรอบ WACC±3pp แทน."""
     roic = _scalar(facts, "ROIC")
     if roic is None:
         return None
     beta = _scalar(facts, "Beta")
     wacc_pct = capm_wacc(beta, risk_free_pct) * 100.0
-    return roic > wacc_pct
+    return _graded_above(roic, wacc_pct, BAND_PCT)
 
 
 def _criterion_net_margin_level(facts, _rf):
-    """#2: Net Margin (ปีล่าสุด) >= 10% — pricing power + cost discipline.
+    """#2: Net Margin (ปีล่าสุด) vs 10% แบบไล่ระดับ — pricing power + cost discipline.
     audit fix 19.2: เดิมใช้ ROIC>=15% ซ้ำกับ #1 (ROIC>WACC) — ตัวเลขเดียวกันขับ 2 เกณฑ์ ถ้า
     invested-capital คำนวณผิดพลาดจะพังพร้อมกันทั้งคู่ (correlated error). Net Margin = Net
     Income/Revenue ไม่แชร์ input กับ NOPAT/invested-capital เลย (คนละ pipeline การคำนวณเต็มๆ)
-    จึงกระจายความเสี่ยง และยังเป็นเกณฑ์คุณภาพมาตรฐาน (double-digit net margin) ที่ใช้กันทั่วไป."""
+    จึงกระจายความเสี่ยง และยังเป็นเกณฑ์คุณภาพมาตรฐาน (double-digit net margin) ที่ใช้กันทั่วไป.
+    audit fix 19.3: ไล่ระดับรอบ 10%±3pp (AMZN 10.83% เคยผ่านเต็มจุดทั้งที่ห่างเกณฑ์แค่ 0.83pp)."""
     pts = _fy_series(facts, "Net Margin")
-    return None if not pts else pts[-1][1] >= NET_MARGIN_MIN_PCT
+    return None if not pts else _graded_above(pts[-1][1], NET_MARGIN_MIN_PCT, BAND_PCT)
 
 
 def _criterion_fcf_and_accruals(facts, _rf):
-    """#3: FCF > 0 และ CFO >= 0.9*Net Income (accruals — คุณภาพกำไร) ทั้งคู่ต้องผ่าน.
+    """#3: FCF margin และ CFO/NI (accruals — คุณภาพกำไร) ไล่ระดับทั้งคู่ แล้วเอาค่าต่ำสุด (fuzzy AND).
     audit fix: เดิมใช้ CFO > NI เป๊ะๆ = knife-edge ไม่มี tolerance — บริษัทคุณภาพที่ CFO≈NI
     (เช่น AAPL CFO/NI=0.995 = กำไรเป็นเงินสดเกือบเต็ม) โดน fail เท่ากับบริษัทแต่งงบจริง เพราะ
     cliff อยู่ที่ CFO=NI พอดี. ใส่ tolerance 10% (CFO >= 0.9*NI) = 'กำไรเป็นเงินสดอย่างน้อย 90%'.
-    NI <= 0 (ขาดทุน): accruals ratio ไร้ความหมาย -> เช็คแค่ FCF > 0."""
+    NI <= 0 (ขาดทุน): accruals ratio ไร้ความหมาย -> เช็คแค่ FCF margin.
+    audit fix 19.3: เดิม cliff เป๊ะที่ ratio=0.9 — ไล่ระดับรอบ 0.9±0.05 แทน. band แคบกว่าเกณฑ์อื่น
+    โดยตั้งใจ: CFO/NI ต่ำกว่า 0.85 = กำไรไม่เป็นเงินสดจริงเกิน 15% ซึ่งเป็นสัญญาณคุณภาพกำไรที่ควร
+    ได้ ~0 จริงๆ ไม่ใช่ให้อภัย (เช่น NVDA 0.8555 -> 0.06 คือยังแทบไม่ได้คะแนน ตามเจตนา) — graded
+    ตรงนี้แก้แค่ knife-edge รอบ 0.9 (CFO≈NI) ไม่ได้ตั้งใจยกคะแนนให้เคสที่ accruals สูงจริง"""
     fcf_margin = _scalar(facts, "FCF Margin")
     cfo = _scalar(facts, "CFO")
     net_income = _scalar(facts, "Net Income")
     if fcf_margin is None or cfo is None or net_income is None:
         return None
+    fcf_degree = _graded_above(fcf_margin, 0.0, BAND_PCT)
     if net_income <= 0:
-        return fcf_margin > 0
-    return fcf_margin > 0 and cfo >= ACCRUALS_TOLERANCE * net_income
+        return fcf_degree
+    accruals_degree = _graded_above(cfo / net_income, ACCRUALS_TOLERANCE, BAND_ACCRUALS_RATIO)
+    return min(fcf_degree, accruals_degree)
 
 
 def _criterion_revenue_growth(facts, _rf):
-    """#4: Revenue CAGR > 3% (เหนือเงินเฟ้อจริง ไม่ใช่แค่ > 0%)."""
+    """#4: Revenue CAGR vs 3% แบบไล่ระดับ (เหนือเงินเฟ้อจริง ไม่ใช่แค่ > 0%)."""
     v = _scalar(facts, "Revenue CAGR")
-    return None if v is None else v > REVENUE_CAGR_THRESHOLD_PCT
+    return None if v is None else _graded_above(v, REVENUE_CAGR_THRESHOLD_PCT, BAND_PCT)
 
 
 def _criterion_leverage(facts, _rf):
-    """#5: มีเงินสดสุทธิ (Net Debt <= 0) ผ่านทันที, ไม่งั้น Net Debt/EBITDA < 3.
+    """#5: มีเงินสดสุทธิ (Net Debt <= 0) ผ่านเต็ม 1.0 ทันที, ไม่งั้นไล่ระดับรอบ Net Debt/EBITDA=3±1x.
     audit fix: เดิมเช็ค trend YoY ด้วย ('ไม่เพิ่มขึ้น') ซึ่งพังกับบริษัท net-cash — ratio เป็นเลข
     ติดลบไร้ความหมาย (เช่น DUOL series -9.95 -> -6.29 fail เพราะ -6.29 > -9.95 ทั้งที่เทียบไม่ได้
-    ตั้งแต่แรก). net-cash = ไม่มีความเสี่ยงหนี้เลย ควรผ่าน ไม่ใช่ fail. ตัด trend ออก เหลือ level."""
+    ตั้งแต่แรก). net-cash = ไม่มีความเสี่ยงหนี้เลย ควรผ่าน ไม่ใช่ fail. ตัด trend ออก เหลือ level.
+    audit fix 19.3: level เองก็เคย cliff เป๊ะที่ 3x (เช่น SBUX 2.67x ผ่านเต็มจุดทั้งที่ใกล้เพดานมาก)."""
     net_debt = _scalar(facts, "Net Debt")
     if net_debt is not None and net_debt <= 0:
-        return True   # เงินสดสุทธิ = ปลอดภัยเรื่องหนี้ 100%
+        return 1.0   # เงินสดสุทธิ = ปลอดภัยเรื่องหนี้ 100%
     nde = _scalar(facts, "Net Debt / EBITDA")
-    return None if nde is None else nde < LEVERAGE_MAX_X
+    return None if nde is None else _graded_below(nde, LEVERAGE_MAX_X, BAND_LEVERAGE_X)
 
 
 def _criterion_solvency(facts, _rf):
-    """#6: Interest Coverage >= 3x ถ้ามีข้อมูล, ไม่งั้น fallback ไปเช็ค Net Debt <= 0 (net-cash).
+    """#6: Interest Coverage ไล่ระดับรอบ 3x±1.5x ถ้ามีข้อมูล, ไม่งั้น fallback ไปเช็ค Net Debt <= 0
+    (binary — ไม่มีตัวเลขต่อเนื่องให้ไล่ระดับในกรณี fallback).
     audit fix: แทนเกณฑ์เดิม 'Current Ratio > 1' ที่ลงโทษบริษัทอำนาจต่อรองสูง — AAPL รัน current
     ratio < 1 โดยตั้งใจ (จ่าย supplier ช้า เก็บเงินเร็ว) = จุดแข็ง working-capital ไม่ใช่จุดอ่อน.
     Interest coverage (EBIT/ดอกเบี้ย) วัด 'จ่ายหนี้ไหวไหม' ตรงกว่า.
@@ -148,21 +182,31 @@ def _criterion_solvency(facts, _rf):
     เป็นแค่ fallback ตอนไม่มี Interest Expense รายงานเลย (เช่น DUOL — ไม่มีหนี้จริง ไม่ใช่ data gap)."""
     cov = _scalar(facts, "Interest Coverage")
     if cov is not None:
-        return cov >= INTEREST_COVERAGE_MIN_X
+        return _graded_above(cov, INTEREST_COVERAGE_MIN_X, BAND_COVERAGE_X)
     net_debt = _scalar(facts, "Net Debt")
-    return None if net_debt is None else net_debt <= 0
+    return None if net_debt is None else (1.0 if net_debt <= 0 else 0.0)
 
 
 def _criterion_margin_improving(facts, _rf):
-    """#7: Operating Margin ปีนี้ >= ปีก่อน (trend ล้วน)."""
+    """#7: Operating Margin YoY delta ไล่ระดับรอบ 0±1.5pp.
+    audit fix 19.3: เดิม cliff เป๊ะที่ delta=0 (เช่น GOOGL 32.11%->32.03%, ลดแค่ 0.08pp ก็ fail
+    เต็มจุด — root ของปัญหา score กระโดดเดิม)."""
     pts = _fy_series(facts, "Operating Margin")
-    return None if len(pts) < 2 else pts[-1][1] >= pts[-2][1]
+    if len(pts) < 2:
+        return None
+    return _graded_above(pts[-1][1] - pts[-2][1], 0.0, BAND_MARGIN_TREND_PP)
 
 
 def _criterion_not_diluting(facts, _rf):
-    """#8: จำนวนหุ้นปีนี้ <= ปีก่อน (ไม่เจือจางสุทธิ)."""
+    """#8: %เปลี่ยนจำนวนหุ้น YoY ไล่ระดับรอบ 0%±1.5% (ไม่เจือจางสุทธิ — ยิ่งลดยิ่งดี).
+    audit fix 19.3: เดิม cliff เป๊ะที่ delta<=0 (เช่น SBUX เพิ่ม 0.22% ซึ่งเป็น noise-level ก็ fail
+    เต็มจุดเท่ากับบริษัทที่ dilute หนักจริง). ใช้ %เปลี่ยน ไม่ใช่จำนวนหุ้นดิบ เพราะสเกลต่างกันคนละโลก
+    ข้ามบริษัท (MSFT ~7.5พันล้านหุ้น vs DUOL ~46ล้านหุ้น)."""
     pts = _fy_series(facts, "Diluted Shares")
-    return None if len(pts) < 2 else pts[-1][1] <= pts[-2][1]
+    if len(pts) < 2 or not pts[-2][1]:
+        return None
+    delta_pct = (pts[-1][1] - pts[-2][1]) / pts[-2][1] * 100.0
+    return _graded_below(delta_pct, 0.0, BAND_DILUTION_PCT)
 
 
 PIOTROSKI_CRITERIA = [
@@ -178,11 +222,13 @@ PIOTROSKI_CRITERIA = [
 
 
 def _fundamental_score(facts: list[dict], risk_free_pct: float) -> dict:
-    """คืน dict: score (int 0-8 หรือ None ถ้า disqualify), computable, passed, criteria
-    (list ของ (label, True/False/None)), disqualified (bool), reason (str|None)."""
+    """คืน dict: score (float 0.0-8.0 หรือ None ถ้า disqualify), computable, passed, criteria
+    (list ของ (label, float 0.0-1.0 | None)), disqualified (bool), reason (str|None).
+    audit fix 19.3: score เดิมเป็น int (นับ True ตรงๆ) ตอนนี้เป็นผลรวม degree ต่อเนื่อง — ไล่ระดับ
+    ทุกเกณฑ์ (ดู _graded_above/_graded_below) กัน binary-cliff swing คะแนนจากตัวเลขขยับนิดเดียว."""
     results = [(label, check(facts, risk_free_pct)) for label, check in PIOTROSKI_CRITERIA]
-    computable = sum(1 for _, ok in results if ok is not None)
-    passed = sum(1 for _, ok in results if ok is True)
+    computable = sum(1 for _, d in results if d is not None)
+    passed = round(sum(d for _, d in results if d is not None), 2)
 
     if computable < DATA_GATE_MIN_CRITERIA:
         return {
@@ -191,8 +237,8 @@ def _fundamental_score(facts: list[dict], risk_free_pct: float) -> dict:
             "reason": f"ข้อมูลไม่พอ: คำนวณเกณฑ์พื้นฐานได้แค่ {computable}/8 (ต้องการ >= {DATA_GATE_MIN_CRITERIA}) — ตัดออกจาก screen นี้",
         }
 
-    passed_labels = [label for label, ok in results if ok is True]
-    reason = f"พื้นฐาน: ผ่าน {passed}/8 เกณฑ์ ({', '.join(passed_labels) if passed_labels else 'ไม่ผ่านเลย'}) (+{passed}/8)"
+    passed_labels = [label for label, d in results if d is not None and d >= 0.5]
+    reason = f"พื้นฐาน: ผ่าน {passed:.1f}/8 เกณฑ์ ({', '.join(passed_labels) if passed_labels else 'ไม่ผ่านเลย'}) (+{passed:.1f}/8)"
     return {"score": passed, "computable": computable, "passed": passed, "criteria": results,
             "disqualified": False, "reason": reason}
 
