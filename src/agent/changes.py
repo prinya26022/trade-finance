@@ -25,12 +25,21 @@ HEALTH_JUMP_THRESHOLD = 1.5
 
 # เอาไว้แปล component ที่ขยับแรงสุด -> ข้อความอ่านง่าย พร้อมค่า summary ที่เปลี่ยน (ถ้ามี)
 # Phase 18: 'confidence' ไม่ใช่ component ของคะแนนแล้ว (สเปกไม่รวม) — เอาออกจาก mapping นี้
+# Phase 19.3.1: 'sentiment' ก็ไม่ใช่ component ของคะแนนแล้วเช่นกัน (health.py ตัดออกจากผลรวม
+# เพราะเป็นตัวขับคะแนนกระโดด 57.4% ทั้งที่ตั้งใจให้เป็นแค่ tie-breaker) — ยังอยู่ใน mapping นี้
+# ไว้เผื่อโค้ดอื่นอ้างถึง label แต่ _health_jump_driver ด้านล่างกันไม่ให้มันถูกเลือกเป็น 'ตัวขับ'
+# ของคะแนนที่กระโดดจริง (มันไม่มีทางเป็นสาเหตุได้อีกต่อไป)
 _HEALTH_COMPONENT_LABEL = {
     "strength": ("พื้นฐาน (Piotroski)", None),      # ไม่มี summary field เดี่ยวๆ ให้เทียบตรงๆ แล้ว (คะแนนมาจากหลายเกณฑ์รวมกัน)
     "valuation": ("มุมมองราคา (reverse-DCF)", None),  # เช่นกัน — เป็นตัวเลข gap ไม่ใช่ label เดี่ยวๆ
     "sentiment": ("มุมมองข่าว", "sentiment"),
     "breach_penalty": ("เงื่อนไขออกโดนแตะเปลี่ยน", None),
 }
+
+# component ที่ไม่กระทบ score อีกต่อไป (metadata ล้วน) — ตัดออกจากตัวเลือก 'ตัวขับ' ใน
+# _health_jump_driver กันไม่ให้ misattribute คะแนนที่กระโดดจริง (มาจาก strength/valuation/
+# breach_penalty เท่านั้น) ไปให้ sentiment ทั้งที่มันบวกเข้า score ไม่ได้แล้ว
+_NON_SCORE_COMPONENTS = {"sentiment"}
 
 
 def _fy_int(period: str) -> int:
@@ -90,7 +99,7 @@ def _health_jump_driver(ch: dict, ph: dict, cs: dict, ps: dict) -> str:
     อ่านง่าย เช่น 'มุมมองราคา expensive→cheap' — ให้เห็นว่า 'อะไรขับ' คะแนนที่กระโดด ไม่ใช่แค่
     บอกว่ากระโดด (ผู้ใช้ถามหา 'เหตุผล' ตอนคะแนนเด้งผิดปกติ)."""
     cur_c, prev_c = ch.get("components") or {}, ph.get("components") or {}
-    deltas = {k: cur_c.get(k, 0) - prev_c.get(k, 0) for k in cur_c}
+    deltas = {k: cur_c.get(k, 0) - prev_c.get(k, 0) for k in cur_c if k not in _NON_SCORE_COMPONENTS}
     driver_key = max(deltas, key=lambda k: abs(deltas[k]), default=None)
     if driver_key is None:
         return ""

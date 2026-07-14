@@ -1,5 +1,13 @@
 """Health score — Phase 18: implements scoring_spec.md (Fundamental /8 + Valuation
-reverse-DCF /3 + News /1 = /12), replacing Phase 17's fallback-to-LLM-label design.
+reverse-DCF /3 = /11), replacing Phase 17's fallback-to-LLM-label design.
+
+Phase 19.3.1 (2026-07): sentiment ตัดออกจากผลรวมคะแนนแล้ว (เดิม /12 รวม News/1).
+Audit วัดการกระโดดของคะแนนจริงย้อนหลัง (84 คู่ในประวัติ) แยกตาม component พบว่า sentiment
+เป็นตัวขับ 57.4% ของทุกรอบที่คะแนนกระโดด >=0.5 (พื้นฐาน 24.3%, ราคา 18.4%) — คะแนนสุขภาพธุรกิจ
+เต้นตาม LLM sentiment ที่พลิก bullish<->neutral รายวัน ทั้งที่พื้นฐาน/ราคาไม่ได้เปลี่ยนอะไรเลย
+ขัดกับทั้งเจตนาเดิม ("tie-breaker เท่านั้น, ห้ามพลิกผลของ /8+/3" — ดู PART C) และหลักลงทุนของ
+โปรเจกต์นี้เอง (ข่าวรายวัน = noise, ไม่ใช่สัญญาณ) sentiment ยังคำนวณและโชว์เป็น metadata/เหตุผล
+ประกอบเหมือนเดิม แค่ไม่บวกเข้าคะแนนรวมอีกต่อไป.
 
 การเปลี่ยนแปลงหลักเทียบ Phase 17:
 - **Denominator คงที่ที่ 8** เสมอสำหรับ fundamental (สเปกห้าม normalize ด้วยจำนวนเกณฑ์ที่
@@ -10,20 +18,23 @@ reverse-DCF /3 + News /1 = /12), replacing Phase 17's fallback-to-LLM-label desi
 - **Valuation ที่คำนวณ reverse-DCF ไม่ได้ (ขาดทุน/นอกขอบเขตโมเดล) = ตัดออกทั้งตัวเช่นกัน**
   ไม่ fallback ไป LLM label — ตามหลัก "อย่าปนหุ้นที่ข้อมูลไม่ครบเข้าไปในสนามทดลอง backtest"
 - **ไม่มี component 'confidence' ในคะแนนรวมอีกต่อไป** (สเปกไม่รวม — ความมั่นใจของ LLM เป็น
-  metadata ไม่ใช่ตัวให้คะแนน) — Total = Fundamental(/8) + Valuation(/3) + News(/1) = /12
+  metadata ไม่ใช่ตัวให้คะแนน) — Total = Fundamental(/8) + Valuation(/3) = /11 (Phase 19.3.1:
+  ตัด sentiment ออกจากผลรวมด้วยเหตุผลเดียวกัน — ดูย่อหน้าบน)
 - **Crypto / ไม่มีงบ**: อยู่นอกขอบเขตระบบนี้ทั้งหมด (fundamental data gate จะไม่ผ่านเองเพราะ
   ไม่มี Fact ที่เกี่ยวข้องเลย -> DISQUALIFY โดยอัตโนมัติ ไม่ต้องเช็ค asset_type แยก)
 
-`components` ยังคง key เดิม 4 ตัว (strength/valuation/sentiment/breach_penalty — ตัด
-confidence ออก) ให้ changes.py::_diff ยัง diff หาตัวขับคะแนนที่กระโดดได้เหมือนเดิม แต่ตอนนี้
-ค่าอาจเป็น None ได้เมื่อ excluded — changes.py ต้อง guard ก่อน diff (ดูคอมเมนต์ที่นั่น).
+`components` ยังคง key เดิม 4 ตัว (strength/valuation/sentiment/breach_penalty) ให้
+changes.py::_diff ยัง diff หาตัวขับคะแนนที่กระโดดได้เหมือนเดิม แต่ตอนนี้ sentiment เป็น
+metadata ล้วน (ไม่กระทบ score) — changes.py::_health_jump_driver กันไว้แล้วไม่ให้เลือก
+sentiment เป็น 'ตัวขับ' เพราะมันไม่มีทางเป็นสาเหตุจริงของคะแนนที่กระโดดอีกต่อไป. ค่าอาจเป็น
+None ได้เมื่อ excluded — changes.py ต้อง guard ก่อน diff (ดูคอมเมนต์ที่นั่น).
 """
 from types import SimpleNamespace
 
 from src.agent.valuation import reverse_dcf, capm_wacc, FALLBACK_RISK_FREE_PCT
 
 DATA_GATE_MIN_CRITERIA = 6   # ต้องคำนวณได้อย่างน้อย 6/8 เกณฑ์ ไม่งั้น disqualify ทั้งตัว
-TOTAL_MAX = 12.0             # Fundamental(8) + Valuation(3) + News(1)
+TOTAL_MAX = 11.0             # Fundamental(8) + Valuation(3) — sentiment ไม่รวมแล้ว (19.3.1)
 
 SENTIMENT_PTS = {"bullish": 1.0, "neutral": 0.5, "bearish": 0.0}   # /1 — tie-breaker เท่านั้น
 
@@ -290,11 +301,16 @@ def _valuation_score(facts: list[dict], risk_free_pct: float) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PART C — News/sentiment (/1) — tie-breaker เท่านั้น, ห้ามพลิกผลของ /8 + /3
+# PART C — News/sentiment — metadata เท่านั้น (Phase 19.3.1: ไม่รวมในคะแนนแล้ว)
+# เดิมตั้งใจให้เป็น "tie-breaker, ห้ามพลิกผลของ /8+/3" แต่วัดจริงจากประวัติ (84 คู่) พบว่า
+# sentiment เป็นตัวขับ 57.4% ของทุกรอบที่คะแนนกระโดด >=0.5 — พลิก bullish<->neutral รายวัน
+# ทำให้คะแนนสุขภาพธุรกิจเต้นตามข่าว ทั้งที่พื้นฐาน/ราคาไม่ได้เปลี่ยน (ขัดทั้งเจตนาเดิมและหลัก
+# ข่าวรายวัน=noise ของโปรเจกต์) ยังคำนวณ+โชว์ไว้เป็นเหตุผลประกอบ (reasons/components) แต่ไม่บวก
+# เข้า score อีกต่อไป
 # ─────────────────────────────────────────────────────────────────────────────
 def _sentiment_points(summary) -> tuple[float, str]:
     pts = SENTIMENT_PTS.get(summary.sentiment, 0.5)
-    return pts, f"มุมมองข่าว {summary.sentiment} (+{pts:g}/1)"
+    return pts, f"มุมมองข่าว {summary.sentiment} (ไม่กระทบคะแนน, อ้างอิงเท่านั้น)"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -302,14 +318,16 @@ def _sentiment_points(summary) -> tuple[float, str]:
 # ─────────────────────────────────────────────────────────────────────────────
 def compute_health(summary, breaches: list[dict] | None = None, facts=None,
                     risk_free_pct: float = FALLBACK_RISK_FREE_PCT) -> dict:
-    """summary = Pydantic Summary (ต้องการ sentiment เท่านั้นตอนนี้ — fundamental_strength/
-    valuation_view ของ LLM ไม่ได้ใช้ในคะแนนแล้ว เพราะ Phase 18 ยึดตัวเลขจริงล้วนไม่มี fallback),
+    """summary = Pydantic Summary (ต้องการ sentiment เท่านั้นตอนนี้ — ใช้เป็น metadata/เหตุผล
+    ประกอบเท่านั้นตั้งแต่ 19.3.1, ไม่บวกเข้าคะแนน — fundamental_strength/valuation_view ของ LLM
+    ก็ไม่ได้ใช้ในคะแนนแล้วเช่นกัน เพราะ Phase 18 ยึดตัวเลขจริงล้วนไม่มี fallback),
     breaches = check_invalidation()['breaches'], facts = list[Fact]/list[dict] ของรอบนี้,
     risk_free_pct = อัตราพันธบัตร 10 ปี ณ วันรัน (จาก src.providers.stock.market).
 
-    คืน dict: score (0-12 หรือ None ถ้า 'excluded' — ข้อมูลไม่พอ/ขาดทุน/crypto ไม่เข้าเกณฑ์ระบบนี้),
+    คืน dict: score (0-11 หรือ None ถ้า 'excluded' — ข้อมูลไม่พอ/ขาดทุน/crypto ไม่เข้าเกณฑ์ระบบนี้),
     tier (strong/ok/weak/excluded), label, reasons, fundamental (dict ละเอียด),
-    valuation (dict ละเอียดจาก reverse_dcf), components (4 key เดิม, ค่าเป็น None ได้เมื่อ excluded)."""
+    valuation (dict ละเอียดจาก reverse_dcf), components (4 key เดิม — sentiment เป็น metadata
+    ไม่กระทบ score, ค่าเป็น None ได้เมื่อ excluded)."""
     facts = _normalize_facts(facts)
 
     fundamental = _fundamental_score(facts, risk_free_pct)
@@ -326,8 +344,10 @@ def compute_health(summary, breaches: list[dict] | None = None, facts=None,
                             "sentiment": sentiment_pts, "breach_penalty": None},
         }
 
+    # sentiment_reason ยังโชว์ให้เห็นมุมมองข่าววันนี้ (โปร่งใส) แต่ sentiment_pts ไม่บวกเข้า score
+    # อีกต่อไป (19.3.1) — ดูเหตุผลที่ PART C ด้านบน
     reasons = [fundamental["reason"], valuation["reason"], sentiment_reason]
-    score = fundamental["score"] + valuation["score"] + sentiment_pts
+    score = fundamental["score"] + valuation["score"]
 
     has_breach = any(b.get("severity") == "alert" for b in (breaches or []))
     breach_penalty = -3.0 if has_breach else 0.0
@@ -337,7 +357,7 @@ def compute_health(summary, breaches: list[dict] | None = None, facts=None,
 
     score = max(0.0, min(TOTAL_MAX, score))
     rounded = round(score, 1)
-    # tier boundary สัดส่วนเท่าเดิม (70%/45%) แค่สเกลจาก /10 เดิมมาเป็น /12
+    # tier boundary สัดส่วนเท่าเดิม (70%/45%) สเกลตาม TOTAL_MAX เสมอ (/12 เดิม -> /11 หลัง 19.3.1)
     tier = "strong" if rounded >= TOTAL_MAX * 0.7 else "ok" if rounded >= TOTAL_MAX * 0.45 else "weak"
     label = {"strong": "แข็งแรง", "ok": "พอใช้", "weak": "อ่อน"}[tier]
 

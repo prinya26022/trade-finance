@@ -1,10 +1,14 @@
-"""Health score (Phase 18: scoring_spec.md — Fundamental/8 + Valuation reverse-DCF/3 +
-News/1 = /12, fixed-denominator Piotroski + DISQUALIFY/EXCLUDE instead of LLM fallback) —
+"""Health score (Phase 18: scoring_spec.md — Fundamental/8 + Valuation reverse-DCF/3 = /11,
+fixed-denominator Piotroski + DISQUALIFY/EXCLUDE instead of LLM fallback) —
 pure logic, offline (reverse_dcf() ที่เรียกข้างในเป็น deterministic bisection ล้วนๆ).
 
 Phase 19.3: ทุกเกณฑ์คืน float 0.0-1.0 (ไล่ระดับ) แทน True/False — ดู _graded_above/_graded_below
 ใน health.py. ค่าที่ห่าง threshold+-band มากๆ ยัง approx 1.0/0.0 เหมือนเดิม (ใช้ pytest.approx
-กัน floating point เพี้ยนระดับ 1e-9)."""
+กัน floating point เพี้ยนระดับ 1e-9).
+
+Phase 19.3.1: sentiment ตัดออกจากผลรวมคะแนน (เดิม /12 รวม News/1) — audit วัดจากประวัติจริง
+พบว่า sentiment ขับ 57.4% ของทุกรอบที่คะแนนกระโดด >=0.5 ทั้งที่ตั้งใจให้เป็นแค่ tie-breaker
+เก็บไว้เป็น metadata/เหตุผลประกอบเหมือนเดิม แค่ไม่บวกเข้า score."""
 from types import SimpleNamespace
 
 import pytest
@@ -232,8 +236,26 @@ def test_compute_health_normal_case():
     assert h["score"] is not None
     assert h["tier"] in ("strong", "ok", "weak")
     assert h["components"]["strength"] == pytest.approx(8.0)
-    assert 0.0 <= h["score"] <= 12.0
-    assert round(sum(h["components"].values()), 6) == h["score"]
+    assert 0.0 <= h["score"] <= 11.0
+    # sentiment เป็น metadata แล้ว (19.3.1) — ไม่รวมใน score, breach_penalty ยังรวมอยู่
+    scored = h["components"]["strength"] + h["components"]["valuation"] + h["components"]["breach_penalty"]
+    assert round(scored, 6) == h["score"]
+    assert h["components"]["sentiment"] == pytest.approx(1.0)   # ยังคำนวณ/โชว์ไว้ แค่ไม่บวกเข้า score
+
+
+def test_compute_health_sentiment_does_not_move_score():
+    # Phase 19.3.1: sentiment เป็น metadata ล้วน — bullish/neutral/bearish ที่พื้นฐาน+ราคาเท่ากัน
+    # ต้องได้ score เท่ากันเป๊ะ (เดิมก่อน fix นี้ จะต่างกัน 0.5-1.0 แต้ม)
+    valuation_facts = [_fact("Market Cap", 905.78), _fact("FCF Yield", 11.04)]
+    facts = _FULL_PASS_FACTS + valuation_facts
+    scores = {s: compute_health(_summary(s), None, facts, RF)["score"] for s in ("bullish", "neutral", "bearish")}
+    assert scores["bullish"] == scores["neutral"] == scores["bearish"]
+
+
+def test_compute_health_max_is_11_not_12():
+    valuation_facts = [_fact("Market Cap", 905.78), _fact("FCF Yield", 11.04)]
+    h = compute_health(_summary("bullish"), None, _FULL_PASS_FACTS + valuation_facts, RF)
+    assert h["max"] == 11.0
 
 
 def test_compute_health_disqualified_when_fundamental_data_thin():

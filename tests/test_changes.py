@@ -155,3 +155,16 @@ def test_health_jump_driver_picks_biggest_component():
     # valuation ขยับ +2.5 (ใหญ่กว่า sentiment -2.0) -> ต้องเลือก valuation เป็นตัวขับ
     driver = _health_jump_driver(ch, ph, cs, ps)
     assert "มุมมองราคา (reverse-DCF) (+2.5)" in driver
+
+
+def test_health_jump_driver_never_blames_sentiment():
+    # Phase 19.3.1: sentiment ไม่กระทบ score แล้ว -> ต้องไม่ถูกเลือกเป็น 'ตัวขับ' อีกต่อไป
+    # แม้ตัวเลข delta ของมันจะใหญ่กว่า component อื่นทุกตัวก็ตาม (เคสสมมติ: sentiment แกว่ง
+    # bullish->bearish (-1.0) ในขณะที่พื้นฐาน/ราคาขยับแค่ +0.4/+0.4 รวมกันพอให้ threshold ผ่าน)
+    ph = {"components": {"strength": 4.0, "valuation": 2.0, "sentiment": 1.0, "breach_penalty": 0.0}}
+    ch = {"components": {"strength": 4.4, "valuation": 2.4, "sentiment": 0.0, "breach_penalty": 0.0}}
+    cs = {"fundamental_strength": "strong", "valuation_view": "fair", "sentiment": "bearish"}
+    ps = {"fundamental_strength": "strong", "valuation_view": "fair", "sentiment": "bullish"}
+    driver = _health_jump_driver(ch, ph, cs, ps)
+    assert "มุมมองข่าว" not in driver
+    assert "พื้นฐาน" in driver or "มุมมองราคา" in driver

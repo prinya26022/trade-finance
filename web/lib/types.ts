@@ -161,7 +161,8 @@ export type ExtractionResult = {
 // screen นี้แทนการ fallback ไปใช้ label ของ LLM แบบ Phase 17 เดิม
 export type PersistedHealth = {
   score: number | null;
-  max?: number; // Phase 18+ เท่านั้น (12) — แถวเก่า Phase 10-17 ไม่มี field นี้ (undefined = /10)
+  max?: number; // Phase 18+ เท่านั้น (11 ตั้งแต่ 19.3.1 — เดิม 12 ก่อนตัด sentiment ออกจากผลรวม)
+                // แถวเก่า Phase 10-17 ไม่มี field นี้ (undefined = /10)
   tier: "strong" | "ok" | "weak" | "excluded";
   label: string;
   reasons: string[];
