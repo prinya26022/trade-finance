@@ -18,6 +18,19 @@ realistic_growth: sustainable_growth (reinvestment_rate × ROIC) เป็น 'v
 (NOPAT บางเฉียบ/reinvestment ติดลบ/sustainable ขัดแย้งกับ CAGR จริงมหาศาล) แล้ว route ไป
 'growth lens' แทน — ใช้ growth ล่าสุดจริงที่ fade ลงหา terminal เป็น anchor แทนสูตรที่พัง พร้อม
 Rule-of-40 modifier กันหุ้นที่ 'โตไม่จริง+เผาเงิน' ถูกตัดสินว่าถูกอย่างผิดๆ
+
+Phase 19.4 (2026-07, audit): แก้ 2 บั๊ก/design gap ที่พบตอนตรวจ reverse-DCF ต่อจาก 19.3.1 —
+(1) `_fcf_base_3yr` เดิม assume fcf_series เรียงใหม่->เก่าเสมอแล้วหยิบ [:3] ตรงๆ แต่พาธที่ใช้
+คำนวณ valuation component ของ health score (health.py::_build_duck_fundamentals) ป้อนเรียง
+เก่า->ใหม่ (ตรงข้าม) ทำให้หยิบ 3 ปีเก่าสุดแทนที่จะเป็นล่าสุด — ยืนยันจริงกับ NVDA: fcf_base ต่ำกว่า
+ความจริงถึง 2 เท่า (30.6B vs 61.5B) เพราะเป็นบริษัทโตเร็ว 3 ปีเก่าสุดกับล่าสุดต่างกันมหาศาล ตอนนี้
+sort เองเสมอ (ไม่พึ่ง order ที่ caller ส่งมา) เหมือน _rev_growth_recent. (2) growth lens เดิมเทียบ
+implied_growth (FCF growth ที่ตลาด price ไว้) กับ realistic_growth ที่ anchor จาก REVENUE growth —
+apples-to-oranges เวลา margin กำลังขยายตัว (FCF โตเร็วกว่า revenue เป็นปกติจาก operating leverage)
+ตอนนี้ anchor จาก FCF CAGR ก่อนเสมอถ้าคำนวณได้ (unit เดียวกับ implied_growth ตรงๆ) fallback ไป
+revenue growth เฉพาะตอน FCF history สั้นเกินไป/สลับเครื่องหมาย. Backfill dry-run บน watchlist จริง:
+14/107 แถวคะแนนเปลี่ยน (NVDA/GOOGL/MSFT +1.0 แต้ม จากขา fcf_base — DUOL เจอบั๊กจริงเหมือนกันแต่
+score ไม่ขยับเพราะ gap ติดลบมากอยู่แล้วทั้งก่อน/หลัง).
 """
 from dataclasses import dataclass
 
@@ -189,13 +202,46 @@ def _rev_growth_recent(revenue_series: list[tuple[str, float]] | None) -> float 
 
 
 def _fcf_base_3yr(fcf_series: list[tuple[str, float]], fallback_fcf: float | None) -> float | None:
-    """ค่าเฉลี่ย FCF 3 ปีล่าสุด (fcf_series เรียงใหม่->เก่า ตามที่ fundamentals.py คืนมา — คอลัมน์
-    ล่าสุดอยู่ซ้ายสุดในงบต้นทาง; ตรวจสอบสดแล้ว) กันปีที่ผิดปกติปีเดียวมาบิดผลทั้งโมเดล. ไม่มี series
-    เลย (ข้อมูลขาด) -> fallback ไป TTM free_cash_flow ตัวเดียว (ดีกว่าคำนวณไม่ได้เลย)."""
+    """ค่าเฉลี่ย FCF 3 ปีล่าสุด — sort ตาม period เองเสมอ (ไม่พึ่ง order ที่ caller ส่งมา) กันปีที่
+    ผิดปกติปีเดียวมาบิดผลทั้งโมเดล. ไม่มี series เลย (ข้อมูลขาด) -> fallback ไป TTM free_cash_flow
+    ตัวเดียว (ดีกว่าคำนวณไม่ได้เลย).
+    audit fix (2026-07, bug เดียวกับ _rev_growth_recent): เดิม assume fcf_series เรียงใหม่->เก่า
+    เสมอ (ตามที่ fundamentals.py คืนมา) แล้วหยิบ [:3] ตรงๆ — แต่ health.py::_build_duck_fundamentals
+    (ใช้ตอนคำนวณ valuation component ของ health score ผ่าน compute_health()) ประกอบ fcf_series
+    ด้วย _fy_series() ซึ่งเรียงเก่า->ใหม่ (ตรงข้าม) ทำให้หยิบ 3 ปีเก่าสุดแทนที่จะเป็น 3 ปีล่าสุด —
+    เจอบั๊กจริงกับ DUOL: fcf_base จากพาธ health.py ต่ำกว่าพาธจริง (loop.py) ถึง 71%
+    (149M vs 255M) ทำให้ implied_growth ที่ใช้ตัดสิน valuation component ของ health score เพี้ยน
+    (ฐานเล็กกว่าจริง -> ต้องการ growth สูงกว่าจริงถึงจะ justify EV เดียวกัน -> gap ดูแพงเกินจริง)."""
     if not fcf_series:
         return fallback_fcf
-    recent = fcf_series[:3]
+    ordered = sorted(fcf_series, key=lambda p: p[0])   # เก่า -> ใหม่ เสมอ ไม่พึ่ง order ที่ caller ส่งมา
+    recent = ordered[-3:]
     return sum(v for _, v in recent) / len(recent)
+
+
+def _fcf_growth_multiyear(fcf_series: list[tuple[str, float]] | None) -> float | None:
+    """CAGR ของ FCF ตลอดช่วงที่มีข้อมูล (ล่าสุด vs เก่าสุด) — sort เองเสมอเหมือน _rev_growth_recent.
+    None ถ้าข้อมูลไม่พอ หรือปลายทางฝั่งใดฝั่งหนึ่งไม่เป็นบวก (FCF ติดลบ/ศูนย์ช่วงต้น พบได้ทั่วไปกับ
+    บริษัทโตเร็วที่ยัง burn cash อยู่ตอนเริ่ม — CAGR ไม่มีความหมายทางคณิตศาสตร์ ต้อง fallback ไป
+    revenue growth แทน).
+
+    audit fix 19.4 (2026-07, valuation unit mismatch): growth lens เดิมเทียบ implied_growth
+    (FCF growth ที่ตลาด price ไว้ — มาจาก intrinsic_value ที่ compound fcf_base) กับ realistic_growth
+    ที่ anchor จาก REVENUE growth (rev_growth_recent/historical_cagr) — apples-to-oranges เวลา
+    margin กำลังขยายตัว (บริษัท asset-light ที่กำลัง scale, operating leverage สูง) FCF จะโตเร็วกว่า
+    revenue เป็นปกติ (เช่น DUOL จริง: revenue CAGR 41.08%/ปี แต่ FCF CAGR ช่วงเดียวกัน 102.3%/ปี
+    — margin ขยายจาก -17.64% เป็น 13.07% operating margin) ใช้ revenue growth มาเป็น proxy ของ
+    FCF growth เลยประเมิน 'ความเร็วที่ยั่งยืนได้จริง' ต่ำกว่าความเป็นจริงไปมาก. ตอนนี้ใช้ FCF CAGR
+    เป็น anchor หลักเมื่อคำนวณได้ (unit เดียวกับ implied_growth ตรงๆ) fallback ไป revenue growth
+    เฉพาะตอน FCF history สั้นเกินไป/สลับเครื่องหมาย (CAGR ไร้ความหมาย) เท่านั้น."""
+    if not fcf_series or len(fcf_series) < 2:
+        return None
+    ordered = sorted(fcf_series, key=lambda p: p[0])
+    oldest, newest = ordered[0][1], ordered[-1][1]
+    years = len(ordered) - 1
+    if oldest <= 0 or newest <= 0:
+        return None
+    return round(((newest / oldest) ** (1 / years) - 1) * 100, 2)
 
 
 def _gap_to_score(gap_pp: float) -> int:
@@ -306,7 +352,12 @@ def reverse_dcf(
 
     if route == "growth":
         lens = "growth"
-        anchor_growth = rev_growth_recent if rev_growth_recent is not None else historical_cagr
+        # audit fix 19.4: anchor บน FCF growth ก่อนเสมอถ้าคำนวณได้ (unit เดียวกับ implied_growth
+        # ตรงๆ — ดู docstring _fcf_growth_multiyear) revenue growth เป็นแค่ fallback ตอน FCF
+        # history สั้นเกินไป/สลับเครื่องหมาย
+        fcf_growth = _fcf_growth_multiyear(getattr(fundamentals, "fcf_series", None))
+        anchor_growth = fcf_growth if fcf_growth is not None else (
+            rev_growth_recent if rev_growth_recent is not None else historical_cagr)
         realistic_growth = (
             growth_lens_realistic(anchor_growth, terminal_growth, years)
             if anchor_growth is not None else historical_cagr

@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+import pytest
+
 from src.agent.valuation import (
     intrinsic_value,
     implied_growth_rate,
@@ -11,6 +13,8 @@ from src.agent.valuation import (
     reverse_dcf,
     BETA_FLOOR,
     BETA_CAP,
+    DEFAULT_TERMINAL_GROWTH,
+    DEFAULT_YEARS,
 )
 
 
@@ -179,6 +183,57 @@ def test_rev_growth_recent_correct_with_oldest_first_order():
     assert g is not None and g > 0   # ต้องได้ผลเดียวกับ newest-first — ไม่ใช่ติดลบจากหยิบผิดปี
 
 
+# --- _fcf_base_3yr: บั๊กเดียวกับ _rev_growth_recent เจอใน FCF base (2026-07 audit) — เดิม assume
+# fcf_series เรียงใหม่->เก่าเสมอแล้วหยิบ [:3] ตรงๆ แต่ health.py::_build_duck_fundamentals ป้อน
+# เรียงเก่า->ใหม่ (ตรงข้าม) -> หยิบผิด 3 ปี (เก่าสุดแทนที่จะเป็นล่าสุด) ---
+
+def test_fcf_base_3yr_correct_with_newest_first_order():
+    from src.agent.valuation import _fcf_base_3yr
+    series = [("FY2025", 120.0), ("FY2024", 100.0), ("FY2023", 80.0), ("FY2022", 1.0)]
+    assert _fcf_base_3yr(series, None) == (120.0 + 100.0 + 80.0) / 3   # ไม่รวม FY2022 (เก่าสุด)
+
+
+def test_fcf_base_3yr_correct_with_oldest_first_order():
+    # เหมือน health.py::_fy_series() ที่ sort เก่า->ใหม่ ตอนประกอบ duck object จาก facts
+    from src.agent.valuation import _fcf_base_3yr
+    series = [("FY2022", 1.0), ("FY2023", 80.0), ("FY2024", 100.0), ("FY2025", 120.0)]
+    assert _fcf_base_3yr(series, None) == (120.0 + 100.0 + 80.0) / 3   # ต้องได้ผลเดียวกับ newest-first
+
+
+def test_fcf_base_3yr_duol_real_case_ordering_matters_71pct():
+    # เคสจริงที่เจอ: DUOL fcf_base จากพาธ health.py (เรียงเก่า->ใหม่) ต่ำกว่าพาธจริง 71%
+    # ก่อน fix (หยิบ [:3] ตรงๆ) ถ้าป้อนเรียงเก่า->ใหม่จะได้ 3 ปีเก่าสุด ไม่ใช่ 3 ปีล่าสุด
+    from src.agent.valuation import _fcf_base_3yr
+    newest_first = [("FY2025", 360_424_000.0), ("FY2024", 264_373_000.0),
+                     ("FY2023", 139_930_000.0), ("FY2022", 43_532_000.0)]
+    oldest_first = list(reversed(newest_first))
+    assert _fcf_base_3yr(newest_first, None) == _fcf_base_3yr(oldest_first, None)
+    assert _fcf_base_3yr(oldest_first, None) == pytest.approx(254_909_000.0, rel=1e-6)
+
+
+# --- _fcf_growth_multiyear: anchor ของ growth lens (audit fix 19.4 — unit mismatch) ---
+
+def test_fcf_growth_multiyear_computes_cagr_oldest_vs_newest():
+    from src.agent.valuation import _fcf_growth_multiyear
+    series = [("FY2022", 100.0), ("FY2023", 121.0), ("FY2024", 146.41), ("FY2025", 177.1561)]
+    g = _fcf_growth_multiyear(series)
+    assert g == pytest.approx(21.0, abs=0.1)   # 10% CAGR ต่อปี x 3 ปี
+
+
+def test_fcf_growth_multiyear_none_when_oldest_fcf_not_positive():
+    from src.agent.valuation import _fcf_growth_multiyear
+    # FCF ติดลบช่วงต้น (บริษัทโตเร็วที่เพิ่ง breakeven) -> CAGR ไร้ความหมาย -> None (fallback ที่ caller)
+    series = [("FY2022", -50.0), ("FY2023", 10.0), ("FY2024", 50.0), ("FY2025", 100.0)]
+    assert _fcf_growth_multiyear(series) is None
+
+
+def test_fcf_growth_multiyear_none_when_too_short():
+    from src.agent.valuation import _fcf_growth_multiyear
+    assert _fcf_growth_multiyear([("FY2025", 100.0)]) is None
+    assert _fcf_growth_multiyear(None) is None
+    assert _fcf_growth_multiyear([]) is None
+
+
 # --- reverse_dcf end-to-end ---
 
 @dataclass
@@ -255,6 +310,45 @@ def test_reverse_dcf_routes_to_growth_lens_when_sustainable_diverges():
     result = reverse_dcf(f)
     assert result["lens"] == "growth"
     assert "SUSTAINABLE_DIVERGES" in result["flags"]
+
+
+def test_reverse_dcf_growth_lens_anchors_on_fcf_growth_not_revenue_growth():
+    # audit fix 19.4 (unit mismatch): เมื่อ margin กำลังขยายตัว FCF โตเร็วกว่า revenue เป็นปกติ
+    # (operating leverage) — revenue โต 15%/ปี (recent) แต่ FCF (จาก fcf_series 4 ปี) โต ~25%/ปี
+    # ทั้งสองค่าต่ำกว่า CAP_INITIAL_GROWTH(35%) จึงไม่ถูกเพดานกลบความต่างเหมือนเคส DUOL จริง
+    # (ที่ revenue growth เดี่ยวๆ ก็เกิน 35% cap อยู่แล้ว ทำให้ anchor ไหนก็ landing ที่เพดานเดียวกัน)
+    # -> realistic_growth ต้อง anchor จาก FCF growth (25%) ไม่ใช่ revenue growth (15%)
+    f = FakeFundamentals(
+        free_cash_flow=97.7, market_cap=3000.0, revenue_cagr=15.0,
+        nopat=10.0, revenue=1000.0,   # NOPAT margin 1% < MIN_NOPAT_MARGIN(2%) -> NOPAT_UNSTABLE -> growth lens
+        capex=-20, depreciation_amortization=5, nwc_change=0,
+        fcf_series=[("FY2022", 50.0), ("FY2023", 62.5), ("FY2024", 78.1), ("FY2025", 97.7)],
+        revenue_series=[("FY2024", 1000.0), ("FY2025", 1150.0)],
+    )
+    result = reverse_dcf(f)
+    assert result["lens"] == "growth"
+    assert "NOPAT_UNSTABLE" in result["flags"]
+
+    expected_fcf_anchored = growth_lens_realistic(25.02, DEFAULT_TERMINAL_GROWTH, DEFAULT_YEARS)   # (97.7/50)^(1/3)-1
+    revenue_anchored_would_be = growth_lens_realistic(15.0, DEFAULT_TERMINAL_GROWTH, DEFAULT_YEARS)
+    assert result["realistic_growth"] == pytest.approx(expected_fcf_anchored)
+    assert result["realistic_growth"] != pytest.approx(revenue_anchored_would_be)
+
+
+def test_reverse_dcf_growth_lens_falls_back_to_revenue_growth_when_fcf_cagr_undefined():
+    # FCF ติดลบช่วงต้น (บริษัทเพิ่ง breakeven) -> _fcf_growth_multiyear คืน None -> ต้อง fallback
+    # ไป revenue growth เหมือนพฤติกรรมเดิมก่อน 19.4 (ไม่ใช่พังทั้งระบบเพราะ FCF history สั้น/สลับเครื่องหมาย)
+    f = FakeFundamentals(
+        free_cash_flow=50.0, market_cap=2000.0, revenue_cagr=15.0,
+        nopat=10.0, revenue=1000.0,
+        capex=-20, depreciation_amortization=5, nwc_change=0,
+        fcf_series=[("FY2022", -50.0), ("FY2023", 10.0), ("FY2024", 30.0), ("FY2025", 50.0)],
+        revenue_series=[("FY2024", 1000.0), ("FY2025", 1150.0)],
+    )
+    result = reverse_dcf(f)
+    assert result["lens"] == "growth"
+    expected = growth_lens_realistic(15.0, DEFAULT_TERMINAL_GROWTH, DEFAULT_YEARS)   # revenue-anchored fallback
+    assert result["realistic_growth"] == pytest.approx(expected)
 
 
 def test_reverse_dcf_duol_like_case_no_longer_shows_negative_realistic_growth():
