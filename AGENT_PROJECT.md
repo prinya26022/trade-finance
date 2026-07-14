@@ -277,8 +277,22 @@ The 18d audit found more than the one face-invalid bug it fixed. Remaining, prio
   valuation step-function plus one genuine new-fiscal-year data update (DUOL), not noise.
   Backfill: GOOGL's latest row flips strong->ok (8.5/12->7.5/11) -- its "strong" rating was
   partly propped up by bullish sentiment, not fundamentals/valuation. Applied.
-- **19.4 Valuation unit mismatch** -- gap = implied FCF growth minus realistic *revenue* growth
-  (apples-to-oranges); align to FCF-growth-vs-FCF-growth.
+- **19.4 Valuation unit mismatch** DONE -- found two issues in reverse-DCF while auditing this:
+  (1) a real ordering bug in `_fcf_base_3yr` -- it assumed fcf_series always arrives newest-first
+  and sliced `[:3]` directly, matching the live path (fundamentals.py), but the path that computes
+  the health score's valuation component (health.py::_build_duck_fundamentals -> _fy_series) feeds
+  it oldest-first -- averaging the *oldest* 3 years instead of the newest 3. Same root cause as the
+  earlier DUOL revenue-growth bug. Confirmed live: NVDA's fcf_base was understated 2x (30.6B vs the
+  correct 61.5B) because it's a hyper-growth stock where the oldest-vs-newest 3-year average
+  diverges enormously. Fixed by sorting internally, same pattern as `_rev_growth_recent`.
+  (2) The originally-planned mismatch: growth lens compared implied_growth (FCF growth the market
+  is pricing) against realistic_growth anchored on *revenue* growth -- apples-to-oranges whenever
+  margin is expanding (DUOL real numbers: 41.08% revenue CAGR vs 102.3% FCF CAGR over the same
+  span, from operating leverage). Added `_fcf_growth_multiyear()`; growth lens now anchors on FCF
+  CAGR whenever computable (same unit as implied_growth), falling back to revenue growth only when
+  FCF history is too short or sign-flips (CAGR undefined). Backfill dry-run: 14/107 rows changed
+  (NVDA/GOOGL/MSFT +1.0 from the fcf_base fix; DUOL hit the same bug but its score didn't move
+  because gap was already deeply negative both before and after). Applied.
 - **19.5 Threshold/tier calibration** -- every threshold (ROIC 15%, 0.9 tolerance, WACC bounds,
   tier cutoffs 70/45%, gap bands) is an unvalidated prior. This is the bridge to predictive
   validation: real calibration needs data (forward-test / the deferred point-in-time backtest),
