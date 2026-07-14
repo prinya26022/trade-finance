@@ -31,7 +31,15 @@ SENTIMENT_PTS = {"bullish": 1.0, "neutral": 0.5, "bearish": 0.0}   # /1 — tie-
 # ── audit fix (2026-07): 4 เกณฑ์เดิม (#2 ROE-trend, #3 accruals เป๊ะ, #5 leverage trend,
 #    #6 current-ratio) backfire กับบริษัทคุณภาพสูง/net-cash — ลงโทษ AAPL (ROIC 82%, buyback,
 #    net-cash-ish) จนได้ 4.5 "อ่อน" ทั้งที่เป็นธุรกิจชั้นเยี่ยม. แก้ให้ robust ตามเหตุผลใต้แต่ละ criterion
-ROIC_MIN_PCT = 15.0           # เกณฑ์ #2: ROIC สูง = ธุรกิจผลตอบแทนต่อทุนสูง (แทน ROE-trend ที่บิดโดย buyback)
+# ── audit fix 19.2 (2026-07): ROIC ขับทั้ง #1 (ROIC>WACC) และ #2 เดิม (ROIC>=15%) — วัดผิดที่
+#    invested-capital ตัวเดียวพังพร้อมกัน 2 เกณฑ์. #2 เปลี่ยนไปใช้ Net Margin (Net Income/Revenue —
+#    ไม่แชร์ input กับ NOPAT/invested-capital เลย) แทน. #6 (solvency) เดิม net_debt<=0 auto-pass
+#    ก่อนเช็ค Interest Coverage เสมอ — แต่ net-cash ไม่ได้แปลว่าไม่มีดอกเบี้ยต้องจ่ายจริง (มีหนี้ก้อนใหญ่
+#    + เงินสดก้อนใหญ่กว่า ก็ยังจ่ายดอกเบี้ยจริงได้) แก้ให้เช็ค Interest Coverage ตรงๆ ก่อนเสมอถ้ามีข้อมูล
+#    เหลือ net-cash เป็น fallback เฉพาะตอนไม่มี Interest Coverage ให้เช็ค (ตรงกับ DUOL: ไม่มีดอกเบี้ยรายงาน
+#    เพราะไม่มีหนี้จริง ไม่ใช่ data gap) — ลดจุดที่ Net Debt เครื่องหมายเดียวชี้ชะตา 2 เกณฑ์พร้อมกัน
+ROIC_MIN_PCT = 15.0           # เกณฑ์ #1 อ้างอิง WACC เท่านั้น (ระดับ absolute ย้ายไป #2/Net Margin แล้ว)
+NET_MARGIN_MIN_PCT = 10.0     # เกณฑ์ #2: Net Margin สูง = pricing power + cost discipline (independent จาก ROIC)
 REVENUE_CAGR_THRESHOLD_PCT = 3.0   # เกณฑ์ #4: เหนือเงินเฟ้อจริง ไม่ใช่แค่ > 0%
 LEVERAGE_MAX_X = 3.0          # เกณฑ์ #5
 INTEREST_COVERAGE_MIN_X = 3.0  # เกณฑ์ #6: EBIT/ดอกเบี้ย จ่ายได้สบาย (แทน current-ratio ที่ลงโทษอำนาจต่อรองสูง)
@@ -85,14 +93,14 @@ def _criterion_roic_vs_wacc(facts, risk_free_pct):
     return roic > wacc_pct
 
 
-def _criterion_roic_level(facts, _rf):
-    """#2: ROIC >= 15% — ธุรกิจสร้างผลตอบแทนต่อทุนสูง (moat).
-    audit fix: แทนเกณฑ์เดิม 'ROE ปีนี้ > ปีก่อน' ที่โดน buyback บิด — บริษัทที่ซื้อหุ้นคืนหนัก
-    (เช่น AAPL) equity เล็กลงจน ROE พุ่ง 150%+ แล้ว 'ลดลง' ทั้งที่กำไรไม่ได้แย่ลง = เป็น artifact
-    ของ denominator ไม่ใช่คุณภาพ. ROIC ใช้ invested capital (หนี้+ทุน−เงินสด) จึงไม่โดน buyback
-    บิด — เทียบ level กับ 15% (เกณฑ์คุณภาพสูง) เสริมกับ #1 (ROIC>WACC = สร้างมูลค่าไหม)."""
-    roic = _scalar(facts, "ROIC")
-    return None if roic is None else roic >= ROIC_MIN_PCT
+def _criterion_net_margin_level(facts, _rf):
+    """#2: Net Margin (ปีล่าสุด) >= 10% — pricing power + cost discipline.
+    audit fix 19.2: เดิมใช้ ROIC>=15% ซ้ำกับ #1 (ROIC>WACC) — ตัวเลขเดียวกันขับ 2 เกณฑ์ ถ้า
+    invested-capital คำนวณผิดพลาดจะพังพร้อมกันทั้งคู่ (correlated error). Net Margin = Net
+    Income/Revenue ไม่แชร์ input กับ NOPAT/invested-capital เลย (คนละ pipeline การคำนวณเต็มๆ)
+    จึงกระจายความเสี่ยง และยังเป็นเกณฑ์คุณภาพมาตรฐาน (double-digit net margin) ที่ใช้กันทั่วไป."""
+    pts = _fy_series(facts, "Net Margin")
+    return None if not pts else pts[-1][1] >= NET_MARGIN_MIN_PCT
 
 
 def _criterion_fcf_and_accruals(facts, _rf):
@@ -130,15 +138,19 @@ def _criterion_leverage(facts, _rf):
 
 
 def _criterion_solvency(facts, _rf):
-    """#6: มีเงินสดสุทธิ (Net Debt <= 0) ผ่านทันที, ไม่งั้น Interest Coverage >= 3x (จ่ายดอกเบี้ยได้สบาย).
+    """#6: Interest Coverage >= 3x ถ้ามีข้อมูล, ไม่งั้น fallback ไปเช็ค Net Debt <= 0 (net-cash).
     audit fix: แทนเกณฑ์เดิม 'Current Ratio > 1' ที่ลงโทษบริษัทอำนาจต่อรองสูง — AAPL รัน current
     ratio < 1 โดยตั้งใจ (จ่าย supplier ช้า เก็บเงินเร็ว) = จุดแข็ง working-capital ไม่ใช่จุดอ่อน.
-    Interest coverage (EBIT/ดอกเบี้ย) วัด 'จ่ายหนี้ไหวไหม' ตรงกว่า และ net-cash = ไม่มีดอกเบี้ยต้องจ่าย."""
-    net_debt = _scalar(facts, "Net Debt")
-    if net_debt is not None and net_debt <= 0:
-        return True
+    Interest coverage (EBIT/ดอกเบี้ย) วัด 'จ่ายหนี้ไหวไหม' ตรงกว่า.
+    audit fix 19.2: เดิมเช็ค net_debt<=0 auto-pass 'ก่อน' Interest Coverage เสมอ — แต่ net-cash
+    ไม่ได้แปลว่าไม่มีดอกเบี้ยต้องจ่ายจริง (มีหนี้ก้อนใหญ่ + เงินสดใหญ่กว่า ก็ยังจ่ายดอกเบี้ยจริงได้ ถ้า
+    EBIT ไม่พอก็ยัง fail ได้จริง). สลับลำดับ: ใช้ Interest Coverage จริงก่อนเสมอถ้ามี ข้อมูล net-cash
+    เป็นแค่ fallback ตอนไม่มี Interest Expense รายงานเลย (เช่น DUOL — ไม่มีหนี้จริง ไม่ใช่ data gap)."""
     cov = _scalar(facts, "Interest Coverage")
-    return None if cov is None else cov >= INTEREST_COVERAGE_MIN_X
+    if cov is not None:
+        return cov >= INTEREST_COVERAGE_MIN_X
+    net_debt = _scalar(facts, "Net Debt")
+    return None if net_debt is None else net_debt <= 0
 
 
 def _criterion_margin_improving(facts, _rf):
@@ -155,7 +167,7 @@ def _criterion_not_diluting(facts, _rf):
 
 PIOTROSKI_CRITERIA = [
     ("ROIC>WACC", _criterion_roic_vs_wacc),
-    ("ROIC สูง(>=15%)", _criterion_roic_level),
+    ("Net Margin สูง(>=10%)", _criterion_net_margin_level),
     ("FCF+คุณภาพกำไร", _criterion_fcf_and_accruals),
     ("รายได้เติบโตจริง(>3%)", _criterion_revenue_growth),
     ("หนี้ไม่บานปลาย", _criterion_leverage),

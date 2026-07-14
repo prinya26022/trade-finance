@@ -238,15 +238,24 @@ strength for high-bargaining-power firms). Verified the screen still discriminat
 
 ## Audit remediation roadmap (Phase 19 — close the remaining audit gaps, in order)
 The 18d audit found more than the one face-invalid bug it fixed. Remaining, prioritized:
-- **19.1 Ground-truth the derived inputs (ROIC/NOPAT/Net Debt/FCF) vs SEC XBRL** [IN PROGRESS] --
-  the biggest unaudited surface. Phase 4/12 only validated Revenue/NetIncome/margins against SEC;
-  ROIC/NOPAT/Net Debt/FCF (which now drive 2 fundamental criteria + the whole valuation leg via
-  reinvestment_rate) are computed from yfinance and never independently checked. Extend
-  check_xbrl_accuracy to recompute these from raw XBRL concepts and compare -- so a subtly-wrong
-  NOPAT/FCF can't silently corrupt multiple criteria at once.
-- **19.2 Reduce single-input concentration** -- ROIC now drives 2 of 8 criteria (correlated error
-  if mis-measured); net-cash auto-passes 2 criteria off one Net Debt fact (double-count). Rebalance
-  so no single input decides two flags.
+- **19.1 Ground-truth the derived inputs (ROIC/NOPAT/Net Debt/FCF) vs SEC XBRL** DONE -- extended
+  check_xbrl_accuracy to recompute FCF/NOPAT/ROIC from raw SEC XBRL concepts (tax, pretax income,
+  CFO, capex, cash, long-term debt) and compare to our yfinance-derived numbers. Result: FCF and
+  NOPAT match XBRL exactly across the whole watchlist; ROIC within ~5-10% (definitional, invested-
+  capital varies by lease treatment). Net Debt deliberately excluded from the eval -- found a real
+  sign-flip (NVDA/AMZN read net-debt in our calc, net-cash under a naive XBRL long-term-debt calc)
+  with no canonical definition to arbitrate it; that finding fed directly into 19.2.
+- **19.2 Reduce single-input concentration** DONE -- ROIC drove 2 of 8 criteria (#1 ROIC>WACC, #2
+  ROIC>=15%) sharing one measurement pipeline; a bad invested-capital calc would corrupt both at
+  once. Replaced #2 with Net Margin>=10% (Net Income/Revenue -- zero shared inputs with NOPAT/
+  invested-capital). Also fixed #6 solvency: it auto-passed on Net Debt<=0 *before* even checking
+  Interest Coverage, but net-cash doesn't guarantee no real interest expense (large gross debt +
+  even larger cash pile still pays real interest). Reordered: Interest Coverage now checked first
+  whenever data exists; net-cash is only a fallback when Interest Coverage truly isn't reported
+  (e.g. DUOL, genuinely debt-free). Verified via dry-run backfill against the full watchlist: 11/100
+  rows changed, exactly as predicted from the real numbers -- SBUX -1 (Net Margin ~5% now fails the
+  new bar, previously passed on ROIC 17%), AMZN +1 (Net Margin ~11% now passes, previously failed
+  ROIC's 15% bar at 13.5%). AAPL/DUOL/GOOGL/MSFT/NVDA untouched. Applied.
 - **19.3 Binary-cliff -> graded scoring** -- every criterion is pass/fail at an exact threshold, so
   a rounding-level change swings the score ~2/12 (root of the Phase-16 "score jumped" problem).
 - **19.4 Valuation unit mismatch** -- gap = implied FCF growth minus realistic *revenue* growth
