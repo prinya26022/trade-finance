@@ -314,9 +314,48 @@ The 18d audit found more than the one face-invalid bug it fixed. Remaining, prio
 
 Remaining (beyond the audit roadmap): deeper crypto on-chain metrics (active addresses, fees, TVL),
 macro/rates valuation context beyond CAPM WACC, triggering investigation/narration from the UI,
-bank/insurance alternate scoring framework (FCF-based ratios don't apply), cyclical-industry
-normalization, and the deferred predictive backtest (point-in-time, fundamentals-deterioration
-exit -- see the design discussion; blocked on 19.1-19.5 landing first).
+cyclical-industry normalization. (Bank/insurance alt framework and the predictive backtest are now
+folded into Phase 20 below.)
+
+## Phase 20 -- planning (from audited engine to a usable retirement tool)
+NOT STARTED -- planning only, nothing here implemented. North star: make this genuinely usable for
+retirement -- concentrated quality picks that aim to grow the portfolio faster than a global index
+(VT), with the tool as decision-support for my judgment, not an alpha machine. Sober framing: beating
+VT over years is what most professionals fail at; the tool's job is better decisions, not guaranteed
+alpha.
+
+Critical reframe (carry-over from 19.5, do not lose this): diversifying the watchlist with hand-picked
+mega-trend names solves DISCOVERY, not validation. Curating "interesting" stocks just moves selection
+bias (from "mega-cap tech that already won" to "names a human found interesting"); it does NOT create
+the survivorship-bias-free universe predictive calibration needs, and N=a-handful has ~no statistical
+power. Do not let diversification check off 19.5-full. The honest, doable substitute is forward-tracking:
+the history store already saves point-in-time scores; add realized forward return vs a benchmark over
+time and the watchlist becomes a live forward-test -- slow, low-N, directional-not-proof, but real. The
+broad-universe predictive backtest stays deferred.
+
+- **20.1 Valuation graded (fragility close-out)** -- replace the reverse-DCF /3 step function with a
+  graded 0-3, the same treatment 19.3 gave the fundamental /8. Directly targets 19.5's finding that
+  EVERY remaining load-bearing threshold is a valuation step boundary (gap bands, lens caps, NOPAT
+  guard). Small, well-defined, closes the known fragility. Natural first step.
+- **20.2 Benchmark tracking vs VT (keystone)** -- the goal is "beat VT" but nothing measures vs VT, so
+  the thesis is currently unfalsifiable. Track benchmark return aligned to each pick's first-scored
+  date; show per-name and portfolio-level excess return vs VT. Makes the goal measurable AND accumulates
+  the forward-test dataset that is the honest bridge toward the deferred 19.5-full. Foundational --
+  sequence early, before or alongside diversification, so no scored pick goes un-benchmarked.
+- **20.3 Mega-trend discovery map (new UI page)** -- a themed map (AI/compute, semis, energy transition,
+  healthcare/aging/GLP-1, defense, fintech, ...) with candidate names per trend, as an idea-generation
+  surface to break out of the 7 mega-cap-tech names. Open design decisions: candidate sourcing (curated
+  seed list vs LLM-generated-then-verified -- LLM ticker lists MUST be grounded/verified, hallucination
+  risk) and the taxonomy itself. First version = curated/seeded map reviewed before anything enters the
+  watchlist; the scoring engine vets whatever gets added. Intended workflow: score a diverse shortlist,
+  watch several, hold only 1-2 to test the system live (watched-but-unheld names are extra scored data
+  points -- good for learning, zero capital risk).
+- **20.4 Pre-profit / alternate scoring frameworks** -- diversifying into mega-trends surfaces earlier/
+  unprofitable names (biotech, early energy) that the current engine (Piotroski + reverse-DCF, needs
+  positive FCF/margins) DISQUALIFIES/EXCLUDES, plus financials/banks/insurers where FCF-based ratios
+  don't apply. The tool as-built judges ONE style (profitable quality-at-a-reasonable-price); scoring
+  pre-profit growth or financials needs alternate frameworks. Decide per case how far to go vs simply
+  flagging "outside this engine's scope" (an honest exclusion is itself information).
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
