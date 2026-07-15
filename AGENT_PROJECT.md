@@ -317,21 +317,32 @@ macro/rates valuation context beyond CAPM WACC, triggering investigation/narrati
 cyclical-industry normalization. (Bank/insurance alt framework and the predictive backtest are now
 folded into Phase 20 below.)
 
-## Phase 20 -- planning (from audited engine to a usable retirement tool)
-NOT STARTED -- planning only, nothing here implemented. North star: make this genuinely usable for
-retirement -- concentrated quality picks that aim to grow the portfolio faster than a global index
-(VT), with the tool as decision-support for my judgment, not an alpha machine. Sober framing: beating
-VT over years is what most professionals fail at; the tool's job is better decisions, not guaranteed
-alpha.
+## Phase 20 -- planning (fit the tool to how I actually use it)
+NOT STARTED -- planning only, nothing here implemented.
 
-Critical reframe (carry-over from 19.5, do not lose this): diversifying the watchlist with hand-picked
-mega-trend names solves DISCOVERY, not validation. Curating "interesting" stocks just moves selection
-bias (from "mega-cap tech that already won" to "names a human found interesting"); it does NOT create
-the survivorship-bias-free universe predictive calibration needs, and N=a-handful has ~no statistical
-power. Do not let diversification check off 19.5-full. The honest, doable substitute is forward-tracking:
-the history store already saves point-in-time scores; add realized forward return vs a benchmark over
-time and the watchlist becomes a live forward-test -- slow, low-N, directional-not-proof, but real. The
-broad-universe predictive backtest stays deferred.
+Who this is really for (established in planning, do not lose it): I am NOT a finance expert and have no
+adviser. Today I mostly read the single `health` number and ignore the rest because I can't interpret
+it yet; I use chart-reading (TA) as a light entry double-check. I'm about to put ~10k (THB) of REAL
+money in to test the system live. North star stays "grow a retirement portfolio faster than a global
+index (VT)", but the sober framing matters more now: beating VT over years is what most professionals
+fail at, concentration raises risk, and this tool is decision-support + a learning instrument, not an
+alpha machine. Guardrail on the 10k: it is TUITION (a small, losable learning cost), NOT the seed of
+the retirement portfolio -- one round proves nothing either way.
+
+The pivot that came out of planning: DON'T add finance sophistication I can't yet interpret (portfolio
+correlation, margin-of-safety, drawdown, FX-adjust -- all real, all PARKED below). More numbers I can't
+read = harder decisions, not easier. The two directions that actually match how I use the tool are
+(a) make it TEACH me as it analyzes, and (b) the simplest possible "did my picks beat VT" measurement.
+Honest boundary on (a): teaching improves my COMPREHENSION and decision quality, it does NOT make the
+score's predictions more accurate -- health is still an unvalidated heuristic (see 19.5).
+
+Critical reframe (carry-over from 19.5, still true): diversifying the watchlist with hand-picked
+mega-trend names solves DISCOVERY, not validation -- curating "interesting" names just moves selection
+bias and N=a-handful has ~no statistical power. The only honest, doable substitute is forward-tracking:
+the history store already saves point-in-time scores; adding realized return vs VT over time turns the
+watchlist into a live forward-test (slow, low-N, directional-not-proof, but real). Note: current data
+can only confirm the engine RUNS correctly (numbers are sane) -- it cannot confirm the score PREDICTS;
+only forward time + the VT comparison can.
 
 - **20.1 Valuation graded (fragility close-out)** -- AGREED FIRST BUILD TARGET. Replace the reverse-DCF
   /3 step function (_gap_to_score) with a graded 0-3 ramp, the same treatment 19.3 gave the fundamental
@@ -340,27 +351,34 @@ broad-universe predictive backtest stays deferred.
   mapping smooths the gap-BAND discontinuities, but it does NOT smooth the lens-ROUTING discontinuity
   (NOPAT-margin guard 0.02->flips lens at 0.07; divergence 15pp) -- those are binary lens *selection*
   (standard/growth/NA), not part of the gap->score curve, so a name crossing a lens boundary can still
-  jump. 20.1 = grade the gap->score curve; whether/how to soften lens routing is a separate decision,
-  don't let it be silently assumed done. Small, well-defined, still the right first step.
-- **20.2 Benchmark tracking vs VT (keystone)** -- the goal is "beat VT" but nothing measures vs VT, so
-  the thesis is currently unfalsifiable. Track benchmark return aligned to each pick's first-scored
-  date; show per-name and portfolio-level excess return vs VT. Makes the goal measurable AND accumulates
-  the forward-test dataset that is the honest bridge toward the deferred 19.5-full. Foundational --
-  sequence early, before or alongside diversification, so no scored pick goes un-benchmarked.
-- **20.3 Mega-trend discovery map (new UI page)** -- a themed map (AI/compute, semis, energy transition,
-  healthcare/aging/GLP-1, defense, fintech, ...) with candidate names per trend, as an idea-generation
-  surface to break out of the 7 mega-cap-tech names. Open design decisions: candidate sourcing (curated
-  seed list vs LLM-generated-then-verified -- LLM ticker lists MUST be grounded/verified, hallucination
-  risk) and the taxonomy itself. First version = curated/seeded map reviewed before anything enters the
-  watchlist; the scoring engine vets whatever gets added. Intended workflow: score a diverse shortlist,
-  watch several, hold only 1-2 to test the system live (watched-but-unheld names are extra scored data
-  points -- good for learning, zero capital risk).
-- **20.4 Pre-profit / alternate scoring frameworks** -- diversifying into mega-trends surfaces earlier/
-  unprofitable names (biotech, early energy) that the current engine (Piotroski + reverse-DCF, needs
-  positive FCF/margins) DISQUALIFIES/EXCLUDES, plus financials/banks/insurers where FCF-based ratios
-  don't apply. The tool as-built judges ONE style (profitable quality-at-a-reasonable-price); scoring
-  pre-profit growth or financials needs alternate frameworks. Decide per case how far to go vs simply
-  flagging "outside this engine's scope" (an honest exclusion is itself information).
+  jump. 20.1 = grade the gap->score curve; softening lens routing is a separate decision, don't assume
+  it done. Small, well-defined, still the right first step.
+- **20.2 Explain/teach the score (the real need)** -- I currently trust the top-line health number
+  blind because the rest is opaque. Goal: graduate me from "just the number" to reading and
+  understanding the `reasons` breakdown (fundamental X/8 vs valuation Y/3 -- health 8 from strong
+  fundamentals + expensive price is a totally different animal from health 8 from average fundamentals +
+  very cheap price). Build on what already exists (beginner_summary, Thai glossary): plain-Thai
+  explanation of each score component and what each metric means, surfaced where I read the score, so
+  using the tool compounds my finance knowledge over time. This is what actually addresses "no expert,
+  can't interpret" -- more than any new metric would.
+- **20.3 Simplest VT tracking (record + compare)** -- now concrete because real 10k is going in. On each
+  buy, record ticker / date / health-at-entry / price; compare realized return to "same money into VT
+  the same day". Per-name and simple portfolio-level excess-vs-VT. No finance knowledge needed to read
+  the result (it's just "ahead of / behind VT"), and it's the ONLY way I'll know in 1-2 years whether
+  "pick high-health names myself" actually beats "just buy VT" -- i.e. the honest, slow bridge toward
+  the deferred 19.5-full. Keep it dead simple first; drawdown/FX/risk-adjust are refinements for later.
+- **TA-as-entry-check (discipline note, not a build item)** -- using charts to time entry is fine ONLY
+  as a light double-check with fundamentals leading. Watch the inversion failure mode: never let the
+  chart VETO a strong-conviction long-term pick, and never let it turn a thesis-driven hold into a
+  short-term trade. The project's spine is "exit on thesis-break, not chart-break."
+
+PARKED (real ideas, deliberately deferred until I can read `reasons` fluently -- adding them now would
+pile on numbers I can't interpret and make decisions harder, the exact trap planning flagged):
+mega-trend discovery-map UI (themed idea generation across AI/semis/energy/healthcare/... ; design fork
+= curated seed list vs LLM-generated-then-verified, hallucination risk); portfolio concentration/
+correlation (am I diversified across trends or fake-diversified across correlated tech names); position
+sizing; margin-of-safety off reverse-DCF; drawdown vs VT; FX-adjusted (USD vs THB) returns; dividend
+safety; and pre-profit / financials alternate scoring frameworks for names the current engine excludes.
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
