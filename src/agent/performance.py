@@ -16,20 +16,27 @@ from src.settings.store import get_benchmark
 
 def _close_on_or_after(ticker: str, date_str: str) -> float | None:
     """ราคาปิดวันแรกที่ >= date_str (เผื่อวันซื้อเป็นวันหยุด ตลาดไม่เปิด) ภายใน 7 วัน.
-    คืน None เงียบๆ ถ้า yfinance ล้ม (network/ticker พัง) — ไม่ raise กัน report ทั้งฉบับพัง."""
+    คืน None เงียบๆ ถ้า yfinance ล้ม (network/ticker พัง) — ไม่ raise กัน report ทั้งฉบับพัง.
+    audit fix (2026-07): แท่งที่ yfinance คืนมาอาจเป็น NaN (ตลาดวันนั้นข้อมูลยังไม่สมบูรณ์ — เจอจริง
+    กับแท่งของวันปัจจุบันระหว่างตลาดเปิดอยู่) NaN ไม่ใช่ None จึงเล็ดลอดผ่านเช็ค 'is None' เดิมไปได้
+    แล้วไปพังตอน JSON serialize ที่ API layer (Starlette ไม่ยอมให้ NaN) dropna() ก่อนหยิบตัวแรก."""
     try:
         start = datetime.fromisoformat(date_str).date()
         hist = yf.Ticker(ticker).history(start=start.isoformat(),
                                          end=(start + timedelta(days=7)).isoformat())
-        return None if hist.empty else float(hist["Close"].iloc[0])
+        closes = hist["Close"].dropna()
+        return None if closes.empty else float(closes.iloc[0])
     except Exception:
         return None
 
 
 def _latest_close(ticker: str) -> float | None:
+    """ราคาปิดล่าสุดที่ 'สมบูรณ์จริง' — แท่งล่าสุดอาจเป็น NaN เหมือนกัน (ดู _close_on_or_after)
+    dropna() ก่อนหยิบตัวท้ายสุด กันหลุดไปเป็น NaN ในผลลัพธ์."""
     try:
         hist = yf.Ticker(ticker).history(period="5d")
-        return None if hist.empty else float(hist["Close"].iloc[-1])
+        closes = hist["Close"].dropna()
+        return None if closes.empty else float(closes.iloc[-1])
     except Exception:
         return None
 
