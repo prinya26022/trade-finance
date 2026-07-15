@@ -333,10 +333,15 @@ the history store already saves point-in-time scores; add realized forward retur
 time and the watchlist becomes a live forward-test -- slow, low-N, directional-not-proof, but real. The
 broad-universe predictive backtest stays deferred.
 
-- **20.1 Valuation graded (fragility close-out)** -- replace the reverse-DCF /3 step function with a
-  graded 0-3, the same treatment 19.3 gave the fundamental /8. Directly targets 19.5's finding that
-  EVERY remaining load-bearing threshold is a valuation step boundary (gap bands, lens caps, NOPAT
-  guard). Small, well-defined, closes the known fragility. Natural first step.
+- **20.1 Valuation graded (fragility close-out)** -- AGREED FIRST BUILD TARGET. Replace the reverse-DCF
+  /3 step function (_gap_to_score) with a graded 0-3 ramp, the same treatment 19.3 gave the fundamental
+  /8 (mirror _graded_above/_graded_below). Targets 19.5's finding that the gap bands are razor-thin
+  (10pp flips at 9.5). Scoping nuance surfaced in planning -- KEEP THIS HONEST: grading the gap->score
+  mapping smooths the gap-BAND discontinuities, but it does NOT smooth the lens-ROUTING discontinuity
+  (NOPAT-margin guard 0.02->flips lens at 0.07; divergence 15pp) -- those are binary lens *selection*
+  (standard/growth/NA), not part of the gap->score curve, so a name crossing a lens boundary can still
+  jump. 20.1 = grade the gap->score curve; whether/how to soften lens routing is a separate decision,
+  don't let it be silently assumed done. Small, well-defined, still the right first step.
 - **20.2 Benchmark tracking vs VT (keystone)** -- the goal is "beat VT" but nothing measures vs VT, so
   the thesis is currently unfalsifiable. Track benchmark return aligned to each pick's first-scored
   date; show per-name and portfolio-level excess return vs VT. Makes the goal measurable AND accumulates
