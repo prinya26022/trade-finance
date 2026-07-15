@@ -369,12 +369,25 @@ def test_reverse_dcf_duol_like_case_no_longer_shows_negative_realistic_growth():
     assert result["score"] >= 2             # gap ควรติดลบ/เล็ก -> คะแนนดี ไม่ใช่ 0 (แพงมาก) เหมือนเดิม
 
 
-def test_reverse_dcf_score_step_bands():
-    # gap < 0 -> 3, 0<=gap<5 -> 2, 5<=gap<10 -> 1, gap>=10 -> 0
+def test_reverse_dcf_score_graded_bands():
+    # audit fix 20.1: gap->score เดิมเป็น step function เป๊ะ (gap<0->3, 0<=gap<5->2, 5<=gap<10->1,
+    # gap>=10->0) — 19.5 sensitivity เจอเป็น threshold เปราะสุดในระบบ (10pp พลิกที่ 9.5, ห่างแค่
+    # 0.5pp) ตอนนี้ไล่ระดับแทน: ค่าที่ห่าง boundary มากๆ ยัง 3.0/0.0 เท่าเดิม (เคส gap=-10/-5 ไกล
+    # จาก 0-band=-2 พอ, เคส gap=15/55 ไกลจาก 10+band=12 พอ) ค่าใกล้ boundary ได้ partial credit
+    # แทนพลิกเต็มจุด (เคส gap=1,5,7 อยู่ในรัศมี GAP_BAND_PP=2 ของ boundary)
     # บังคับ lens='standard' ด้วย reinvestment/ROIC ที่ sustainable ตรงกับ revenue_cagr เป๊ะ (5.0%)
     # กัน growth-lens fade มาบิด realistic_growth จนเทียบ band ตรงๆ ไม่ได้
     fcf = 100.0
-    for target_growth, expected_score in [(-0.05, 3), (0.06, 2), (0.12, 1), (0.20, 0)]:
+    cases = [
+        (-0.05, 3.0),     # gap=-10, ไกลจาก boundary ทุกจุด -> เต็ม 3.0 เท่าเดิม
+        (0.0, 3.0),       # gap=-5.01, ไกลจาก GAP_PP_FULL(0)-band(2)=-2 พอ -> ยังเต็ม 3.0
+        (0.06, 2.25),     # gap=1.0, อยู่ในรัศมี band ของ boundary 0pp -> partial (เดิม cliff เต็มเป็น 2)
+        (0.10, 1.5),      # gap=5.0, ตรง boundary GAP_PP_GOOD เป๊ะ -> กึ่งกลางของ transition
+        (0.12, 1.0),      # gap=7.0, ไกลจาก boundary 5/10 พอ -> ลงตัวที่ 1.0 (เหมือนเดิม)
+        (0.20, 0.0),      # gap=15, ไกลจาก GAP_PP_FAIR(10)+band(2)=12 พอ -> ศูนย์เท่าเดิม
+    ]
+    scores = []
+    for target_growth, expected_score in cases:
         ev = intrinsic_value(fcf, target_growth, 0.0925, 0.025, 10)
         f = FakeFundamentals(
             free_cash_flow=fcf, market_cap=ev, revenue_cagr=5.0,
@@ -382,7 +395,28 @@ def test_reverse_dcf_score_step_bands():
         )
         result = reverse_dcf(f, risk_free_pct=4.0)
         assert result["lens"] == "standard", f"expected standard lens, got {result['lens']} flags={result['flags']}"
-        assert result["score"] == expected_score, f"growth={target_growth}: gap={result['gap']}, score={result['score']}"
+        assert result["score"] == pytest.approx(expected_score), \
+            f"growth={target_growth}: gap={result['gap']}, score={result['score']}"
+        scores.append(result["score"])
+    assert scores == sorted(scores, reverse=True)   # monotonic: gap มากขึ้น -> score ไม่เพิ่มขึ้นเลย
+
+
+def test_gap_to_score_smooths_the_razor_thin_10pp_boundary():
+    # เคสที่ 19.5 sensitivity เจอ (10pp เดิม flip ที่ 9.5, margin แค่ 0.5pp) — ตอนนี้ 9.5 กับ 10.5
+    # ต้องขยับแบบเรียบ ไม่ใช่กระโดดเต็มจุดข้ามกัน
+    from src.agent.valuation import _gap_to_score
+    just_below = _gap_to_score(9.5)
+    just_above = _gap_to_score(10.5)
+    assert 0.0 < just_below < 1.0
+    assert 0.0 <= just_above < just_below   # ยังลดลง (แพงขึ้น = แย่ลง) แต่ไม่ใช่กระโดดเต็มจุด
+    assert (just_below - just_above) < 0.5   # เปลี่ยนน้อยกว่าครึ่งแต้ม ไม่ใช่พลิกทั้งจุด(1.0) เหมือนเดิม
+
+
+def test_gap_to_score_far_from_any_boundary_matches_old_step_function():
+    # ค่าที่ไกลจาก boundary ทุกจุดมากๆ ต้องได้ผลเดียวกับ step function เดิมเป๊ะ (3/2... ไม่ใช่แค่ approx)
+    from src.agent.valuation import _gap_to_score
+    assert _gap_to_score(-100.0) == 3.0
+    assert _gap_to_score(100.0) == 0.0
 
 
 def test_reverse_dcf_serializable_dict():

@@ -34,6 +34,8 @@ score ไม่ขยับเพราะ gap ติดลบมากอยู
 """
 from dataclasses import dataclass
 
+from src.agent.grading import graded_below
+
 DEFAULT_TERMINAL_GROWTH = 0.025  # โตตลอดไปเท่า GDP/เงินเฟ้อระยะยาวโดยประมาณ — ห้ามสูงกว่านี้
 DEFAULT_YEARS = 10
 DEFAULT_ERP = 0.0525              # equity risk premium มาตรฐาน (จุดกึ่งกลาง 5-5.5%) — ล็อกค่าเดียว
@@ -244,22 +246,34 @@ def _fcf_growth_multiyear(fcf_series: list[tuple[str, float]] | None) -> float |
     return round(((newest / oldest) ** (1 / years) - 1) * 100, 2)
 
 
-# gap band ของ valuation /3 — ดึงออกมาเป็น constant (เดิม hardcode 0/5/10 ใน _gap_to_score)
-# เพื่อให้ sensitivity analysis sweep ได้ และมองเห็นว่าเป็น 'prior ที่ปรับได้' ไม่ใช่เลขศักดิ์สิทธิ์
-GAP_PP_FULL = 0.0    # gap < นี้ (implied < realistic = ตลาดคาดต่ำกว่าที่ทำได้จริง) -> 3 เต็ม
-GAP_PP_GOOD = 5.0    # gap < นี้ -> 2
-GAP_PP_FAIR = 10.0   # gap < นี้ -> 1, ไม่งั้น 0 (แพงเกินกว่าจะ justify ด้วย growth ที่ทำได้จริง)
+# gap boundary ของ valuation /3 (เดิม hardcode 0/5/10 ใน step function ตรงๆ) — ยังเป็นจุดอ้างอิง
+# เดิมทุกอย่าง (gap<0=ถูกมาก เต็ม 3, ทุก 5pp ถัดไปลดลง 1 แต้ม) แค่ตอนนี้ไล่ระดับรอบแต่ละจุดแทนที่
+# จะพลิกเป๊ะ (audit fix 20.1 — ดู GAP_BAND_PP ด้านล่าง)
+GAP_PP_FULL = 0.0    # ~gap นี้ (implied < realistic = ตลาดคาดต่ำกว่าที่ทำได้จริง) -> ~3 เต็ม
+GAP_PP_GOOD = 5.0    # ~gap นี้ -> ~2
+GAP_PP_FAIR = 10.0   # ~gap นี้ -> ~1, เกินไปมาก -> เข้าใกล้ 0 (แพงเกินกว่าจะ justify ด้วย growth ที่ทำได้จริง)
+
+# audit fix 20.1 (2026-07, ต่อจาก 19.3/19.5): เดิม _gap_to_score เป็น step function ล้วน — 19.5
+# sensitivity เจอว่านี่คือ threshold ที่เปราะที่สุดในทั้งระบบ (GAP_PP_FAIR=10pp พลิก tier ที่ 9.5,
+# ห่างแค่ 0.5pp) เพราะฝั่ง fundamental ทำ graded ไปแล้ว (19.3) แต่ฝั่ง valuation ยังไม่ทำ. แก้แบบ
+# เดียวกับ 19.3: รอบ boundary แต่ละจุด (0/5/10pp) ไล่ระดับอิสระต่อกัน (เหมือนแต่ละเกณฑ์ fundamental)
+# แล้วรวมกัน — band แคบกว่า BAND_PCT ทั่วไปของ health.py (3pp) โดยตั้งใจ เพราะระยะห่างระหว่าง
+# boundary เอง (5pp) แคบกว่าฝั่ง fundamental มาก ถ้าใช้ band 3pp เต็มจะ overlap กันจนจุดกึ่งกลาง
+# ระหว่าง boundary ไม่มี 'จุดเต็ม/จุดศูนย์' ที่ชัดเจนเหลือเลย
+GAP_BAND_PP = 2.0
 
 
-def _gap_to_score(gap_pp: float) -> int:
-    """gap = implied − realistic (จุดร้อยละ) -> คะแนน /3 แบบ step function (ตามสเปก)."""
-    if gap_pp < GAP_PP_FULL:
-        return 3
-    if gap_pp < GAP_PP_GOOD:
-        return 2
-    if gap_pp < GAP_PP_FAIR:
-        return 1
-    return 0
+def _gap_to_score(gap_pp: float) -> float:
+    """gap = implied − realistic (จุดร้อยละ) -> คะแนน /3 แบบไล่ระดับ (audit fix 20.1). ผลรวมของ
+    3 graded step อิสระต่อกัน รอบ boundary เดิม (GAP_PP_FULL/GOOD/FAIR) — gap ที่ห่างทุก boundary
+    มากๆ (ส่วนใหญ่ของ watchlist) ยังได้ 3.0/0.0 เท่าเดิม กระทบเฉพาะเคสที่ใกล้ boundary จริง
+    (เหมือนหลักการเดียวกับ health.py::_fundamental_score ที่ทำกับ /8 ตั้งแต่ 19.3)."""
+    return round(
+        graded_below(gap_pp, GAP_PP_FULL, GAP_BAND_PP)
+        + graded_below(gap_pp, GAP_PP_GOOD, GAP_BAND_PP)
+        + graded_below(gap_pp, GAP_PP_FAIR, GAP_BAND_PP),
+        2,
+    )
 
 
 @dataclass
@@ -268,7 +282,7 @@ class ReverseDcfResult:
     realistic_growth: float | None    # % ต่อปี — anchor ที่ใช้เทียบ gap จริง (มาจาก lens ไหนดู field lens)
     historical_cagr: float | None     # % ต่อปี — raw revenue CAGR (อ้างอิง/cross-check เท่านั้น)
     gap: float | None                 # implied − realistic (pp)
-    score: int | None                 # 0-3 (step function จาก gap, ปรับด้วย Rule of 40 ถ้า lens='growth')
+    score: float | None                # 0.0-3.0 (graded จาก gap, 20.1 — ปรับด้วย Rule of 40 ถ้า lens='growth')
     lens: str                         # "standard" | "growth" | "NA" — ใช้แยกกลุ่มตอน backtest ห้ามปนกัน
     flags: list[str]                  # เหตุผลที่ route (FCF_NONPOSITIVE/NOPAT_UNSTABLE/NEGATIVE_REINVESTMENT/SUSTAINABLE_DIVERGES)
     rule_of_40: float | None          # rev_growth_recent% + fcf_margin% (เฉพาะ lens='growth')
@@ -387,8 +401,10 @@ def reverse_dcf(
     score = _gap_to_score(gap) if gap is not None else None
 
     # Rule of 40: growth lens เท่านั้น — โตไม่จริง+เผาเงิน ห้ามตัดสินว่า "ถูก" (score เพดานที่ 1)
+    # (เพดานนี้ยังเป็น hard cap ตั้งใจ ไม่ใช่ graded — sensitivity 19.5 เจอว่า RULE40_WEAK inert
+    # สำหรับ watchlist ปัจจุบัน และเป็นคนละกลไกกับ gap->score curve ที่ 20.1 แก้ ไม่ได้อยู่ใน scope นี้)
     if lens == "growth" and score is not None and r40 is not None and r40 < RULE40_WEAK:
-        score = min(score, 1)
+        score = min(score, 1.0)
 
     return ReverseDcfResult(
         implied_growth=implied, realistic_growth=realistic_growth, gap=gap, score=score,
