@@ -344,15 +344,18 @@ watchlist into a live forward-test (slow, low-N, directional-not-proof, but real
 can only confirm the engine RUNS correctly (numbers are sane) -- it cannot confirm the score PREDICTS;
 only forward time + the VT comparison can.
 
-- **20.1 Valuation graded (fragility close-out)** -- AGREED FIRST BUILD TARGET. Replace the reverse-DCF
-  /3 step function (_gap_to_score) with a graded 0-3 ramp, the same treatment 19.3 gave the fundamental
-  /8 (mirror _graded_above/_graded_below). Targets 19.5's finding that the gap bands are razor-thin
-  (10pp flips at 9.5). Scoping nuance surfaced in planning -- KEEP THIS HONEST: grading the gap->score
-  mapping smooths the gap-BAND discontinuities, but it does NOT smooth the lens-ROUTING discontinuity
-  (NOPAT-margin guard 0.02->flips lens at 0.07; divergence 15pp) -- those are binary lens *selection*
-  (standard/growth/NA), not part of the gap->score curve, so a name crossing a lens boundary can still
-  jump. 20.1 = grade the gap->score curve; softening lens routing is a separate decision, don't assume
-  it done. Small, well-defined, still the right first step.
+- **20.1 Valuation graded (fragility close-out)** DONE. Replaced the reverse-DCF /3 step function
+  (_gap_to_score) with a graded ramp -- sum of 3 independent graded transitions around the original
+  boundaries (0/5/10pp), GAP_BAND_PP=2.0 (narrower than health.py's usual 3pp since the boundaries
+  themselves are only 5pp apart). Extracted graded_above/graded_below out of health.py into a new
+  src/agent/grading.py (health.py already imports valuation.py, so valuation.py importing back from
+  health.py would be circular) -- health.py's behavior is unchanged, just re-pointed at the shared
+  module. Scoping nuance from planning, still true: this grades the gap->score CURVE only, not the
+  lens-ROUTING discontinuity (NOPAT-margin guard, divergence trigger -- binary lens *selection*,
+  deliberately untouched) or the Rule-of-40 cap (sensitivity found it inert, out of scope). Verified:
+  margin before a tier flip on GAP_PP_FAIR went 0.5pp->1.25pp (2.5x), GAP_PP_GOOD 1.0pp->2.80pp
+  (2.8x). Backfill dry-run on the real watchlist: 14/107 rows shifted slightly (0.1-0.5 pts), zero
+  tier flips at the latest-row level (MSFT 8.3->7.9 stayed strong, SBUX 5.9->5.6 stayed ok). Applied.
 - **20.2 Explain/teach the score (the real need)** -- I currently trust the top-line health number
   blind because the rest is opaque. Goal: graduate me from "just the number" to reading and
   understanding the `reasons` breakdown (fundamental X/8 vs valuation Y/3 -- health 8 from strong
