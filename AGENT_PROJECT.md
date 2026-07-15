@@ -293,10 +293,24 @@ The 18d audit found more than the one face-invalid bug it fixed. Remaining, prio
   FCF history is too short or sign-flips (CAGR undefined). Backfill dry-run: 14/107 rows changed
   (NVDA/GOOGL/MSFT +1.0 from the fcf_base fix; DUOL hit the same bug but its score didn't move
   because gap was already deeply negative both before and after). Applied.
-- **19.5 Threshold/tier calibration** -- every threshold (ROIC 15%, 0.9 tolerance, WACC bounds,
-  tier cutoffs 70/45%, gap bands) is an unvalidated prior. This is the bridge to predictive
-  validation: real calibration needs data (forward-test / the deferred point-in-time backtest),
-  which answers "does the score predict returns" -- a layer the audit fundamentally cannot.
+- **19.5 Threshold/tier calibration** PARTIAL -- every threshold (0.9 tolerance, WACC bounds,
+  tier cutoffs 70/45%, gap bands) is an unvalidated prior. Full *predictive* calibration ("does
+  the score predict returns") is still deferred -- it needs a point-in-time backtest over a broad,
+  survivorship-bias-free universe; the current 7-name watchlist is hand-picked survivors, so no
+  amount of historical data calibrates it (EDGAR *is* point-in-time and prices are easy, so this
+  is blocked on universe breadth + engineering, NOT on waiting to accumulate history -- correcting
+  an earlier framing). What WAS doable and is DONE: a sensitivity/robustness map
+  (src/agent/sensitivity.py) that sweeps every threshold and reports which are load-bearing (a
+  small move flips a tier/ranking) vs inert (never binds for this watchlist). Findings on the live
+  7-stock watchlist: (a) ROIC_MIN_PCT was a dead constant (unused since 19.2 moved #2 to Net
+  Margin) -- removed. (b) Every load-bearing threshold is on the *valuation* side -- NOPAT-margin
+  route guard (0.02, flips at 0.07), lens caps, and the gap bands (10pp flips at 9.5 -- razor
+  thin) -- because valuation /3 is still a step function (1 step = ~9% of total) while the
+  fundamental side is graded (19.3) and moves smoothly. (c) beta clamps, Rule-of-40, and coverage
+  band are inert *for this watchlist* (caveat: adding a levered/weak/cyclical name could make them
+  bind). GOOGL is the swing name -- 1.8% under the strong line, so most tier flips are GOOGL's.
+  Direct implication: the natural next fragility-reducer is making valuation graded like the
+  fundamental leg, not tuning individual valuation constants.
 
 Remaining (beyond the audit roadmap): deeper crypto on-chain metrics (active addresses, fees, TVL),
 macro/rates valuation context beyond CAPM WACC, triggering investigation/narration from the UI,
