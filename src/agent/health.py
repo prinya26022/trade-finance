@@ -49,7 +49,6 @@ SENTIMENT_PTS = {"bullish": 1.0, "neutral": 0.5, "bearish": 0.0}   # /1 — tie-
 #    + เงินสดก้อนใหญ่กว่า ก็ยังจ่ายดอกเบี้ยจริงได้) แก้ให้เช็ค Interest Coverage ตรงๆ ก่อนเสมอถ้ามีข้อมูล
 #    เหลือ net-cash เป็น fallback เฉพาะตอนไม่มี Interest Coverage ให้เช็ค (ตรงกับ DUOL: ไม่มีดอกเบี้ยรายงาน
 #    เพราะไม่มีหนี้จริง ไม่ใช่ data gap) — ลดจุดที่ Net Debt เครื่องหมายเดียวชี้ชะตา 2 เกณฑ์พร้อมกัน
-ROIC_MIN_PCT = 15.0           # เกณฑ์ #1 อ้างอิง WACC เท่านั้น (ระดับ absolute ย้ายไป #2/Net Margin แล้ว)
 NET_MARGIN_MIN_PCT = 10.0     # เกณฑ์ #2: Net Margin สูง = pricing power + cost discipline (independent จาก ROIC)
 REVENUE_CAGR_THRESHOLD_PCT = 3.0   # เกณฑ์ #4: เหนือเงินเฟ้อจริง ไม่ใช่แค่ > 0%
 LEVERAGE_MAX_X = 3.0          # เกณฑ์ #5

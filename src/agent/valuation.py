@@ -244,13 +244,20 @@ def _fcf_growth_multiyear(fcf_series: list[tuple[str, float]] | None) -> float |
     return round(((newest / oldest) ** (1 / years) - 1) * 100, 2)
 
 
+# gap band ของ valuation /3 — ดึงออกมาเป็น constant (เดิม hardcode 0/5/10 ใน _gap_to_score)
+# เพื่อให้ sensitivity analysis sweep ได้ และมองเห็นว่าเป็น 'prior ที่ปรับได้' ไม่ใช่เลขศักดิ์สิทธิ์
+GAP_PP_FULL = 0.0    # gap < นี้ (implied < realistic = ตลาดคาดต่ำกว่าที่ทำได้จริง) -> 3 เต็ม
+GAP_PP_GOOD = 5.0    # gap < นี้ -> 2
+GAP_PP_FAIR = 10.0   # gap < นี้ -> 1, ไม่งั้น 0 (แพงเกินกว่าจะ justify ด้วย growth ที่ทำได้จริง)
+
+
 def _gap_to_score(gap_pp: float) -> int:
     """gap = implied − realistic (จุดร้อยละ) -> คะแนน /3 แบบ step function (ตามสเปก)."""
-    if gap_pp < 0:
+    if gap_pp < GAP_PP_FULL:
         return 3
-    if gap_pp < 5:
+    if gap_pp < GAP_PP_GOOD:
         return 2
-    if gap_pp < 10:
+    if gap_pp < GAP_PP_FAIR:
         return 1
     return 0
 
