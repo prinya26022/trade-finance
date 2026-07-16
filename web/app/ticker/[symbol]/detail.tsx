@@ -6,6 +6,7 @@ import { resolveHealth } from "@/lib/health";
 import { fySeries, latestValue, fmt } from "@/lib/facts";
 import { LineChart, BarChart, type Series } from "@/lib/charts";
 import { HealthMeter } from "../../health-meter";
+import { HealthBreakdown } from "../../health-breakdown";
 
 const C = { blue: "#58a6ff", green: "#3fb950", amber: "#d29922", red: "#f85149" };
 
@@ -132,6 +133,10 @@ export default function TickerDetail({
 
       {/* ---- Friendly verdict ---- */}
       {s.beginner_summary && <p className="verdict">{s.beginner_summary}</p>}
+
+      {/* ---- Phase 20.2: แตกคะแนนสุขภาพให้อ่านออก (พื้นฐาน X/8 + ราคา Y/3) ---- */}
+      {a.health && <HealthBreakdown health={a.health} sentiment={s.sentiment} />}
+
       {s.thesis_assessment ? (
         <div className="thesis-box">
           <div className="section-title" style={{ margin: "0 0 4px" }}>Thesis check</div>

@@ -159,6 +159,27 @@ export type ExtractionResult = {
 // Phase 18: score/tier เป็น null/"excluded" ได้ — ticker ที่ข้อมูลไม่พอ (data gate <6/8 เกณฑ์),
 // ขาดทุน (reverse-DCF หาคำตอบไม่ได้), หรือ crypto (ไม่มี Fact ที่เกี่ยวข้องเลย) จะถูกตัดออกจาก
 // screen นี้แทนการ fallback ไปใช้ label ของ LLM แบบ Phase 17 เดิม
+// Phase 20.2: แตกคะแนนให้อ่านออก — components/fundamental มีอยู่ใน health JSON ที่ backend เก็บ
+// อยู่แล้ว (health.py) แค่เดิม type ไม่ได้ประกาศไว้ frontend เลยใช้ไม่ได้ (โชว์แต่เลขรวม)
+export type HealthComponents = {
+  strength: number | null;   // /8 (Piotroski) — null เมื่อ excluded
+  valuation: number | null;  // /3 (reverse-DCF) — null เมื่อ excluded
+  sentiment: number;         // metadata เท่านั้นตั้งแต่ 19.3.1 (ไม่รวมในคะแนน)
+  breach_penalty: number | null;
+};
+
+// (label เกณฑ์, degree 0-1 | null=คำนวณไม่ได้/ข้อมูลไม่พอ) — ไล่ระดับตั้งแต่ 19.3
+export type HealthCriterion = [string, number | null];
+
+export type HealthFundamental = {
+  score: number | null;
+  computable: number;
+  passed: number;
+  criteria: HealthCriterion[];   // 8 เกณฑ์ Piotroski พร้อม degree รายข้อ
+  disqualified: boolean;
+  reason: string;
+};
+
 export type PersistedHealth = {
   score: number | null;
   max?: number; // Phase 18+ เท่านั้น (11 ตั้งแต่ 19.3.1 — เดิม 12 ก่อนตัด sentiment ออกจากผลรวม)
@@ -166,6 +187,8 @@ export type PersistedHealth = {
   tier: "strong" | "ok" | "weak" | "excluded";
   label: string;
   reasons: string[];
+  components?: HealthComponents;   // Phase 18+ (แถวเก่ากว่านั้นไม่มี -> breakdown ไม่ render)
+  fundamental?: HealthFundamental; // Phase 18+
 };
 
 export type Analysis = {
