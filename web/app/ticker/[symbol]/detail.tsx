@@ -135,7 +135,7 @@ export default function TickerDetail({
       {s.beginner_summary && <p className="verdict">{s.beginner_summary}</p>}
 
       {/* ---- Phase 20.2: แตกคะแนนสุขภาพให้อ่านออก (พื้นฐาน X/8 + ราคา Y/3) ---- */}
-      {a.health && <HealthBreakdown health={a.health} sentiment={s.sentiment} />}
+      {a.health && <HealthBreakdown health={a.health} sentiment={s.sentiment} facts={facts} />}
 
       {s.thesis_assessment ? (
         <div className="thesis-box">

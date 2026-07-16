@@ -4,7 +4,8 @@
 // ต่างจาก health 8 ที่มาจาก 'พื้นฐานกลางๆ+ถูกมาก' คนละเรื่องกัน — และเห็นว่าเกณฑ์ไหนผ่าน/ตก
 // ข้อมูลทั้งหมด (components/criteria) มาจาก health JSON ที่ backend เก็บอยู่แล้ว ไม่ต้องคำนวณสด
 import { Tip } from "@/lib/glossary";
-import type { PersistedHealth } from "@/lib/types";
+import type { Fact, PersistedHealth } from "@/lib/types";
+import { fySeries, latestValue } from "@/lib/facts";
 
 const FUND_MAX = 8;
 const VAL_MAX = 3;
@@ -28,6 +29,58 @@ const CRITERION_HELP: Record<string, string> = {
   "ไม่เจือจางหุ้น":
     "จำนวนหุ้นไม่เพิ่ม (ไม่ออกหุ้นใหม่มาเจือจางผู้ถือเดิม) — ยิ่งลด (ซื้อหุ้นคืน) ยิ่งดี",
 };
+
+// ตัวเลขจริงเบื้องหลังแต่ละเกณฑ์ — ดึงจาก facts (ที่มีอยู่แล้ว, ไม่คำนวณสด) มาโชว์ข้างชื่อเกณฑ์
+// เพื่อให้เห็นว่า '✓ ผ่าน' ไม่ใช่แค่ label ลอยๆ แต่มาจากตัวเลขงบจริงเท่าไหร่ (จุดสอนหลักของ 20.2)
+// mapping ต้องตรงกับ input ของแต่ละ criterion ใน health.py::PIOTROSKI_CRITERIA เป๊ะ
+function criterionValue(label: string, facts: Fact[]): string | null {
+  switch (label) {
+    case "ROIC>WACC": {
+      const roic = latestValue(facts, "ROIC");
+      return roic ? `ROIC ${roic.value.toFixed(1)}%` : null;
+    }
+    case "Net Margin สูง(>=10%)": {
+      const s = fySeries(facts, "Net Margin");
+      return s.length ? `Net Margin ${s[s.length - 1].value.toFixed(1)}%` : null;
+    }
+    case "FCF+คุณภาพกำไร": {
+      const fcf = latestValue(facts, "FCF Margin");
+      return fcf ? `FCF Margin ${fcf.value.toFixed(1)}%` : null;
+    }
+    case "รายได้เติบโตจริง(>3%)": {
+      const cagr = latestValue(facts, "Revenue CAGR");
+      return cagr ? `Revenue CAGR ${cagr.value.toFixed(1)}%` : null;
+    }
+    case "หนี้ไม่บานปลาย": {
+      const netDebt = latestValue(facts, "Net Debt");
+      if (netDebt && netDebt.value <= 0) return "Net Cash (ไม่มีหนี้สุทธิ)";
+      const nde = latestValue(facts, "Net Debt / EBITDA");
+      return nde ? `Net Debt/EBITDA ${nde.value.toFixed(1)}x` : null;
+    }
+    case "จ่ายดอกเบี้ยไหว/net-cash": {
+      const cov = latestValue(facts, "Interest Coverage");
+      if (cov) return `Interest Coverage ${cov.value.toFixed(1)}x`;
+      const netDebt = latestValue(facts, "Net Debt");
+      return netDebt && netDebt.value <= 0 ? "Net Cash (ไม่มีดอกเบี้ยต้องจ่าย)" : null;
+    }
+    case "Margin ขยาย": {
+      const s = fySeries(facts, "Operating Margin");
+      if (s.length < 2) return null;
+      const [prev, last] = s.slice(-2);
+      return `Operating Margin ${prev.value.toFixed(1)}% → ${last.value.toFixed(1)}%`;
+    }
+    case "ไม่เจือจางหุ้น": {
+      const s = fySeries(facts, "Diluted Shares");
+      if (s.length < 2) return null;
+      const [prev, last] = s.slice(-2);
+      if (!prev.value) return null;
+      const pct = ((last.value - prev.value) / prev.value) * 100;
+      return `จำนวนหุ้น ${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
+    }
+    default:
+      return null;
+  }
+}
 
 // degree 0-1 -> สัญลักษณ์/สี/คำ (ไล่ระดับตั้งแต่ 19.3 จึงมี 'ก้ำกึ่ง' ไม่ใช่แค่ผ่าน/ตก)
 function mark(d: number | null): { sym: string; cls: string; word: string } {
@@ -58,9 +111,11 @@ function Bar({ value, max, tier }: { value: number; max: number; tier: string })
 export function HealthBreakdown({
   health,
   sentiment,
+  facts,
 }: {
   health: PersistedHealth;
   sentiment: string;
+  facts: Fact[];
 }) {
   const c = health.components;
   const f = health.fundamental;
@@ -99,10 +154,12 @@ export function HealthBreakdown({
           {f.criteria.map(([label, deg]) => {
             const m = mark(deg);
             const help = CRITERION_HELP[label] ?? "";
+            const val = criterionValue(label, facts);
             return (
               <Tip key={label} def={`${m.word}${help ? " — " + help : ""}`}>
                 <span className={`bd-crit bd-crit-${m.cls}`}>
                   <span className="bd-crit-sym">{m.sym}</span> {label}
+                  {val && <span className="bd-crit-val"> · {val}</span>}
                 </span>
               </Tip>
             );
