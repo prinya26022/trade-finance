@@ -368,8 +368,12 @@ only forward time + the VT comparison can.
   HealthCriterion/HealthFundamental to types.ts and Piotroski/reverse-DCF/net-cash to the glossary.
   Verified live via SSR (uvicorn+next dev): DUOL renders the split with 7✓/1✗ (only "ไม่เจือจางหุ้น"
   fails, degree 0.0 -- matches the real data), excluded tickers (BTC) render no breakdown and don't
-  crash. Deferred to a later pass (not needed for the first teaching win): surfacing the actual metric
-  VALUES behind each criterion (currently only the label + pass/fail degree is shown, not "ROIC 76%").
+  crash. Follow-up (same session) DONE: each criterion now also shows the real metric value behind
+  it, not just the label + pass/fail (e.g. "✓ ROIC>WACC · ROIC 76.1%", "◐ หนี้ไม่บานปลาย · Net
+  Debt/EBITDA 2.7x"), pulled from the already-stored facts (no live recompute). Verified across 4
+  tickers covering all branches: DUOL (net-cash path for #5/#6), SBUX (leveraged path -- Net
+  Debt/EBITDA 2.7x lands partial, matching the exact figure from the 19.5 sensitivity audit),
+  MSFT/AAPL (Interest Coverage with real debt, AAPL's low Revenue CAGR 1.8% correctly shown partial).
 - **20.3 Simplest VT tracking (record + compare)** -- now concrete because real 10k is going in. On each
   buy, record ticker / date / health-at-entry / price; compare realized return to "same money into VT
   the same day". Per-name and simple portfolio-level excess-vs-VT. No finance knowledge needed to read
