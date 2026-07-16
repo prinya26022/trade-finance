@@ -356,14 +356,20 @@ only forward time + the VT comparison can.
   margin before a tier flip on GAP_PP_FAIR went 0.5pp->1.25pp (2.5x), GAP_PP_GOOD 1.0pp->2.80pp
   (2.8x). Backfill dry-run on the real watchlist: 14/107 rows shifted slightly (0.1-0.5 pts), zero
   tier flips at the latest-row level (MSFT 8.3->7.9 stayed strong, SBUX 5.9->5.6 stayed ok). Applied.
-- **20.2 Explain/teach the score (the real need)** -- I currently trust the top-line health number
-  blind because the rest is opaque. Goal: graduate me from "just the number" to reading and
-  understanding the `reasons` breakdown (fundamental X/8 vs valuation Y/3 -- health 8 from strong
-  fundamentals + expensive price is a totally different animal from health 8 from average fundamentals +
-  very cheap price). Build on what already exists (beginner_summary, Thai glossary): plain-Thai
-  explanation of each score component and what each metric means, surfaced where I read the score, so
-  using the tool compounds my finance knowledge over time. This is what actually addresses "no expert,
-  can't interpret" -- more than any new metric would.
+- **20.2 Explain/teach the score (the real need)** DONE (first pass). Was: I trust the top-line health
+  number blind because the rest is opaque and buried in hover tooltips. Built web/app/health-breakdown.tsx
+  -- a "ทำไมได้คะแนนนี้" panel under the verdict that splits the single number into its two legs:
+  "สุขภาพ 9.9/11 = พื้นฐาน 6.9/8 + ราคา 3.0/3", each as a labelled bar, plus the 8 Piotroski criteria
+  shown one-by-one as pass(✓)/partial(◐)/fail(✗) with a plain-Thai per-criterion explanation on hover,
+  plus a note that news sentiment is context-only (not scored, per 19.3.1). The teaching point made
+  visible: health 8 from strong-fundamentals+expensive is a different animal from health 8 from
+  average-fundamentals+cheap. Frontend-only -- the components/fundamental.criteria data was already in
+  the stored health JSON (health.py), the TS types just never declared it; added HealthComponents/
+  HealthCriterion/HealthFundamental to types.ts and Piotroski/reverse-DCF/net-cash to the glossary.
+  Verified live via SSR (uvicorn+next dev): DUOL renders the split with 7✓/1✗ (only "ไม่เจือจางหุ้น"
+  fails, degree 0.0 -- matches the real data), excluded tickers (BTC) render no breakdown and don't
+  crash. Deferred to a later pass (not needed for the first teaching win): surfacing the actual metric
+  VALUES behind each criterion (currently only the label + pass/fail degree is shown, not "ROIC 76%").
 - **20.3 Simplest VT tracking (record + compare)** -- now concrete because real 10k is going in. On each
   buy, record ticker / date / health-at-entry / price; compare realized return to "same money into VT
   the same day". Per-name and simple portfolio-level excess-vs-VT. No finance knowledge needed to read
