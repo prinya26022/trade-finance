@@ -185,10 +185,13 @@ def all_rows() -> list[dict]:
 
 
 def health_trends(limit_per_ticker: int = 20) -> dict[str, list[dict]]:
-    """{ticker: [{"period": run_at, "value": health_score}, ...]} เรียงเก่า->ใหม่, แค่ N จุด
-    ล่าสุด/ตัว (Phase 23 — ไว้วาด sparkline แนวโน้ม). เบากว่า history()/latest_per_ticker() มาก
-    (query 3 คอลัมน์ ไม่ parse summary_json/facts_json ทุกแถวที่ไม่ได้ใช้ตรงนี้). ข้ามแถวที่ไม่มี
-    health_score (แถวเก่าก่อน Phase 10 หรือ excluded — data gate/reverse-DCF ไม่ผ่าน)."""
+    """{ticker: [{"period": date, "value": health_score}, ...]} เรียงเก่า->ใหม่, 1 จุด/วันปฏิทิน
+    (ไม่ใช่ 1 จุด/รัน — ถ้าวันไหนรันมากกว่า 1 ครั้ง เช่น ทดสอบมือ ใช้ค่ารันล่าสุดของวันนั้นแทน เหมือน
+    กราฟ 'คะแนนสุขภาพย้อนหลัง' ในหน้า ticker detail ที่ dedupe รายวันอยู่แล้ว (healthByDay) — ไม่งั้น
+    sparkline จิ๋วจะเปลืองจุดไปกับวันที่รันซ้ำ แทนที่จะขยายช่วงเวลาย้อนหลังได้ไกลกว่าเดิม) แค่ N วัน
+    ล่าสุด/ตัว (Phase 23). เบากว่า history()/latest_per_ticker() มาก (query 3 คอลัมน์ ไม่ parse
+    summary_json/facts_json ทุกแถวที่ไม่ได้ใช้ตรงนี้). ข้ามแถวที่ไม่มี health_score (แถวเก่าก่อน
+    Phase 10 หรือ excluded — data gate/reverse-DCF ไม่ผ่าน)."""
     init_db()
     with _connect() as conn:
         rows = conn.execute(
@@ -196,10 +199,16 @@ def health_trends(limit_per_ticker: int = 20) -> dict[str, list[dict]]:
             "WHERE health_score IS NOT NULL ORDER BY ticker, run_at DESC, id DESC"
         ).fetchall()
     out: dict[str, list[dict]] = {}
+    seen_days: dict[str, set[str]] = {}
     for r in rows:
-        bucket = out.setdefault(r["ticker"], [])
+        ticker, day = r["ticker"], r["run_at"][:10]
+        days = seen_days.setdefault(ticker, set())
+        if day in days:
+            continue   # รันซ้ำวันเดียวกัน -> ตัวแรกที่เจอ (DESC) คือรันล่าสุดของวันนั้นแล้ว ข้ามที่เหลือ
+        days.add(day)
+        bucket = out.setdefault(ticker, [])
         if len(bucket) < limit_per_ticker:
-            bucket.append({"period": r["run_at"], "value": r["health_score"]})
+            bucket.append({"period": day, "value": r["health_score"]})
     for t in out:
         out[t].reverse()   # เก่า -> ใหม่ (sparkline วาดซ้าย->ขวาตามเวลา)
     return out

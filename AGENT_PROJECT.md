@@ -482,6 +482,19 @@ exactly 1 sparkline, matching that DUOL is the only actual holding right now. Sc
 tickers that happen to already be in the analyzed watchlist). 5 new offline tests
 (tests/test_history_store.py) covering ordering, the no-health-score skip, per-ticker separation, the
 limit cutoff (keeps the LATEST N, not the first N), and empty-DB. tsc clean, full suite 185/185.
+Follow-up fix (same session, caught by asking "does this actually cover weeks/months over time"):
+`health_trends()` was returning one point per RAW analysis run, not per calendar day -- a ticker
+re-run multiple times in one sitting (e.g. AAPL got run 4x on 07-07 during earlier dev/testing) wasted
+sparkline points on the same day instead of stretching further back in time. The bigger ticker-detail
+trend chart already handled this (`healthByDay` dedup), the new sparkline endpoint didn't. Fixed by
+collapsing to 1 point/day server-side (keeps the LATEST run's value for that day), so the fix benefits
+all 3 UI spots for free. Confirmed against the real production DB before/after: AAPL went from 20
+padded/duplicate-heavy points down to 10 honest calendar-day points. Also surfaced the honest limit of
+the "weeks/months" question directly, unprompted: there's currently only ~12 days of real health-score
+history in the whole system, so a week/month ROLLUP view has nothing meaningful to show yet -- revisit
+once there's a couple months of real data (not a code gap, a data-maturity one). 2 new tests added for
+the dedup behavior specifically (same-day collapse keeps latest value; limit counts days, not raw rows)
+-- full suite 187/187.
 
 PARKED (real ideas, deliberately deferred until I can read `reasons` fluently -- adding them now would
 pile on numbers I can't interpret and make decisions harder, the exact trap planning flagged):
