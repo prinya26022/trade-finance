@@ -315,6 +315,7 @@ ul.list li { font-size: 13px; line-height: 1.4; }
 /* ---- Phase 11: portfolio page ---- */
 .nav-row { margin-bottom: 12px; }
 .top-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.nav-links { display: flex; gap: 16px; }
 .nav-link { color: var(--blue); text-decoration: none; font-size: 14px; white-space: nowrap; }
 .nav-link:hover { text-decoration: underline; }
 

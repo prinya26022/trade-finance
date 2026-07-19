@@ -395,6 +395,43 @@ only forward time + the VT comparison can.
   chart VETO a strong-conviction long-term pick, and never let it turn a thesis-driven hold into a
   short-term trade. The project's spine is "exit on thesis-break, not chart-break."
 
+## Phase 21 -- screener (discovery, not just analysis of what I already named)
+DONE. The gap this closes: every phase up to 20 only analyzes tickers I already typed in myself --
+the tool couldn't answer "where do I even find candidates" (US, cheap + strong fundamentals). Built
+src/agent/screener.py: runs the exact same scoring engine as the daily watchlist (Piotroski /8 +
+reverse-DCF /3, health.py + valuation.py) across a hand-curated UNIVERSE of ~40 large-cap/liquid US
+tickers spread across sectors (tech, semis, consumer, healthcare, financials, industrials, energy,
+communication) -- but skips Gemini entirely, since fundamental+valuation scoring never needed the LLM
+(sentiment has been metadata-only since 19.3.1). Same DISQUALIFY/EXCLUDE-not-fallback discipline as
+health.py: tickers failing the data gate (<6/8 computable criteria) or where reverse-DCF can't solve
+are silently dropped, not guessed at.
+Honesty notes baked into the docstring itself (same pattern as every prior phase): UNIVERSE is a
+curated list, NOT the S&P 500 or a full market scan -- it's a starting point for exploration, not "the
+best is guaranteed to be in here." A high score means "strong fundamentals + priced cheaper than
+realistic growth justifies TODAY" -- it does NOT mean picking from this list beats VT (same unproven-
+heuristic caveat as 19.5/20.3; this screener has no point-in-time tracking of its own yet).
+Refactor: extracted `tier_from_score()` out of health.py's compute_health() (was inlined) so both
+compute_health and the screener share the identical 70%/45% tier boundary on the /11 scale --
+duplicating that specific threshold risked silent drift between the two call sites.
+Full scan hits yfinance ~4x/ticker (.info/financials/balance_sheet/cashflow) -- minutes, not seconds --
+so results are cached to disk (data/screener_cache.json, gitignored like risk_free_rate_cache.json,
+TTL 12h). GET /api/screener reads the cache by default (fast); `?force=true` forces a full rescan, used
+only by the UI's explicit "รีเฟรชผลสแกน" button (with a confirm() warning it takes a while), never on
+every page load. New page web/app/screener/screener-view.tsx: table of candidates sorted by score,
+P/E, ROIC, valuation gap (green when negative = cheap), lens, and a "+ เพิ่มเข้า watchlist" button
+(disabled + relabeled if already being watched) that reuses the existing addToWatchlist() mutation --
+no new watchlist-mutation code needed.
+Verified live end-to-end against real yfinance data (not mocked): first request with no cache computed
+fresh in well under the 120s call window, returned 37/41 tickers (4 dropped by the data gate --
+ORCL/JPM/GS/AXP), sorted correctly (ADBE 10.7/11 top, CVX 3.2/11 bottom), `already_watching` correctly
+flagged the 6 tickers already in my real watchlist (META/GOOGL/MSFT/AAPL/NVDA/AMZN). Repeat request
+served from cache in 0.27s (no re-scan). SSR-rendered /screener page confirmed via curl: scores, tier
+labels, P/E/ROIC/gap, and the add-to-watchlist button all render correctly (checked via raw HTML
+inspection, not just tsc -- same lesson as 20.3's grep-vs-React-comment-marker gotcha). 8 new offline
+tests (tests/test_screener.py) covering scoring, data-gate skip, reverse-DCF-None skip, fetch-error
+skip (1 bad ticker doesn't kill the scan), sort order, and the disk-cache TTL logic -- no network in
+CI. Full suite: 184 passed.
+
 PARKED (real ideas, deliberately deferred until I can read `reasons` fluently -- adding them now would
 pile on numbers I can't interpret and make decisions harder, the exact trap planning flagged):
 mega-trend discovery-map UI (themed idea generation across AI/semis/energy/healthcare/... ; design fork

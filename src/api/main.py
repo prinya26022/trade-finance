@@ -20,6 +20,7 @@ from src.agent.performance import portfolio_edge
 from src.agent.investigate_store import latest_investigation
 from src.agent.timeline import build_timeline
 from src.agent.timeline_store import get_narrative
+from src.agent.screener import screen
 
 app = FastAPI(title="Investment Research Agent API")
 
@@ -172,3 +173,16 @@ def get_investigation(ticker: str):
     if inv is None:
         raise HTTPException(status_code=404, detail=f"no investigation for {ticker}")
     return inv
+
+
+@app.get("/api/screener")
+def get_screener(force: bool = False):
+    """Phase 21 — สแกน UNIVERSE คัดมือหาหุ้นพื้นฐานแข็ง+ราคาถูก (Piotroski + reverse-DCF,
+    ไม่เรียก LLM). อ่าน cache ดิสก์ปกติ (เร็ว) — force=true สแกนใหม่ทั้งก้อน (ช้า, นาทีระดับ,
+    ยิง yfinance ~4 request/ticker) ใช้ตอนกดปุ่ม 'รีเฟรช' เองเท่านั้น ไม่ auto-refresh ทุก request.
+    เติม already_watching ให้แต่ละแถวไว้ disable ปุ่ม '+เพิ่ม' ของ ticker ที่จับตาอยู่แล้ว."""
+    data = screen(force=force)
+    watching = {row["ticker"] for row in list_all()}
+    for r in data["results"]:
+        r["already_watching"] = r["ticker"] in watching
+    return data

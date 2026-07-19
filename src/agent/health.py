@@ -37,6 +37,16 @@ from src.agent.valuation import reverse_dcf, capm_wacc, FALLBACK_RISK_FREE_PCT
 DATA_GATE_MIN_CRITERIA = 6   # ต้องคำนวณได้อย่างน้อย 6/8 เกณฑ์ ไม่งั้น disqualify ทั้งตัว
 TOTAL_MAX = 11.0             # Fundamental(8) + Valuation(3) — sentiment ไม่รวมแล้ว (19.3.1)
 
+
+def tier_from_score(score: float, max_score: float = TOTAL_MAX) -> tuple[str, str]:
+    """(tier, label) จากคะแนนรวม /max_score — เกณฑ์ 70%/45% เดียวกันทุกที่ที่ใช้ scale นี้.
+    Phase 21: ดึงออกมาจาก compute_health() เพราะ screener.py ต้องการ tier แบบเดียวกัน
+    (fundamental+valuation ล้วน ไม่มี sentiment/breach) — กันไม่ให้ threshold เพี้ยนกันระหว่าง
+    2 จุดที่ใช้ /11 scale เดียวกัน."""
+    tier = "strong" if score >= max_score * 0.7 else "ok" if score >= max_score * 0.45 else "weak"
+    label = {"strong": "แข็งแรง", "ok": "พอใช้", "weak": "อ่อน"}[tier]
+    return tier, label
+
 SENTIMENT_PTS = {"bullish": 1.0, "neutral": 0.5, "bearish": 0.0}   # /1 — tie-breaker เท่านั้น
 
 # เกณฑ์ตัวเลข (heuristic มาตรฐานการเงินทั่วไป ไม่ใช่กฎตายตัว — ปรับตาม backtest ได้ แต่ตั้งก่อนรัน)
@@ -346,9 +356,7 @@ def compute_health(summary, breaches: list[dict] | None = None, facts=None,
 
     score = max(0.0, min(TOTAL_MAX, score))
     rounded = round(score, 1)
-    # tier boundary สัดส่วนเท่าเดิม (70%/45%) สเกลตาม TOTAL_MAX เสมอ (/12 เดิม -> /11 หลัง 19.3.1)
-    tier = "strong" if rounded >= TOTAL_MAX * 0.7 else "ok" if rounded >= TOTAL_MAX * 0.45 else "weak"
-    label = {"strong": "แข็งแรง", "ok": "พอใช้", "weak": "อ่อน"}[tier]
+    tier, label = tier_from_score(rounded)
 
     return {
         "score": rounded, "max": TOTAL_MAX, "tier": tier, "label": label, "reasons": reasons,

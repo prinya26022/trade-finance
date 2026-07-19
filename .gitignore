@@ -24,6 +24,7 @@ data/*.sqlite3
 data/sec_cik_map.json
 data/sec_facts_cache/
 data/risk_free_rate_cache.json
+data/screener_cache.json
 
 # --- Node / Next.js (web/) ---
 node_modules/

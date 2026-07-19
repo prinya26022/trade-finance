@@ -39,7 +39,10 @@ export default async function Home() {
       <header className="top">
         <div className="top-head">
           <h1>Investment Research Agent</h1>
-          <Link href="/portfolio" className="nav-link">Portfolio →</Link>
+          <div className="nav-links">
+            <Link href="/screener" className="nav-link">Screener →</Link>
+            <Link href="/portfolio" className="nav-link">Portfolio →</Link>
+          </div>
         </div>
         <p>Latest fundamental analysis per watchlist ticker · research, not advice</p>
       </header>

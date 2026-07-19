@@ -118,6 +118,32 @@ export type Investigation = {
   stopped: "concluded" | "max_steps" | "error";
 };
 
+// Phase 21: screener — สแกน UNIVERSE คัดมือ (large/liquid US stocks, ไม่ใช่ S&P 500 เต็มรูปแบบ)
+// หาหุ้นพื้นฐานแข็ง+ราคาถูก โดยใช้เอนจิ้นเดียวกับ health score (Piotroski/8 + reverse-DCF/3)
+// แต่ไม่เรียก LLM เลย — ผลลัพธ์ cache ไว้ฝั่ง backend (นาทีระดับต่อการสแกนใหม่ทั้งก้อน)
+export type ScreenerResult = {
+  ticker: string;
+  score: number;
+  max: number;
+  tier: "strong" | "ok" | "weak";
+  label: string;
+  fundamental_score: number;
+  valuation_score: number;
+  implied_growth: number | null;
+  realistic_growth: number | null;
+  gap: number | null;
+  lens: "standard" | "growth" | "NA";
+  pe: number | null;
+  roic: number | null;
+  market_cap: number | null;
+  already_watching: boolean;
+};
+
+export type ScreenerResponse = {
+  computed_at: number; // unix epoch (วินาที) — ตอนสแกนล่าสุด
+  results: ScreenerResult[];
+};
+
 export type Portfolio = {
   benchmark: string;
   positions: EdgePosition[];

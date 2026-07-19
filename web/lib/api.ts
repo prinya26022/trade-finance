@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, Timeline } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, Timeline, ScreenerResponse } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -54,6 +54,14 @@ export async function getInvestigation(ticker: string): Promise<Investigation | 
 export async function getTimeline(ticker: string): Promise<Timeline | null> {
   const res = await fetch(`${API_BASE}/api/timeline/${ticker}`, { cache: "no-store" });
   if (!res.ok) return null; // timeline ล้ม (EDGAR ล่ม) ไม่ควรทำหน้า detail พังทั้งหน้า
+  return res.json();
+}
+
+// Phase 21: screener — force=true สแกนใหม่ทั้งก้อน (ช้า, นาทีระดับ) ใช้ตอนกดปุ่ม 'รีเฟรช' เอง
+// เท่านั้น — ปกติอ่าน cache (เร็ว) จึงไม่ใช้ no-store (อยากได้ response ตาม cache ฝั่ง backend จริง)
+export async function getScreener(force = false): Promise<ScreenerResponse> {
+  const res = await fetch(`${API_BASE}/api/screener?force=${force}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
 
