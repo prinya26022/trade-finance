@@ -1,12 +1,13 @@
 "use client";
 
-import type { Analysis, Change, WatchlistItem, EdgePosition, Investigation, Timeline } from "@/lib/types";
+import type { Analysis, ChangeReport, WatchlistItem, EdgePosition, Investigation, Timeline } from "@/lib/types";
 import { GlossaryText, Tip, BADGES } from "@/lib/glossary";
 import { resolveHealth } from "@/lib/health";
 import { fySeries, latestValue, fmt } from "@/lib/facts";
 import { LineChart, BarChart, type Series } from "@/lib/charts";
 import { HealthMeter } from "../../health-meter";
 import { HealthBreakdown } from "../../health-breakdown";
+import { WhatsNew } from "./whats-new";
 
 const C = { blue: "#58a6ff", green: "#3fb950", amber: "#d29922", red: "#f85149" };
 
@@ -48,7 +49,7 @@ function ChartCard({
 export default function TickerDetail({
   ticker,
   history,
-  changes,
+  change,
   watchItem,
   edge,
   investigation,
@@ -56,7 +57,7 @@ export default function TickerDetail({
 }: {
   ticker: string;
   history: Analysis[];
-  changes: Change[];
+  change: ChangeReport | null;
   watchItem?: WatchlistItem;
   edge?: EdgePosition;
   investigation?: Investigation | null;
@@ -64,6 +65,7 @@ export default function TickerDetail({
 }) {
   const a = history[0]; // ล่าสุด
   const s = a.summary;
+  const changes = change?.changes ?? [];
   const health = resolveHealth(a, changes);
   const isHolding = watchItem?.status === "holding";
   const facts = a.facts ?? [];
@@ -145,6 +147,9 @@ export default function TickerDetail({
         </div>
       </div>
 
+      {/* ---- Phase 22: "เปลี่ยนแปลงตั้งแต่ครั้งก่อน" ยกขึ้นเป็นสิ่งแรก (เดิมฝังอยู่ท้ายหน้า) ---- */}
+      <WhatsNew changes={changes} from={change?.from} to={change?.to} note={change?.note} />
+
       {/* ---- Friendly verdict ---- */}
       {s.beginner_summary && <p className="verdict">{s.beginner_summary}</p>}
 
@@ -207,20 +212,6 @@ export default function TickerDetail({
           ) : (
             <p className="muted">{a.valuation.note}</p>
           )}
-        </div>
-      )}
-
-      {/* ---- Breaches / changes ---- */}
-      {changes.length > 0 && (
-        <div className="changes detail-changes">
-          <div className="section-title" style={{ margin: "0 0 6px" }}>เปลี่ยน/เงื่อนไขที่โดนแตะ</div>
-          <ul className="list">
-            {changes.map((c, i) => (
-              <li key={i} className={`change change-${c.severity}`}>
-                <GlossaryText text={c.detail} />
-              </li>
-            ))}
-          </ul>
         </div>
       )}
 

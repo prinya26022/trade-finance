@@ -57,7 +57,7 @@ export default async function TickerPage({
         <TickerDetail
           ticker={ticker}
           history={history}
-          changes={change?.changes ?? []}
+          change={change}
           watchItem={watchItem}
           edge={edge}
           investigation={investigation}

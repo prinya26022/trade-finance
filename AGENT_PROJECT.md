@@ -432,6 +432,30 @@ tests (tests/test_screener.py) covering scoring, data-gate skip, reverse-DCF-Non
 skip (1 bad ticker doesn't kill the scan), sort order, and the disk-cache TTL logic -- no network in
 CI. Full suite: 184 passed.
 
+## Phase 22 -- "what changed since last time" moved to the top (UI/readability pass)
+DONE. Context: talked through what makes a long-term research tool bearable to read for years without
+resorting to gamification (streaks/badges/notifications), which would actively fight the project's own
+thesis (daily news = noise, thesis-driven not chart-driven). Landed on: don't make it "sticky", make it
+worth opening -- lead with what's DIFFERENT since last time, not static numbers, since nobody re-reads
+unchanged data twice.
+changes.py (Phase 3) already computed exactly this (diff between the two latest analysis runs, plus any
+invalidation breach) but it was buried at the bottom of the ticker detail page, under the valuation box
+-- the highest-value-per-pixel content on the whole page was the least visible. Built
+web/app/ticker/[symbol]/whats-new.tsx and moved it to right after the hero, before even the LLM verdict
+paragraph. Two things this pass insisted on: (1) the date range context ("เมื่อวาน → เมื่อวาน", or the
+`note` text when there's only one analysis ever) so the reader knows what window the diff covers --
+diffs without a timeframe read as arbitrary; (2) an explicit calm-state message when there's nothing to
+report ("✓ ไม่มีอะไรสำคัญเปลี่ยน...") instead of rendering nothing -- "silence by default" is the right
+policy for what counts as a change (changes.py's own principle), but rendering literally nothing on a
+UI element reads as broken/not-loaded, not as "checked, all clear." Removed the old duplicate block at
+the bottom of the page (same data, now shown once, at the top).
+Verified live against real data across all 3 states: AMZN (4 real changes: strength flip, thesis news,
+grounding-trust drop, ROIC metric move -- glossary tooltips still resolve correctly inside the new
+component), MSFT (0 changes, calm state, same-day range), META (note case -- only one analysis ever
+exists, no invalidation breach either). Confirmed via raw HTML inspection (not just tsc) that the old
+duplicate section is fully gone. tsc clean, full suite still 184/184 (backend untouched, this was
+frontend-only).
+
 PARKED (real ideas, deliberately deferred until I can read `reasons` fluently -- adding them now would
 pile on numbers I can't interpret and make decisions harder, the exact trap planning flagged):
 mega-trend discovery-map UI (themed idea generation across AI/semis/energy/healthcare/... ; design fork
