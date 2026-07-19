@@ -118,6 +118,20 @@ export default function TickerDetail({
             <span className="hero-entry">
               เข้า ${watchItem.entry_price}
               {watchItem.entry_date ? ` · ${watchItem.entry_date}` : ""}
+              {edge?.entry_health != null && (
+                <>
+                  {" · "}
+                  <Tip
+                    def={
+                      edge.entry_health_exact
+                        ? "คะแนน health ณ วันที่ซื้อจริง (point-in-time)"
+                        : "ไม่มีรอบวิเคราะห์ก่อนวันซื้อ — นี่คือค่าประมาณจากรอบแรกสุดที่มีข้อมูลหลังจากนั้น ไม่ใช่คะแนนจริง ณ วันซื้อ"
+                    }
+                  >
+                    health@ซื้อ {edge.entry_health_exact ? "" : "~"}{edge.entry_health.toFixed(1)}
+                  </Tip>
+                </>
+              )}
               {edge && (
                 <>
                   {" · "}

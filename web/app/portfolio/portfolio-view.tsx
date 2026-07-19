@@ -109,7 +109,11 @@ export default function PortfolioView({
                 <th className="num">มูลค่า</th>
                 <th className="num">กำไร/ขาดทุน</th>
                 <th className="num">edge vs {portfolio.benchmark}</th>
-                <th>health</th>
+                <th>
+                  <Tip def="health ตอนนี้ (ซ้าย) เทียบกับ health ณ วันที่ซื้อ (ขวา, ตัวเล็ก) — เห็นว่าตั้งแต่ซื้อมาพื้นฐาน/ราคาดีขึ้นหรือแย่ลง">
+                    health (ตอนนี้ · ซื้อ)
+                  </Tip>
+                </th>
                 <th></th>
               </tr>
             </thead>
@@ -137,7 +141,22 @@ export default function PortfolioView({
                         <div className="muted-sm">{signedPct(p.your_return)}</div>
                       </td>
                       <td className={`num ${pnlClass(p.edge)}`}>{signedPct(p.edge)}</td>
-                      <td>{health && <HealthMeter health={health} size="sm" />}</td>
+                      <td>
+                        {health && <HealthMeter health={health} size="sm" />}
+                        {p.entry_health != null && (
+                          <div className="muted-sm">
+                            <Tip
+                              def={
+                                p.entry_health_exact
+                                  ? "คะแนน health ณ วันที่ซื้อจริง (point-in-time)"
+                                  : "ไม่มีรอบวิเคราะห์ก่อนวันซื้อ — นี่คือค่าประมาณจากรอบแรกสุดที่มีข้อมูลหลังจากนั้น ไม่ใช่คะแนนจริง ณ วันซื้อ"
+                              }
+                            >
+                              ซื้อ {p.entry_health_exact ? "" : "~"}{p.entry_health.toFixed(1)}
+                            </Tip>
+                          </div>
+                        )}
+                      </td>
                       <td className="actions">
                         <button className="btn-sm" disabled={busy} onClick={() => setAddingFor(addingFor === p.ticker ? null : p.ticker)}>
                           ซื้อเพิ่ม

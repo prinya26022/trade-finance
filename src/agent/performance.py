@@ -5,6 +5,11 @@
 (เช่น VT) ในช่วงเวลาเดียวกันไหม.
 
 ใช้ราคาย้อนหลังจาก yfinance เท่านั้น — ไม่เรียก LLM ไม่กิน Gemini quota.
+
+Phase 20.3: เพิ่ม entry_health — คำถามที่ edge เดิมตอบไม่ได้คือ 'เลือกหุ้น health สูงเอง
+ชนะ VT จริงไหม' (ไม่ใช่แค่ 'ราคาขึ้นกว่า VT ไหม') ต้องรู้ว่า ณ วันที่ตัดสินใจซื้อ คะแนนตอนนั้น
+เท่าไหร่ — ไม่ใช่คะแนนปัจจุบันซึ่งข้อมูลรั่วเข้าอนาคต (look-ahead bias) ดึงจาก history store ที่
+เก็บ point-in-time ไว้ทุกรอบวิเคราะห์อยู่แล้ว (ไม่ต้องคำนวณสด/เพิ่ม column ใหม่ใน watchlist).
 """
 from datetime import datetime, timedelta
 
@@ -12,6 +17,7 @@ import yfinance as yf
 
 from src.watchlist.store import get_entry, list_all
 from src.settings.store import get_benchmark
+from src.history.store import history
 
 
 def _close_on_or_after(ticker: str, date_str: str) -> float | None:
@@ -41,6 +47,24 @@ def _latest_close(ticker: str) -> float | None:
         return None
 
 
+def _health_at_entry(ticker: str, entry_date: str) -> tuple[float | None, bool]:
+    """health score ของรอบวิเคราะห์ที่ 'ใกล้วันซื้อที่สุด' (point-in-time จริง ไม่ใช่คะแนนปัจจุบัน).
+    คืน (health_score, exact): exact=True เมื่อมีรอบวิเคราะห์ run_at <= entry_date จริง (คะแนนที่รู้
+    ณ ตอนตัดสินใจซื้อจริง — เอาตัวล่าสุดในกลุ่มนี้). exact=False เมื่อไม่มีรอบไหนก่อนหน้าเลย (เช่น
+    ซื้อก่อนที่ ticker จะเริ่มถูกวิเคราะห์อัตโนมัติ — เจอจริงกับ DUOL: ซื้อ 2026-05-06 แต่ analysis
+    ที่เก่าสุดในระบบเริ่ม 2026-07-07) กรณีนี้ fallback ไปรอบแรกสุดที่มีแทน แต่ต้องบอก caller ว่าเป็น
+    'ค่าประมาณ' ไม่ใช่คะแนนจริง ณ วันซื้อ — ห้ามโชว์เป็นข้อเท็จจริงเดียวกัน (จุดที่ต้องซื่อสัตย์กับ
+    ผู้ใช้ตามหลักการของโปรเจกต์). คืน (None, False) ถ้าไม่มี analysis ที่มี health_score เลย."""
+    rows = history(ticker, limit=500)   # เรียงใหม่->เก่า (run_at DESC)
+    with_health = [r for r in rows if r["health_score"] is not None]
+    if not with_health:
+        return None, False
+    before_or_same = [r for r in with_health if r["run_at"][:10] <= entry_date]
+    if before_or_same:
+        return before_or_same[0]["health_score"], True   # ตัวแรก = ใกล้ entry_date ที่สุดฝั่งก่อนหน้า
+    return with_health[-1]["health_score"], False   # ไม่มีเลยก่อนหน้า -> ตัวเก่าสุดที่มี (แค่ประมาณ)
+
+
 def compute_edge(ticker: str, benchmark: str | None = None) -> dict | None:
     """ผลตอบแทนของหุ้นที่ถือ vs benchmark ตั้งแต่วันซื้อ.
     คืน None ถ้า ticker ไม่ได้อยู่สถานะ 'holding' หรือข้อมูลไม่พอ (ไม่มี entry/ราคา benchmark)."""
@@ -61,6 +85,7 @@ def compute_edge(ticker: str, benchmark: str | None = None) -> dict | None:
     your_return = (cur_price - entry_price) / entry_price
     bench_return = (bench_now - bench_entry) / bench_entry
     days = (datetime.now().date() - datetime.fromisoformat(entry_date).date()).days
+    entry_health, entry_health_exact = _health_at_entry(ticker.upper(), entry_date)
 
     # dollar figures — เฉพาะเมื่อรู้จำนวนหุ้น (shares) ไม่งั้นเป็น None (โชว์แค่ % ได้)
     shares = float(row["shares"]) if row["shares"] is not None else None
@@ -79,6 +104,8 @@ def compute_edge(ticker: str, benchmark: str | None = None) -> dict | None:
         "market_value": market_value,      # มูลค่าตอนนี้ (current × shares)
         "unrealized_pnl": unrealized_pnl,  # กำไร/ขาดทุน $ ที่ยังไม่ realize
         "weight": None,                    # % ของพอร์ต — เติมทีหลังใน portfolio_edge (ต้องรู้ total ก่อน)
+        "entry_health": entry_health,      # health score ณ วันที่ซื้อ (point-in-time) — None ถ้าไม่มีรอบวิเคราะห์เลย
+        "entry_health_exact": entry_health_exact,  # False = ไม่มีรอบวิเคราะห์ก่อนวันซื้อจริง (fallback เป็นค่าประมาณ)
         "your_return": round(your_return * 100, 2),      # %
         "benchmark_return": round(bench_return * 100, 2),  # %
         "edge": round((your_return - bench_return) * 100, 2),  # % (บวก = ชนะ index)
@@ -126,5 +153,11 @@ if __name__ == "__main__":
     print(f"benchmark = {result['benchmark']}  ({result['beating_benchmark']}/{result['total_positions']} ชนะ)\n")
     for p in result["positions"]:
         sign = "🟢 ชนะ" if p["edge"] > 0 else "🔴 แพ้"
+        if p["entry_health"] is None:
+            health_str = "N/A"
+        elif p["entry_health_exact"]:
+            health_str = f"{p['entry_health']:.1f}"
+        else:
+            health_str = f"~{p['entry_health']:.1f} (ประมาณ, ไม่มีข้อมูลก่อนวันซื้อ)"
         print(f"  {p['ticker']:6} you {p['your_return']:+.1f}%  vs  {p['benchmark']} {p['benchmark_return']:+.1f}%"
-              f"  ->  edge {p['edge']:+.1f}%  {sign}  ({p['holding_days']}d)")
+              f"  ->  edge {p['edge']:+.1f}%  {sign}  ({p['holding_days']}d)  health@entry={health_str}")

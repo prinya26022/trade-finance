@@ -51,6 +51,10 @@ export type EdgePosition = {
   market_value: number | null;    // มูลค่าตอนนี้ ($)
   unrealized_pnl: number | null;  // กำไร/ขาดทุน $ ที่ยังไม่ realize
   weight: number | null;          // % ของพอร์ต
+  // Phase 20.3: คะแนน health ณ วันที่ซื้อ (point-in-time, ดึงจาก history store ที่มีอยู่แล้ว) —
+  // ตอบคำถาม 'เลือกหุ้น health สูงเองชนะ VT จริงไหม' ไม่ใช่แค่ 'ราคาขึ้นกว่า VT ไหม'
+  entry_health: number | null;       // null = ไม่มี analysis ที่มี health เลย
+  entry_health_exact: boolean;       // false = ไม่มีรอบวิเคราะห์ก่อนวันซื้อจริง (fallback เป็นค่าประมาณ ห้ามอ้างว่าคือคะแนนจริง ณ วันซื้อ)
   your_return: number; // %
   benchmark_return: number; // %
   edge: number; // % (บวก = ชนะ index)
