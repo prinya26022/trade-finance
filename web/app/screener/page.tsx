@@ -1,15 +1,17 @@
 import Link from "next/link";
-import { getScreener } from "@/lib/api";
-import type { ScreenerResponse } from "@/lib/types";
+import { getScreener, getHealthTrends } from "@/lib/api";
+import type { ScreenerResponse, HealthTrends } from "@/lib/types";
 import ScreenerView from "./screener-view";
 
 export const dynamic = "force-dynamic";
 
 export default async function ScreenerPage() {
   let data: ScreenerResponse | null = null;
+  let healthTrends: HealthTrends = {};
   let error: string | null = null;
   try {
-    data = await getScreener(false);   // อ่าน cache เสมอตอนโหลดหน้า — ปุ่ม 'รีเฟรช' ค่อยสแกนใหม่ทั้งก้อน (ช้า)
+    // อ่าน cache เสมอตอนโหลดหน้า — ปุ่ม 'รีเฟรช' ค่อยสแกนใหม่ทั้งก้อน (ช้า)
+    [data, healthTrends] = await Promise.all([getScreener(false), getHealthTrends()]);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
@@ -33,7 +35,7 @@ export default async function ScreenerPage() {
           <code>uvicorn src.api.main:app --port 8000</code>
         </div>
       ) : (
-        <ScreenerView initial={data} />
+        <ScreenerView initial={data} healthTrends={healthTrends} />
       )}
 
       <p className="disclaimer">

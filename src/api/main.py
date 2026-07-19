@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from src.history.store import init_db, latest_per_ticker, history
+from src.history.store import init_db, latest_per_ticker, history, health_trends
 from src.watchlist.store import (
     list_all, add as add_ticker, remove as remove_ticker,
     set_holding, add_shares, set_watching, set_frozen,
@@ -134,6 +134,14 @@ def get_ticker_history(ticker: str, limit: int = 50):
     if not rows:
         raise HTTPException(status_code=404, detail=f"no analyses for {ticker}")
     return rows
+
+
+@app.get("/api/health-trends")
+def get_health_trends(limit: int = 20):
+    """Phase 23 — แนวโน้ม health score N จุดล่าสุด/ticker (เบากว่า /api/analyses/{ticker} มาก
+    เพราะไม่ parse summary/facts) ไว้วาด sparkline ในการ์ด/ตาราง. ticker ที่ไม่มี key เลย = ยังไม่มี
+    รอบวิเคราะห์ที่คำนวณ health ได้ (แถวเก่า/excluded) — frontend แสดงไม่ได้ก็แค่ไม่วาด sparkline."""
+    return health_trends(limit_per_ticker=limit)
 
 
 @app.get("/api/portfolio")

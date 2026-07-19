@@ -456,6 +456,33 @@ exists, no invalidation breach either). Confirmed via raw HTML inspection (not j
 duplicate section is fully gone. tsc clean, full suite still 184/184 (backend untouched, this was
 frontend-only).
 
+## Phase 23 -- health-score sparklines everywhere (trend, not just a snapshot number)
+DONE. Follow-up to the Phase 22 UI/readability conversation -- landed on "the change IS the content"
+as the throughline. A single health number ("7.9") says how strong RIGHT NOW but nothing about which
+way it's moving, which matters more than the snapshot for someone who reads mostly the one health
+number (my own stated habit). A tiny 30-ish-point trend line next to the number turns a static snapshot
+into a direction: MSFT 7.9 (was climbing) reads completely differently from DUOL 8.0 (was falling) even
+though the current numbers alone don't show that.
+Turned out most of the plumbing already existed and was unused: web/lib/charts.tsx already had a
+`Sparkline` component (SVG polyline, no axes) sitting there dead code, never imported anywhere -- just
+needed real data wired to it. Added `health_trends()` to src/history/store.py: a lightweight query
+(3 columns only, no summary_json/facts_json parsing -- deliberately NOT reusing the heavier
+history()/latest_per_ticker()) returning the last N health scores per ticker, oldest-to-newest. New
+`GET /api/health-trends` endpoint. Added a small `trendColor()` helper (green/red/muted hex, mirroring
+globals.css's --green/--red/--muted -- matched existing convention of passing resolved hex from the
+caller rather than raw CSS var() strings into SVG attributes) and wired the sparkline into all 3 places
+that show a health number: home dashboard cards, the portfolio table, and the screener table.
+Screener nuance: most screener candidates won't have a trend at all (they're not in the watchlist, so
+there's no history to show) -- handled the same way as every other "maybe no data" case in this
+codebase, a length>=2 guard that just renders nothing rather than a placeholder.
+Verified live against real data (not synthetic): AAPL genuinely climbing 6.0->7.0 rendered upward/green,
+NVDA genuinely falling 6.9->5.9 rendered downward/red, META (only 2 identical points, 10.2/10.2)
+rendered flat/muted -- confirmed the color logic is correct, not just "a line exists." Portfolio showed
+exactly 1 sparkline, matching that DUOL is the only actual holding right now. Screener showed 6 (the
+tickers that happen to already be in the analyzed watchlist). 5 new offline tests
+(tests/test_history_store.py) covering ordering, the no-health-score skip, per-ticker separation, the
+limit cutoff (keeps the LATEST N, not the first N), and empty-DB. tsc clean, full suite 185/185.
+
 PARKED (real ideas, deliberately deferred until I can read `reasons` fluently -- adding them now would
 pile on numbers I can't interpret and make decisions harder, the exact trap planning flagged):
 mega-trend discovery-map UI (themed idea generation across AI/semis/energy/healthcare/... ; design fork

@@ -3,11 +3,12 @@
 import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type { Portfolio, Analysis, ChangeReport, WatchlistItem } from "@/lib/types";
+import type { Portfolio, Analysis, ChangeReport, WatchlistItem, HealthTrends } from "@/lib/types";
 import { resolveHealth } from "@/lib/health";
 import { HealthMeter } from "../health-meter";
 import { setHolding, addShares, sellHolding } from "@/lib/api";
 import { Tip } from "@/lib/glossary";
+import { Sparkline, trendColor } from "@/lib/charts";
 
 function money(x: number | null | undefined) {
   if (x == null) return "—";
@@ -24,11 +25,13 @@ export default function PortfolioView({
   analyses,
   changes,
   watchlist,
+  healthTrends,
 }: {
   portfolio: Portfolio;
   analyses: Analysis[];
   changes: ChangeReport[];
   watchlist: WatchlistItem[];
+  healthTrends: HealthTrends;
 }) {
   const router = useRouter();
   const analysisByTicker = new Map(analyses.map((a) => [a.ticker, a]));
@@ -142,7 +145,14 @@ export default function PortfolioView({
                       </td>
                       <td className={`num ${pnlClass(p.edge)}`}>{signedPct(p.edge)}</td>
                       <td>
-                        {health && <HealthMeter health={health} size="sm" />}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {health && <HealthMeter health={health} size="sm" />}
+                          {(healthTrends[p.ticker]?.length ?? 0) >= 2 && (
+                            <Tip def="แนวโน้ม health score ช่วงหลังสุด — เขียว=ดีขึ้น, แดง=แย่ลง, เทา=แกว่งเล็กน้อย">
+                              <Sparkline points={healthTrends[p.ticker]} color={trendColor(healthTrends[p.ticker])} />
+                            </Tip>
+                          )}
+                        </div>
                         {p.entry_health != null && (
                           <div className="muted-sm">
                             <Tip

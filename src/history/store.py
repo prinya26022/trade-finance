@@ -184,6 +184,27 @@ def all_rows() -> list[dict]:
         return [_row_to_dict(r) for r in rows]
 
 
+def health_trends(limit_per_ticker: int = 20) -> dict[str, list[dict]]:
+    """{ticker: [{"period": run_at, "value": health_score}, ...]} เรียงเก่า->ใหม่, แค่ N จุด
+    ล่าสุด/ตัว (Phase 23 — ไว้วาด sparkline แนวโน้ม). เบากว่า history()/latest_per_ticker() มาก
+    (query 3 คอลัมน์ ไม่ parse summary_json/facts_json ทุกแถวที่ไม่ได้ใช้ตรงนี้). ข้ามแถวที่ไม่มี
+    health_score (แถวเก่าก่อน Phase 10 หรือ excluded — data gate/reverse-DCF ไม่ผ่าน)."""
+    init_db()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT ticker, run_at, health_score FROM analyses "
+            "WHERE health_score IS NOT NULL ORDER BY ticker, run_at DESC, id DESC"
+        ).fetchall()
+    out: dict[str, list[dict]] = {}
+    for r in rows:
+        bucket = out.setdefault(r["ticker"], [])
+        if len(bucket) < limit_per_ticker:
+            bucket.append({"period": r["run_at"], "value": r["health_score"]})
+    for t in out:
+        out[t].reverse()   # เก่า -> ใหม่ (sparkline วาดซ้าย->ขวาตามเวลา)
+    return out
+
+
 def update_health(row_id: int, health: dict) -> None:
     """เขียนทับ health_score/health_reasons_json ของแถวเดียว (id) — ใช้ตอน backfill
     recompute คะแนนสุขภาพย้อนหลังด้วยสูตรใหม่ โดยไม่แตะคอลัมน์อื่น (facts/summary/xbrl เดิม)."""

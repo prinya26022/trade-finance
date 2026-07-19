@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { getAnalyses, getWatchlist, getChanges, getPortfolio } from "@/lib/api";
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio } from "@/lib/types";
+import { getAnalyses, getWatchlist, getChanges, getPortfolio, getHealthTrends } from "@/lib/api";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, HealthTrends } from "@/lib/types";
 import Dashboard from "./dashboard";
 
 // server component: ดึงจาก FastAPI ตอน render (no-store = สดเสมอ)
@@ -22,13 +22,15 @@ export default async function Home() {
   let watchlist: WatchlistItem[] = [];
   let changes: ChangeReport[] = [];
   let portfolio: Portfolio = EMPTY_PORTFOLIO;
+  let healthTrends: HealthTrends = {};
   let error: string | null = null;
   try {
-    [analyses, watchlist, changes, portfolio] = await Promise.all([
+    [analyses, watchlist, changes, portfolio, healthTrends] = await Promise.all([
       getAnalyses(),
       getWatchlist(),
       getChanges(),
       getPortfolio(),
+      getHealthTrends(),
     ]);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
@@ -58,6 +60,7 @@ export default async function Home() {
           watchlist={watchlist}
           changes={changes}
           portfolio={portfolio}
+          healthTrends={healthTrends}
         />
       )}
 

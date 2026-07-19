@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { getPortfolio, getAnalyses, getChanges, getWatchlist } from "@/lib/api";
-import type { Portfolio, Analysis, ChangeReport, WatchlistItem } from "@/lib/types";
+import { getPortfolio, getAnalyses, getChanges, getWatchlist, getHealthTrends } from "@/lib/api";
+import type { Portfolio, Analysis, ChangeReport, WatchlistItem, HealthTrends } from "@/lib/types";
 import PortfolioView from "./portfolio-view";
 
 export const dynamic = "force-dynamic";
@@ -10,13 +10,15 @@ export default async function PortfolioPage() {
   let analyses: Analysis[] = [];
   let changes: ChangeReport[] = [];
   let watchlist: WatchlistItem[] = [];
+  let healthTrends: HealthTrends = {};
   let error: string | null = null;
   try {
-    [portfolio, analyses, changes, watchlist] = await Promise.all([
+    [portfolio, analyses, changes, watchlist, healthTrends] = await Promise.all([
       getPortfolio(),
       getAnalyses(),
       getChanges(),
       getWatchlist(),
+      getHealthTrends(),
     ]);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
@@ -43,6 +45,7 @@ export default async function PortfolioPage() {
           analyses={analyses}
           changes={changes}
           watchlist={watchlist}
+          healthTrends={healthTrends}
         />
       )}
 

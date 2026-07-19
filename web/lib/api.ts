@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, Timeline, ScreenerResponse } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, Timeline, ScreenerResponse, HealthTrends } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -24,6 +24,14 @@ export async function getChanges(): Promise<ChangeReport[]> {
 
 export async function getTickerChanges(ticker: string): Promise<ChangeReport> {
   const res = await fetch(`${API_BASE}/api/changes/${ticker}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// Phase 23: แนวโน้ม health N จุดล่าสุด/ticker (เบา, ไว้วาด sparkline) — ticker ที่ไม่มี key = ยังไม่มี
+// รอบวิเคราะห์ที่คำนวณ health ได้ (แถวเก่า/excluded), frontend แสดงไม่ได้ก็แค่ไม่วาด
+export async function getHealthTrends(limit = 20): Promise<HealthTrends> {
+  const res = await fetch(`${API_BASE}/api/health-trends?limit=${limit}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }

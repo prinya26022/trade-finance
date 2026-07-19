@@ -144,6 +144,10 @@ export type ScreenerResponse = {
   results: ScreenerResult[];
 };
 
+// Phase 23: แนวโน้ม health score N จุดล่าสุด/ticker (เบา, ไม่มี summary/facts) ไว้วาด sparkline
+export type HealthTrendPoint = { period: string; value: number };
+export type HealthTrends = Record<string, HealthTrendPoint[]>;
+
 export type Portfolio = {
   benchmark: string;
   positions: EdgePosition[];

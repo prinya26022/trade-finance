@@ -119,6 +119,21 @@ export function BarChart({
   );
 }
 
+// Phase 23: สีของ sparkline ตามทิศทาง trend (เขียว=ดีขึ้น, แดง=แย่ลง, เทา=แกว่งเล็กน้อย/ไม่ชัด)
+// hex ตรงตาม --green/--red/--muted ใน globals.css (แทนที่จะใช้ var() ตรงๆ ใน attribute เพื่อให้
+// เข้ากับ convention เดิมของไฟล์นี้ที่ LineChart/BarChart รับสีเป็น hex string จาก caller เสมอ)
+const TREND_UP = "#3fb950";
+const TREND_DOWN = "#f85149";
+const TREND_FLAT = "#8b94a7";
+
+export function trendColor(points: SeriesPoint[], threshold = 0.05): string {
+  if (points.length < 2) return TREND_FLAT;
+  const delta = points[points.length - 1].value - points[0].value;
+  if (delta > threshold) return TREND_UP;
+  if (delta < -threshold) return TREND_DOWN;
+  return TREND_FLAT;
+}
+
 // เส้นจิ๋วในการ์ด (ไม่มีแกน) — โชว์ทิศทาง trend คร่าวๆ
 export function Sparkline({ points, color }: { points: SeriesPoint[]; color: string }) {
   const n = points.length;

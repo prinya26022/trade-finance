@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type { ScreenerResponse, ScreenerResult } from "@/lib/types";
+import type { ScreenerResponse, ScreenerResult, HealthTrends } from "@/lib/types";
 import { getScreener, addToWatchlist } from "@/lib/api";
 import { Tip } from "@/lib/glossary";
+import { Sparkline, trendColor } from "@/lib/charts";
 
 function pct(x: number | null | undefined) {
   return x == null ? "—" : `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`;
@@ -24,7 +25,7 @@ function ago(epochSeconds: number): string {
   return `${Math.round(hours / 24)} วันที่แล้ว`;
 }
 
-export default function ScreenerView({ initial }: { initial: ScreenerResponse }) {
+export default function ScreenerView({ initial, healthTrends }: { initial: ScreenerResponse; healthTrends: HealthTrends }) {
   const router = useRouter();
   const [data, setData] = useState(initial);
   const [refreshing, setRefreshing] = useState(false);
@@ -108,7 +109,14 @@ export default function ScreenerView({ initial }: { initial: ScreenerResponse })
               {data.results.map((r: ScreenerResult) => (
                 <tr key={r.ticker}>
                   <td>
-                    <Link href={`/ticker/${r.ticker}`} className="ticker-link">{r.ticker}</Link>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Link href={`/ticker/${r.ticker}`} className="ticker-link">{r.ticker}</Link>
+                      {(healthTrends[r.ticker]?.length ?? 0) >= 2 && (
+                        <Tip def="แนวโน้ม health score ช่วงหลังสุด (มีให้เฉพาะตัวที่อยู่ใน watchlist มาสักพักแล้ว) — เขียว=ดีขึ้น, แดง=แย่ลง">
+                          <Sparkline points={healthTrends[r.ticker]} color={trendColor(healthTrends[r.ticker])} />
+                        </Tip>
+                      )}
+                    </div>
                   </td>
                   <td className={`num ${tierClass(r.tier)}`}>
                     {num(r.score)}/{r.max}

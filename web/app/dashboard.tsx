@@ -10,10 +10,12 @@ import type {
   ChangeReport,
   Portfolio,
   EdgePosition,
+  HealthTrendPoint,
 } from "@/lib/types";
 import { addToWatchlist, removeFromWatchlist, freezeTicker, unfreezeTicker } from "@/lib/api";
 import { GlossaryText, Tip, BADGES } from "@/lib/glossary";
 import { resolveHealth } from "@/lib/health";
+import { Sparkline, trendColor } from "@/lib/charts";
 import { HealthMeter } from "./health-meter";
 
 function pct(x: number | null | undefined) {
@@ -67,6 +69,7 @@ function AnalysisCard({
   changes,
   watchItem,
   edge,
+  healthTrend,
   onRemove,
   onFreeze,
   onUnfreeze,
@@ -75,6 +78,7 @@ function AnalysisCard({
   changes: Change[];
   watchItem?: WatchlistItem;
   edge?: EdgePosition;
+  healthTrend: HealthTrendPoint[];
   onRemove: (ticker: string) => void;
   onFreeze: (ticker: string) => void;
   onUnfreeze: (ticker: string) => void;
@@ -139,6 +143,11 @@ function AnalysisCard({
 
       <div className="card-health">
         <HealthMeter health={health} size="sm" />
+        {healthTrend.length >= 2 && (
+          <Tip def="แนวโน้ม health score ช่วงหลังสุด — เขียว=ดีขึ้น, แดง=แย่ลง, เทา=แกว่งเล็กน้อย">
+            <Sparkline points={healthTrend} color={trendColor(healthTrend)} />
+          </Tip>
+        )}
         <Link href={`/ticker/${a.ticker}`} className="deep-link">
           เจาะลึก →
         </Link>
@@ -274,11 +283,13 @@ export default function Dashboard({
   watchlist,
   changes,
   portfolio,
+  healthTrends,
 }: {
   analyses: Analysis[];
   watchlist: WatchlistItem[];
   changes: ChangeReport[];
   portfolio: Portfolio;
+  healthTrends: Record<string, HealthTrendPoint[]>;
 }) {
   const router = useRouter();
   const changesByTicker = new Map(changes.map((c) => [c.ticker, c.changes]));
@@ -362,6 +373,7 @@ export default function Dashboard({
         changes={changesByTicker.get(a.ticker) ?? []}
         watchItem={watchByTicker.get(a.ticker)}
         edge={edgeByTicker.get(a.ticker)}
+        healthTrend={healthTrends[a.ticker] ?? []}
         onRemove={handleRemove}
         onFreeze={handleFreeze}
         onUnfreeze={handleUnfreeze}
