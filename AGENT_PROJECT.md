@@ -374,12 +374,22 @@ only forward time + the VT comparison can.
   tickers covering all branches: DUOL (net-cash path for #5/#6), SBUX (leveraged path -- Net
   Debt/EBITDA 2.7x lands partial, matching the exact figure from the 19.5 sensitivity audit),
   MSFT/AAPL (Interest Coverage with real debt, AAPL's low Revenue CAGR 1.8% correctly shown partial).
-- **20.3 Simplest VT tracking (record + compare)** -- now concrete because real 10k is going in. On each
-  buy, record ticker / date / health-at-entry / price; compare realized return to "same money into VT
-  the same day". Per-name and simple portfolio-level excess-vs-VT. No finance knowledge needed to read
-  the result (it's just "ahead of / behind VT"), and it's the ONLY way I'll know in 1-2 years whether
-  "pick high-health names myself" actually beats "just buy VT" -- i.e. the honest, slow bridge toward
-  the deferred 19.5-full. Keep it dead simple first; drawdown/FX/risk-adjust are refinements for later.
+- **20.3 Simplest VT tracking (record + compare)** DONE. The existing edge/compute_edge() (Phase 5.5)
+  already compared realized return vs VT since the buy date, but never linked it to the health score
+  that motivated the buy -- couldn't answer the real question ("does picking high-health names myself
+  actually beat VT") vs the weaker one ("did the price go up"). Added
+  performance.py::_health_at_entry(ticker, entry_date) -> (score, exact): pulls the health score from
+  the already-stored point-in-time history (no recompute, no new schema) for the analysis run closest
+  to (at-or-before) the entry date -- using "at-or-before" specifically to avoid look-ahead bias (must
+  reflect what was known when the buy decision was made, not a later score). When no analysis exists
+  before the buy at all, falls back to the earliest available one but flags it `exact=False` and the
+  UI shows it with a "~" and an honest tooltip -- caught live with the real DUOL holding: bought
+  2026-05-06 but the earliest point-in-time analysis in the system starts 2026-07-07, so its "health at
+  entry" is only ever an estimate, and the tool says so rather than presenting it as fact. Surfaced in
+  both the portfolio table (small "ซื้อ ~8.0" under the current health meter) and the ticker detail
+  hero. 6 new tests (exact match, fallback, no-data, end-to-end). This is the slow, honest bridge
+  toward the deferred 19.5-full predictive validation -- accumulates real data over time instead of
+  faking it from the 7-name survivor watchlist.
 - **TA-as-entry-check (discipline note, not a build item)** -- using charts to time entry is fine ONLY
   as a light double-check with fundamentals leading. Watch the inversion failure mode: never let the
   chart VETO a strong-conviction long-term pick, and never let it turn a thesis-driven hold into a
