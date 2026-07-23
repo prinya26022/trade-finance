@@ -1,7 +1,9 @@
 """Read-only API over the analysis history (FastAPI).
 
-แค่ "อ่าน" อย่างเดียว — การวิเคราะห์ (เรียก Gemini) เกิดใน agent loop แยกต่างหาก
-API นี้ไม่แตะ LLM เลย จึงไม่กิน quota. Next.js dashboard จะ fetch จากที่นี่.
+ส่วนใหญ่แค่ "อ่าน" — การวิเคราะห์รายวัน (เรียก Gemini) เกิดใน agent loop แยกต่างหาก endpoint พวกนี้
+ไม่แตะ LLM เลย จึงไม่กิน quota. ข้อยกเว้นเดียวคือ POST /api/chat (Phase 25) ซึ่งยิง Gemini จริงตาม
+ที่ผู้ใช้กดถามเอง (ไม่มี auto-trigger ที่ไหนเรียกมัน) — ดู docstring ของ endpoint นั้นโดยเฉพาะ.
+Next.js dashboard จะ fetch จากที่นี่.
 
 รัน:  uvicorn src.api.main:app --reload
 ดู docs อัตโนมัติที่  http://localhost:8000/docs
@@ -21,6 +23,7 @@ from src.agent.investigate_store import latest_investigation
 from src.agent.timeline import build_timeline
 from src.agent.timeline_store import get_narrative
 from src.agent.screener import screen
+from src.agent.chat import ask as ask_chat
 
 app = FastAPI(title="Investment Research Agent API")
 
@@ -50,6 +53,16 @@ class HoldingSet(BaseModel):
 class SharesAdd(BaseModel):
     price: float
     shares: float
+
+
+class ChatTurn(BaseModel):
+    role: str    # "user" | "assistant"
+    text: str
+
+
+class ChatAsk(BaseModel):
+    question: str
+    history: list[ChatTurn] = []   # เทิร์นก่อนหน้าในสนทนาเดียวกัน (session ฝั่ง frontend เก็บไว้)
 
 
 @app.on_event("startup")
@@ -194,3 +207,17 @@ def get_screener(force: bool = False):
     for r in data["results"]:
         r["already_watching"] = r["ticker"] in watching
     return data
+
+
+@app.post("/api/chat")
+def post_chat(body: ChatAsk):
+    """Phase 25 — "ถามพอร์ตได้เลย": ยิง Gemini จริงทุกครั้งที่เรียก (มีโควตา — endpoint เดียวใน
+    ไฟล์นี้ที่แตะ LLM, ไม่มี auto-trigger ที่ไหนเรียกมัน นอกจากผู้ใช้กดถามเอง). Agent ไปดึงข้อมูล
+    watchlist/health/valuation/changes/performance ที่คำนวณเก็บไว้ใน DB อยู่แล้วมาตอบ (ไม่ fetch
+    yfinance สด) พร้อม step trace ให้เห็นว่าไปดึงอะไรมาอ้างอิงบ้าง (โปร่งใส เหมือน investigation
+    panel เดิม). history = เทิร์นก่อนหน้าในสนทนาเดียวกัน (session ฝั่ง frontend เก็บไว้เอง ไม่มี
+    persistence ฝั่ง backend — รีเฟรชหน้าเว็บ = เริ่มสนทนาใหม่)."""
+    if not body.question.strip():
+        raise HTTPException(status_code=400, detail="question ว่างเปล่า")
+    history = [{"role": t.role, "text": t.text} for t in body.history]
+    return ask_chat(body.question, chat_history=history)

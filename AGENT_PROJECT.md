@@ -496,6 +496,49 @@ once there's a couple months of real data (not a code gap, a data-maturity one).
 the dedup behavior specifically (same-day collapse keeps latest value; limit counts days, not raw rows)
 -- full suite 187/187.
 
+## Phase 25 -- "ask your portfolio" (portfolio chat, on top of the Phase 13 agent)
+DONE. Context: asked for a "cool feature" idea beyond incremental UI polish. Landed on chat over
+building a bear-case agent or a multi-agent debate (both real ideas, parked) because this one directly
+answers my own stated blocker -- "ส่วนอื่นยังดูไม่รู้เรื่อง, ดูแค่ health เลย" -- by letting me ask in
+plain language instead of decoding the dashboard myself, and it activates Phase 13's agentic loop
+(tool-calling, planning, stop conditions) which had been sitting unused except for the single-ticker
+investigation panel.
+Reuse, not a rewrite: refactored `GeminiPolicy.__init__` in investigate.py to take `prompt`/`system`
+directly (was hardcoded to "Investigate {ticker}." + a single-company persona) so the exact same
+google-genai function-calling plumbing serves both Phase 13 (deep-dive one ticker) and this new
+src/agent/chat.py (Q&A across the whole watchlist) -- zero duplicated API-wiring code. New toolbox
+(`build_portfolio_toolbox`) is read-only against data ALREADY computed and stored (latest_per_ticker,
+detect_changes, portfolio_edge, get_thesis) -- deliberately does not re-fetch yfinance, so a chat
+question is fast and reflects exactly what the dashboard already shows, not a fresh (expensive) re-
+analysis. New `POST /api/chat` -- the one LLM-touching endpoint in the whole API (called out explicitly
+in main.py's module docstring, which previously claimed the file never touches an LLM). No server-side
+conversation persistence -- history is plain-text turns kept in the browser tab and replayed into the
+prompt each question; refreshing the page starts a new conversation (matches the "lightweight helper,
+not an audit trail" framing -- Phase 13's actual investigations already have that persistence job).
+Real bug found DURING verification, not invented for the exercise: the first two live test calls hit an
+actual Gemini `503 UNAVAILABLE` ("high demand") on gemini-3.5-flash -- the google-genai SDK's own
+tenacity-based retry silently chewed on it for 2-3 minutes before finally raising, and that raw
+exception was completely uncaught, crashing the whole HTTP request as a bare 500. Turned out
+`Investigation.stopped` already had an "error" value in its type signature from Phase 13 -- nothing had
+ever actually produced it. Fixed at the shared loop level (`run_investigation` in investigate.py): wrap
+`policy.decide()` specifically (distinct from the tool-call try/except already there) and return a
+graceful `Investigation(..., stopped="error")` with a plain-Thai message instead of propagating.
+Benefits both investigate() and chat() automatically since they share the loop. Added
+test_policy_crash_returns_graceful_error_not_raise to prove it without needing a real API failure.
+Verified end-to-end against real Gemini (three genuine live calls, not mocked): call #1 hung ~3min then
+hit the raw crash (confirmed the bug); call #2 after the fix hit the *same* 503 again but now returned
+a clean HTTP 200 with the friendly error message (confirmed the fix works against a real failure, not
+just a synthetic one); call #3, run against gemini-2.5-flash as a diagnostic since 3.5-flash was still
+congested, succeeded fully -- asked "ตอนนี้ตัวไหนน่าห่วงสุด" and the agent called list_portfolio, saw
+SBUX had the lowest health score, then specifically drilled into get_ticker_changes for SBUX (didn't
+just report the raw number) and found the real signal: fundamental_strength flipped mixed->weak even
+though the health score technically rose (+1.7, entirely from valuation re-rating, not fundamentals) --
+correctly synthesized that the strength flip is the actual concern, not the score movement, and closed
+with the required "not a buy/sell call" caveat. 16 new offline tests (tests/test_chat.py, tools only --
+GeminiPolicy itself needs a real key so isn't unit-testable) + 1 new test on the shared loop. tsc clean,
+full suite 204/204. New nav entry ("ถามพอร์ต →") + /chat page, reusing the Phase 13 investigation-step
+CSS classes for the collapsible tool-trace under each answer (transparency: see what it looked up).
+
 PARKED (real ideas, deliberately deferred until I can read `reasons` fluently -- adding them now would
 pile on numbers I can't interpret and make decisions harder, the exact trap planning flagged):
 mega-trend discovery-map UI (themed idea generation across AI/semis/energy/healthcare/... ; design fork

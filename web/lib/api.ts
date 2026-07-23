@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, Timeline, ScreenerResponse, HealthTrends } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, Timeline, ScreenerResponse, HealthTrends, ChatAnswer } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -70,6 +70,21 @@ export async function getTimeline(ticker: string): Promise<Timeline | null> {
 export async function getScreener(force = false): Promise<ScreenerResponse> {
   const res = await fetch(`${API_BASE}/api/screener?force=${force}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// Phase 25: ถามพอร์ตได้เลย — ยิง Gemini จริง (มีโควตา) ทุกครั้งที่เรียก ต่างจาก mutation อื่นด้านล่าง
+// history = เทิร์นก่อนหน้าในสนทนาเดียวกัน (state ฝั่ง client เท่านั้น ไม่มี persistence ฝั่ง backend)
+export async function askChat(
+  question: string,
+  history: { role: string; text: string }[]
+): Promise<ChatAnswer> {
+  const res = await fetch(`${API_BASE}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, history }),
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
   return res.json();
 }
 

@@ -90,3 +90,23 @@ def test_args_passed_to_tool():
                              Decision(final="done")])
     run_investigation(policy, tools, ticker="X")
     assert seen == {"metric": "Operating Margin"}
+
+
+class _PolicyThatCrashesOnDecide:
+    """จำลอง policy ที่เรียก Gemini จริงแล้วพัง (เช่น 503 high demand ที่เจอจริงตอน verify Phase 25) —
+    ต่างจาก tool พัง (มี test ข้างบนแล้ว): ตรงนี้ 'สมอง' เองใช้ไม่ได้เลย."""
+    def decide(self, observation):
+        raise RuntimeError("503 UNAVAILABLE: high demand")
+
+    def force_conclude(self):
+        raise AssertionError("ไม่ควรถูกเรียก — policy พังต้องหยุดทันที ไม่ใช่ไปต่อจนชนเพดาน")
+
+
+def test_policy_crash_returns_graceful_error_not_raise():
+    tools = [_echo_tool()]
+    inv = run_investigation(_PolicyThatCrashesOnDecide(), tools, ticker="X")
+
+    assert inv.stopped == "error"
+    assert inv.steps == []                       # ไม่ทันถึงสเต็ป tool เลย
+    assert "Gemini" in inv.conclusion
+    assert "RuntimeError" in inv.conclusion       # ชนิด exception โผล่ในข้อความ (ไม่ใช่แค่ raw str)

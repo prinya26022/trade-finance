@@ -87,13 +87,25 @@ def run_investigation(policy: Policy, tools: list[ToolSpec], max_steps: int = MA
                       ticker: str = "") -> Investigation:
     """ขับ loop: policy ตัดสินใจ -> ถ้าเรียก tool ก็รัน แล้วป้อน observation กลับ -> วนจน
     policy จบเอง หรือชนเพดาน (แล้วบังคับให้สรุป). tool ที่ไม่รู้จัก/พัง-> ส่ง error กลับให้ agent
-    รับมือเอง (tool-failure handling) ไม่ทำ loop ล่ม."""
+    รับมือเอง (tool-failure handling) ไม่ทำ loop ล่ม.
+
+    audit fix (2026-07, เจอจริงตอน verify Phase 25 chat): policy.decide() เอง (เรียก Gemini จริง)
+    พังได้เหมือนกัน — เจอ 503 'high demand' จริง ที่ google-genai SDK retry เอง (tenacity) อยู่
+    หลายนาทีก่อนจะ raise ออกมา เดิม exception นี้ไม่ถูกจับเลย ทำให้ทั้ง HTTP request ของ /api/chat
+    ล่มเป็น 500 ดิบ (traceback เต็มๆ หลุดไปถึง client) ทั้งที่ type ของ Investigation.stopped
+    ('error') เตรียมช่องนี้ไว้อยู่แล้วแต่ไม่เคยมีโค้ดจริง set ค่านี้เลย ตอนนี้จับแล้วคืน
+    Investigation แบบสุภาพแทน (ต่างจาก tool พัง ข้างล่าง — policy พัง = 'สมอง' ใช้ไม่ได้เลย ต้องหยุด
+    ทั้ง investigation ทันที ไม่ใช่ป้อน observation กลับแล้ววนต่อ)."""
     by_name = {t.name: t for t in tools}
     steps: list[Step] = []
     observation: str | None = None
 
     for _ in range(max_steps):
-        decision = policy.decide(observation)
+        try:
+            decision = policy.decide(observation)
+        except Exception as e:
+            msg = f"เกิดข้อผิดพลาดระหว่างคุยกับ Gemini ({type(e).__name__}) — ลองถามใหม่อีกครั้งสักครู่"
+            return Investigation(ticker, steps, msg, "error")
         if decision.is_final:
             return Investigation(ticker, steps, decision.final or "", "concluded")
 
@@ -252,9 +264,13 @@ class GeminiPolicy:
     แปลเป็น Decision ให้ loop. ไม่รู้จัก loop เลย (loop เป็นคนเรียก decide/force_conclude).
     ใช้โมเดลเดียวตลอด session (ไม่มี fallback ข้ามโมเดลแบบ src/agent/llm.py — บทสนทนาหลายเทิร์น
     ของ tool-calling ทำให้สลับโมเดลกลางทางซับซ้อนกว่า one-shot call; ถ้าโควตาเต็มระหว่างสืบ จะ
-    fail ทั้ง investigation นั้น ไม่ได้ fallback ไปโมเดลอื่นอัตโนมัติ — เป็น known gap)."""
+    fail ทั้ง investigation นั้น ไม่ได้ fallback ไปโมเดลอื่นอัตโนมัติ — เป็น known gap).
 
-    def __init__(self, ticker: str, tools: list[ToolSpec], context: str = "",
+    Phase 25: parameterize `prompt`/`system` (เดิม hardcode 'Investigate {ticker}' + _SYSTEM ตรงๆ
+    ในนี้) ให้ src/agent/chat.py (portfolio Q&A) reuse ปลั๊กเดียวกันได้ทั้งหมด — google-genai
+    function-calling plumbing เหมือนกันเป๊ะ ต่างแค่ persona/prompt ที่ป้อนเข้าไป."""
+
+    def __init__(self, prompt: str, tools: list[ToolSpec], system: str = _SYSTEM,
                  model: str = MODEL_CHAIN[0]):
         from google.genai import types
         self._types = types
@@ -266,10 +282,10 @@ class GeminiPolicy:
                                            parameters=_to_schema(t.params)) for t in tools]
         self._tools = [types.Tool(function_declarations=decls)]
         self._cfg = types.GenerateContentConfig(
-            tools=self._tools, system_instruction=_SYSTEM,
+            tools=self._tools, system_instruction=system,
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
-        prompt = f"Investigate {ticker}." + (f"\n\nContext:\n{context}" if context else "")
+        self._system = system
         self._contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
         self._last_call: str | None = None
 
@@ -296,7 +312,7 @@ class GeminiPolicy:
         self._contents.append(types.Content(role="user", parts=[types.Part(
             text="You have used your investigation budget. Give your THAI conclusion NOW from what you found.")]))
         # ปิด tool ในรอบสรุป -> บังคับให้ตอบเป็น text ไม่ใช่เรียก tool อีก
-        cfg = types.GenerateContentConfig(system_instruction=_SYSTEM)
+        cfg = types.GenerateContentConfig(system_instruction=self._system)
         resp = self._client.models.generate_content(model=self._model, contents=self._contents, config=cfg)
         return (resp.text or "").strip()
 
@@ -307,7 +323,8 @@ def investigate(ticker: str, context: str = "", max_steps: int = MAX_STEPS,
     persist=True -> เก็บ transcript ล่าสุดลง DB (ไว้โชว์บนหน้า detail)."""
     ticker = ticker.upper()
     tools = build_toolbox(ticker)
-    policy = GeminiPolicy(ticker, tools, context)
+    prompt = f"Investigate {ticker}." + (f"\n\nContext:\n{context}" if context else "")
+    policy = GeminiPolicy(prompt, tools, system=_SYSTEM)
     inv = run_investigation(policy, tools, max_steps=max_steps, ticker=ticker)
     if persist:
         from src.agent.investigate_store import save_investigation

@@ -118,6 +118,16 @@ export type Investigation = {
   stopped: "concluded" | "max_steps" | "error";
 };
 
+// Phase 25: portfolio chat — ถามคำถามภาษาคนเกี่ยวกับ watchlist/portfolio ของตัวเอง agent ไปดึง
+// ข้อมูลที่คำนวณเก็บไว้แล้ว (ไม่ fetch สด) มาตอบ พร้อม step trace ให้เห็นว่าอ้างอิงอะไร
+export type ChatMessage = { role: "user" | "assistant"; text: string; steps?: InvestigationStep[] };
+
+export type ChatAnswer = {
+  steps: InvestigationStep[];
+  conclusion: string;
+  stopped: "concluded" | "max_steps" | "error";
+};
+
 // Phase 21: screener — สแกน UNIVERSE คัดมือ (large/liquid US stocks, ไม่ใช่ S&P 500 เต็มรูปแบบ)
 // หาหุ้นพื้นฐานแข็ง+ราคาถูก โดยใช้เอนจิ้นเดียวกับ health score (Piotroski/8 + reverse-DCF/3)
 // แต่ไม่เรียก LLM เลย — ผลลัพธ์ cache ไว้ฝั่ง backend (นาทีระดับต่อการสแกนใหม่ทั้งก้อน)

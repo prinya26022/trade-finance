@@ -42,6 +42,7 @@ export default async function Home() {
         <div className="top-head">
           <h1>Investment Research Agent</h1>
           <div className="nav-links">
+            <Link href="/chat" className="nav-link">ถามพอร์ต →</Link>
             <Link href="/screener" className="nav-link">Screener →</Link>
             <Link href="/portfolio" className="nav-link">Portfolio →</Link>
           </div>
