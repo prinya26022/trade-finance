@@ -1,0 +1,57 @@
+name: Macro Event Radar Alert
+
+# แจ้งเตือน Discord เมื่อตัวเลขเศรษฐกิจใหม่ (CPI/PPI/ว่างงาน/NFP) ออก พร้อมสรุป + base-rate ย้อนหลัง.
+# แยกจาก daily-report.yml เพราะต้องรัน 'ถี่' (ให้ทันตอนตัวเลขออก) ต่างจาก daily ที่วันละครั้งพอ.
+# ไม่เรียก Gemini เลย (สแกน ~ไม่กี่วินาที) จึงรันบ่อยได้ไม่กินโควตา LLM.
+#
+# state (เดือนไหนแจ้งไปแล้ว) เก็บใน data/macro.db แยกจาก watchlist.db — ต้อง commit กลับ repo
+# เพื่อจำข้ามรัน (runner ล้างสดทุกครั้ง) และใช้ไฟล์แยกเพื่อไม่ชน commit กับ daily-report.yml.
+
+on:
+  schedule:
+    # ทุกชั่วโมง 12:00-21:00 UTC จันทร์-ศุกร์ = ครอบช่วง 7โมงเช้า-4โมงเย็น ET ที่ข่าว US ออก
+    # (CPI/PPI/NFP ปกติ 8:30am ET). หมายเหตุ: FRED อัปเดต CSV หลังประกาศจริงราวไม่กี่นาที-ชม.
+    - cron: "0 12-21 * * 1-5"
+  workflow_dispatch: {}     # กดรันมือทดสอบได้
+
+permissions:
+  contents: write   # push data/macro.db กลับ repo
+
+concurrency:
+  group: macro-radar-alert
+  cancel-in-progress: false
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: Asia/Bangkok
+      # แยกช่อง (แนะนำ) — ถ้าไม่ตั้ง จะ fallback ไป DISCORD_WEBHOOK_URL; ถ้าไม่มีเลยก็ข้ามเงียบ
+      DISCORD_WEBHOOK_URL_MACRO: ${{ secrets.DISCORD_WEBHOOK_URL_MACRO }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      # (ไม่บังคับ) ใส่เพื่ออัปเกรด base-rate จาก 'วันประกาศประมาณ' -> วันประกาศจริง
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Scan for new macro releases and alert Discord (silent if nothing new)
+        run: python -m src.macro.notify
+
+      - name: Persist macro alert state back to the repo (only if changed)
+        run: |
+          git config user.name "trade-finance-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -f data/macro.db
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: macro radar state $(date -u +%Y-%m-%dT%H:%M)"
+            git pull --rebase --autostash origin main || true
+            git push
+          fi

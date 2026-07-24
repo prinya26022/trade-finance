@@ -11,7 +11,7 @@ from datetime import date
 
 import pytest
 
-from src.macro import altseason, baserate, fred, geonews, radar, store
+from src.macro import altseason, baserate, fred, geonews, notify, radar, store
 from src.macro.fred import Observation
 
 
@@ -257,3 +257,38 @@ def test_alt_momentum_btc_leading(monkeypatch):
 def test_alt_momentum_insufficient_data(monkeypatch):
     monkeypatch.setattr(altseason, "_price_history", lambda t: {})
     assert altseason.eth_btc_momentum() is None
+
+
+# ---------- notify (Discord alert wiring) ----------
+
+def _capture_posts(monkeypatch):
+    posted = []
+    monkeypatch.setattr(notify, "post", lambda text, url=None: posted.append(text) or True)
+    return posted
+
+
+def test_send_macro_alert_posts_new_release(monkeypatch):
+    posted = _capture_posts(monkeypatch)
+    monkeypatch.setattr(radar, "scan_for_alerts", lambda mark=True: [_stub_release_view("CPI")])
+    monkeypatch.setattr(geonews, "fetch_geopolitical", lambda max_items=5: [])
+    n = notify.send_macro_alert(webhook_url="http://x")
+    assert n == 1
+    assert len(posted) == 1
+    assert "ไม่ใช่คำแนะนำซื้อ" in posted[0]      # สรุปมีคำเตือน
+
+
+def test_send_macro_alert_silent_when_nothing_new(monkeypatch):
+    posted = _capture_posts(monkeypatch)
+    monkeypatch.setattr(radar, "scan_for_alerts", lambda mark=True: [])
+    n = notify.send_macro_alert(webhook_url="http://x")
+    assert n == 0 and posted == []               # ไม่มีใหม่ = เงียบสนิท ไม่ยิงอะไร
+
+
+def test_send_macro_alert_appends_geo_only_on_event(monkeypatch):
+    posted = _capture_posts(monkeypatch)
+    monkeypatch.setattr(radar, "scan_for_alerts", lambda mark=True: [_stub_release_view("CPI")])
+    item = geonews.GeoNewsItem("Strike", "Reuters", "2026-07-22T10:00:00", "http://x")
+    monkeypatch.setattr(geonews, "fetch_geopolitical", lambda max_items=5: [item])
+    notify.send_macro_alert(webhook_url="http://x")
+    assert len(posted) == 2                       # สรุป + ธงข่าวภูมิรัฐศาสตร์
+    assert "จับตา" in posted[1]

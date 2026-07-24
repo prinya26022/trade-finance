@@ -592,6 +592,19 @@ API key -- CPI/PPI/UNRATE/PAYEMS back to 1947) + yfinance (gold GC=F, ^GSPC, BTC
 NOT built (on purpose): any "gold will go up / alt season is coming" directional call -- can't be done
 honestly; the whole subsystem gives facts + historical distributions and lets the user see the noise.
 
+Phase 26b -- Discord alert when a number drops (like an investor econ-calendar). notify.py::send_macro_alert
+reuses scan_for_alerts -> format_alert -> notify/discord.post: silent unless a NEW monthly print appeared,
+posts the summary+base-rate, appends the geopolitical warn block only when there's an actual event (news is
+context, not the trigger). Own webhook DISCORD_WEBHOOK_URL_MACRO (falls back to the main one). Moved macro
+state to a SEPARATE data/macro.db (was watchlist.db) so its own frequent workflow can commit state back
+without colliding with daily-report.yml's watchlist.db commit -- and because state MUST persist across CI
+runs or every run is a silent "bootstrap" and nothing ever alerts. New .github/workflows/macro-radar.yml
+runs hourly 12-21 UTC Mon-Fri (covers US 8:30am-ET release window; FRED updates its CSV minutes-to-hours
+after the official print) + commits macro.db back. 4 new notify tests (post-on-new, silent-when-nothing,
+geo-appended). Full suite 225/225. This is the POST-RELEASE "here's the number + summary" flavour -- it does
+NOT need a FRED key. PENDING option: a PRE-release "CPI in 30 min" heads-up needs the forward release
+calendar (free FRED_API_KEY -> release/dates) + a scheduler firing ahead of time -- offered, not yet built.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice
