@@ -24,6 +24,9 @@ from src.agent.timeline import build_timeline
 from src.agent.timeline_store import get_narrative
 from src.agent.screener import screen
 from src.agent.chat import ask as ask_chat
+from src.macro.radar import dashboard as macro_dashboard
+from src.macro.geonews import fetch_geopolitical
+from src.macro.altseason import eth_btc_momentum
 
 app = FastAPI(title="Investment Research Agent API")
 
@@ -221,3 +224,17 @@ def post_chat(body: ChatAsk):
         raise HTTPException(status_code=400, detail="question ว่างเปล่า")
     history = [{"role": t.role, "text": t.text} for t in body.history]
     return ask_chat(body.question, chat_history=history)
+
+
+@app.get("/api/macro")
+def get_macro(horizon_days: int = 1):
+    """Phase 26 — Macro Event Radar (แยกขาดจากแอประยะยาว, สำหรับเทรดสั้น): ตัวเลข macro ล่าสุด
+    (CPI/PPI/ว่างงาน/NFP) + base-rate ผลตอบสนองย้อนหลังพร้อม 'ช่วงเหวี่ยง' + ธงข่าวภูมิรัฐศาสตร์.
+    ดึงสด (FRED CSV คีย์ฟรี + yfinance + Google News RSS) ไม่เรียก LLM. ช้ากว่า endpoint อื่น
+    (~ไม่กี่วินาที) เพราะดึงนอกหลายแหล่ง — จงใจ 'ไม่ฟันธงทิศทาง' บอกแค่ข้อเท็จจริง+การกระจาย."""
+    alt = eth_btc_momentum()
+    return {
+        "releases": [v.as_dict() for v in macro_dashboard(horizon_days=horizon_days)],
+        "geopolitical": [it.as_dict() for it in fetch_geopolitical()],
+        "altseason": alt.as_dict() if alt else None,
+    }

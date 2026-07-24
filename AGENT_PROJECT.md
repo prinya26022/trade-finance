@@ -547,6 +547,51 @@ correlation (am I diversified across trends or fake-diversified across correlate
 sizing; margin-of-safety off reverse-DCF; drawdown vs VT; FX-adjusted (USD vs THB) returns; dividend
 safety; and pre-profit / financials alternate scoring frameworks for names the current engine excludes.
 
+## Phase 26 -- Macro Event Radar (short-term, deliberately firewalled from the long-term app)
+DONE (core). Context: asked for a war-news / macro-event alert bot for the *short-term* side of trading
+(4h crypto/futures) -- "gold will go up, crypto down, alt season coming" + alerts when CPI/PPI/jobs drop.
+Split the request honestly into two piles: things a bot CAN do (facts + timing) vs things NO bot does
+reliably (directional predictions). Built only the first pile. The whole point of the feature is to show
+-- with real numbers -- that "CPI hot -> crypto down" is folk-wisdom that doesn't hold, instead of me (or
+a bot) pretending to call direction. Kept as a separate `src/macro/` package + its own /macro page, walled
+off from watchlist/health/thesis so it never pollutes the calm "no-noise" long-term surface.
+Data sources are ALL free / no-key (verified live before building): FRED CSV endpoint (fredgraph.csv, no
+API key -- CPI/PPI/UNRATE/PAYEMS back to 1947) + yfinance (gold GC=F, ^GSPC, BTC/ETH) + Google News RSS
+(geopolitical headlines, stdlib xml.etree). Zero new pip deps.
+- fred.py: keyless CSV fetch. Honest gap surfaced: the CSV gives the *reference month*, not the actual
+  *release date* (CPI for June drops mid-July). release_dates() upgrades to real release timestamps IF a
+  free FRED_API_KEY is set, else baserate approximates release = ref_date + per-series lag and flags it.
+- baserate.py: the honest core. Instead of "index level vs prior month" (almost always up -> useless
+  signal) it computes the *trader-relevant* signal -- CPI/PPI = YoY inflation rate (accelerating vs
+  decelerating), NFP = net jobs added vs prior month, UNRATE = level -- then for each direction reports
+  the historical DISTRIBUTION of next-day moves for BTC/ETH/gold/S&P: mean, min..max range, %up, and n.
+  Deliberately NOT a prediction: e.g. CPI-accelerating -> BTC came out +0.1% mean, -18.7%..+10.4% range,
+  up 55% of 78 times = a coin flip, and the UI shows that so the user sees the noise themselves. approx
+  flag reflects whether real release dates were actually used (not just whether a key exists -- falls back
+  to approx if the release-date/observation alignment looks off, since that path isn't key-verified yet).
+  _price_history lru_cached so one /macro load fetches each asset once (4 not 16).
+- store.py (SQLite self-init, shares watchlist.db): remembers the last release ref_date alerted per series
+  so radar fires once per new print; first-ever run bootstraps silently (no backfill spam).
+- radar.py: dashboard() (read-only, for the web page) + scan_for_alerts() (detects a newly-appeared print
+  via the store, builds the alert with base-rate context, marks seen -- for a future cron/Discord push).
+- geonews.py: passive Google News RSS watch for war/sanctions/strike keywords -> warn-level headlines only,
+  explicitly NO direction call ("gold up on war" breaks constantly). Dedupes, splits "- Source", ISO dates.
+- GET /api/macro (no LLM; ~3.7s live -- FRED+yfinance+RSS) -> {releases[], geopolitical[]}. New /macro page
+  + nav entry ("เรดาร์มหภาค →"); each release card shows signal prev->now, a min..max range bar with a
+  mean dot per asset, %up and n, and the approx-date caveat; geopolitical block styled as a warn.
+- altseason.py: user asked about "alt season" (ETH up, BTC down). blockchaincenter's index is JS-rendered
+  (not cleanly scrapable -> would break silently), so instead of a fragile scrape it self-computes the
+  ETH/BTC ratio momentum from yfinance -- transparent, every number explainable. Reports current ratio,
+  30d/90d % change of the ratio, and each coin's 30d return, with a descriptive state (alt/btc/neutral).
+  Deliberately descriptive not predictive: e.g. live it showed ETH leading (+9% ratio/30d, ETH +12.6% vs
+  BTC +3.2%) while the 90d ratio was -3% -- the card says the timeframes can disagree, no "season incoming".
+- 17 new offline tests (tests/test_macro.py -- CSV parse, signal math per series, direction, stats
+  filtering + approx flag, store roundtrip, scan bootstrap/new-print, geonews parse/dedup/fail, alt
+  momentum alt/btc/insufficient). Network fully monkeypatched (CI-safe per the no-yfinance/Gemini rule).
+  tsc clean, full suite 221/221.
+NOT built (on purpose): any "gold will go up / alt season is coming" directional call -- can't be done
+honestly; the whole subsystem gives facts + historical distributions and lets the user see the noise.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, Timeline, ScreenerResponse, HealthTrends, ChatAnswer } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -147,4 +147,11 @@ export async function freezeTicker(ticker: string): Promise<void> {
 export async function unfreezeTicker(ticker: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/watchlist/${ticker}/freeze`, { method: "DELETE" });
   if (!res.ok) throw new Error(`API ${res.status}`);
+}
+
+// Phase 26: Macro Event Radar — ดึงสด (FRED+yfinance+Google News), ช้ากว่าปกติ ~ไม่กี่วิ ไม่เรียก LLM
+export async function getMacro(horizonDays = 1): Promise<MacroResponse> {
+  const res = await fetch(`${API_BASE}/api/macro?horizon_days=${horizonDays}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
 }

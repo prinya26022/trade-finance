@@ -445,3 +445,73 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
   .hero-ticker { font-size: 24px; }
   .hold-form .input { max-width: none; flex: 1; min-width: 0; }
 }
+
+/* ===== Phase 26: Macro Event Radar ===== */
+.macro-loading { color: var(--muted); font-size: 14px; padding: 20px 0; }
+.macro-wrap { display: flex; flex-direction: column; gap: 14px; }
+
+.macro-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px;
+}
+.macro-head { display: flex; align-items: baseline; gap: 10px; }
+.macro-head h2 { margin: 0; font-size: 16px; }
+.macro-ref { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.macro-signal {
+  display: flex; align-items: center; gap: 8px; margin: 8px 0 4px;
+  font-size: 14px; flex-wrap: wrap;
+}
+.macro-icon { font-size: 13px; }
+.macro-desc { font-weight: 600; }
+.macro-nums { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.macro-nums b { color: var(--text); }
+.macro-up   .macro-icon, .macro-up   .macro-desc { color: var(--amber); }
+.macro-down .macro-icon, .macro-down .macro-desc { color: var(--blue); }
+.macro-flat .macro-icon, .macro-flat .macro-desc { color: var(--muted); }
+
+.macro-caption { color: var(--muted); font-size: 12.5px; margin: 10px 0 6px; }
+.macro-note { color: var(--muted); font-style: italic; }
+.macro-approx { color: var(--muted); font-size: 11.5px; margin: 6px 0 0; }
+
+.macro-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.macro-table th {
+  text-align: left; color: var(--muted); font-weight: 500;
+  font-size: 11.5px; padding: 4px 8px; border-bottom: 1px solid var(--border);
+}
+.macro-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.macro-table tr:last-child td { border-bottom: none; }
+.macro-table td.pos { color: var(--green); font-variant-numeric: tabular-nums; }
+.macro-table td.neg { color: var(--red); font-variant-numeric: tabular-nums; }
+.macro-n { color: var(--muted); font-variant-numeric: tabular-nums; }
+.macro-bar-col { min-width: 180px; }
+.macro-rangetext { display: block; color: var(--muted); font-size: 10.5px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+/* แถบช่วงเหวี่ยง: เส้นศูนย์ตรงกลาง, แถบ min..max, จุด mean */
+.macro-rangebar { position: relative; height: 10px; background: var(--panel-2); border-radius: 5px; }
+.macro-zero { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border); }
+.macro-range { position: absolute; top: 3px; height: 4px; background: rgba(139,148,167,.4); border-radius: 2px; }
+.macro-mean { position: absolute; top: 1px; width: 8px; height: 8px; border-radius: 50%; transform: translateX(-50%); }
+.macro-mean.pos { background: var(--green); }
+.macro-mean.neg { background: var(--red); }
+
+.macro-geo {
+  background: var(--panel); border: 1px solid rgba(210,153,34,.3);
+  border-radius: 10px; padding: 14px 16px;
+}
+.macro-geo h2 { margin: 0 0 2px; font-size: 15px; }
+.macro-geolist { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.macro-geolist li { font-size: 13px; }
+.macro-geolist a { color: var(--text); text-decoration: none; }
+.macro-geolist a:hover { text-decoration: underline; color: var(--blue); }
+.macro-src { color: var(--muted); font-size: 12px; }
+
+/* Alt vs BTC card (Phase 26) */
+.macro-alt-label { font-size: 15px; font-weight: 600; margin: 6px 0 8px; }
+.macro-alt-alt   .macro-alt-label { color: var(--green); }
+.macro-alt-btc   .macro-alt-label { color: var(--amber); }
+.macro-alt-neutral .macro-alt-label { color: var(--muted); }
+.macro-alt-stats { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.macro-alt-stats b { font-variant-numeric: tabular-nums; }
+.macro-alt-stats .pos { color: var(--green); }
+.macro-alt-stats .neg { color: var(--red); }

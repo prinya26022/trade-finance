@@ -257,3 +257,47 @@ export type Analysis = {
   valuation: Valuation | null; // Phase 15: null = แถวเก่าก่อน Phase 15 หรือคำนวณไม่ได้
   summary: Summary;
 };
+
+// Phase 26: Macro Event Radar — ตัวเลขเศรษฐกิจ + base-rate ผลตอบสนองย้อนหลัง + ธงข่าวภูมิรัฐศาสตร์
+export type MacroReaction = {
+  asset: string;        // ชื่อไทยของสินทรัพย์ (BTC/ETH/ทองคำ/หุ้นสหรัฐ)
+  n: number;            // จำนวนครั้งย้อนหลัง
+  mean_pct: number;     // % เปลี่ยนแปลงเฉลี่ยหลังประกาศ
+  min_pct: number;
+  max_pct: number;
+  share_up: number;     // สัดส่วนครั้งที่ขึ้น (0..1)
+  horizon_days: number;
+};
+
+export type MacroRelease = {
+  key: string;
+  label: string;
+  ref_date: string;     // เดือนอ้างอิง (YYYY-MM-DD)
+  value: number;
+  unit: string;
+  direction: "up" | "down" | "flat";
+  desc: string;         // อธิบายทิศ (เช่น 'เงินเฟ้อเร่งตัวขึ้น')
+  signal: number;       // สัญญาณล่าสุด (YoY% / งานเพิ่ม / ระดับ)
+  prev_signal: number;
+  approx: boolean;      // true = วันประกาศประมาณ (ไม่มี FRED_API_KEY)
+  reactions: MacroReaction[];
+};
+
+export type GeoNews = { title: string; source: string; published: string; url: string };
+
+// Alt vs BTC — โมเมนตัม ETH/BTC ratio (บรรยายตอนนี้ ไม่ทำนาย alt season)
+export type AltSeason = {
+  eth_btc_ratio: number;
+  change_30d: number;   // % ขยับของ ratio ใน 30 วัน (+ = ETH นำ)
+  change_90d: number;
+  eth_30d: number;      // ผลตอบแทน ETH/BTC 30 วัน (context)
+  btc_30d: number;
+  state: "alt" | "btc" | "neutral";
+  label: string;
+};
+
+export type MacroResponse = {
+  releases: MacroRelease[];
+  geopolitical: GeoNews[];
+  altseason: AltSeason | null;
+};
