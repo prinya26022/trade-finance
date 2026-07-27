@@ -24,9 +24,12 @@ from src.agent.timeline import build_timeline
 from src.agent.timeline_store import get_narrative
 from src.agent.screener import screen
 from src.agent.chat import ask as ask_chat
+from src.agent.invalidation import check_invalidation
 from src.macro.radar import dashboard as macro_dashboard
 from src.macro.geonews import fetch_geopolitical
 from src.macro.altseason import eth_btc_momentum
+from src.thesis.store import get_thesis, set_thesis, delete_thesis
+from src.decisions.store import log_decision, list_decisions
 
 app = FastAPI(title="Investment Research Agent API")
 
@@ -66,6 +69,27 @@ class ChatTurn(BaseModel):
 class ChatAsk(BaseModel):
     question: str
     history: list[ChatTurn] = []   # เทิร์นก่อนหน้าในสนทนาเดียวกัน (session ฝั่ง frontend เก็บไว้)
+
+
+class InvalidationRule(BaseModel):
+    metric: str
+    op: str
+    value: float
+    note: str = ""
+
+
+class ThesisSet(BaseModel):
+    thesis: str
+    invalidation: list[InvalidationRule] = []
+    fair_value: float | None = None
+
+
+class DecisionCreate(BaseModel):
+    action: str          # buy | pass | wait | sell | trim
+    gate2: str = "n/a"   # ready | not_ready | n/a  -- ผลเช็คกราฟ/EW ณ ตอนตัดสินใจ (นอกระบบนี้)
+    gate2_note: str = ""
+    reason: str = ""
+    conviction: int | None = None   # 1-5
 
 
 @app.on_event("startup")
@@ -238,3 +262,69 @@ def get_macro(horizon_days: int = 1):
         "geopolitical": [it.as_dict() for it in fetch_geopolitical()],
         "altseason": alt.as_dict() if alt else None,
     }
+
+
+# ---- thesis / invalidation (Phase 5, ต่อสายเข้า UI ครั้งแรกที่ Phase 27) ----
+# thesis เขียนเสร็จมาตั้งแต่ Phase 5 แต่ไม่เคยมี endpoint ให้ frontend เรียกได้ -> theses ว่างเปล่า
+# มาตลอด (invalidation checker เลยไม่เคยมีอะไรให้เช็ค). อุดช่องนี้ก่อนอย่างอื่นเพราะเป็นระบบ
+# "เตือนขาย" — ปล่อยว่างไว้ต่อ = ถือของจริงโดยไม่มีเงื่อนไขออกที่เช็คได้.
+
+@app.get("/api/thesis/{ticker}")
+def get_ticker_thesis(ticker: str):
+    """thesis + invalidation rules ของ ticker — null ถ้ายังไม่เคยตั้ง (ไม่ error, หน้า UI แสดง
+    ฟอร์มเปล่าให้กรอกแทน)."""
+    return get_thesis(ticker.upper())
+
+
+@app.put("/api/thesis/{ticker}")
+def put_ticker_thesis(ticker: str, body: ThesisSet):
+    """ตั้ง/แก้ thesis (upsert) — invalidation rules ตรวจรูปแบบด้วย thesis/store.py::_validate_rules
+    อยู่แล้ว (metric ต้องมีค่า, op ต้องอยู่ในชุดที่รองรับ, value ต้องเป็นตัวเลข) โยน 400 ถ้าผิดรูป."""
+    try:
+        set_thesis(
+            ticker.upper(),
+            body.thesis,
+            invalidation=[r.model_dump() for r in body.invalidation],
+            fair_value=body.fair_value,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return get_thesis(ticker.upper())
+
+
+@app.delete("/api/thesis/{ticker}")
+def delete_ticker_thesis(ticker: str):
+    delete_thesis(ticker.upper())
+    return {"ticker": ticker.upper(), "deleted": True}
+
+
+@app.get("/api/invalidation/{ticker}")
+def get_ticker_invalidation(ticker: str):
+    """เทียบ invalidation rules ของ ticker กับตัวเลขงบล่าสุดที่บันทึกแล้ว (deterministic ไม่เรียก
+    LLM) -> breaches ว่าง = thesis ยังอยู่ครบ. ดู src/agent/invalidation.py สำหรับตรรกะเต็ม."""
+    return check_invalidation(ticker.upper())
+
+
+# ---- decision journal (Phase 27) ----
+# บันทึกทุกครั้งที่ตัดสินใจ "ซื้อ/ผ่าน/รอ/ขาย" รวมถึงตอน "ผ่าน" (สำคัญที่สุดแต่เดิมไม่เคยถูกจด
+# เลย) พร้อม gate2 = ผลเช็คกราฟ/EW ณ ตอนนั้น (เก็บเป็น note อิสระ ไม่ผูกกับระบบ EW ที่แยกไปทำ
+# ต่างหาก) เพื่อย้อนกลับมาวัดทีหลังว่า gate ที่สองนี้ช่วยจริงไหม เทียบกับซื้อทันทีที่ health ถึงเกณฑ์.
+# health_score/price ดึงจากรอบวิเคราะห์ล่าสุด ณ ตอน log (point-in-time ของ "วันนี้" อยู่แล้ว
+# เพราะบันทึกตอนตัดสินใจจริง ไม่ใช่ backfill ย้อนหลัง) -- ผู้ใช้กรอกแค่ action/gate2/reason.
+
+@app.post("/api/decisions/{ticker}", status_code=201)
+def post_decision(ticker: str, body: DecisionCreate):
+    ticker = ticker.upper()
+    rows = history(ticker, limit=1)
+    health_score = rows[0]["health_score"] if rows else None
+    price = rows[0]["price"] if rows else None
+    return log_decision(
+        ticker, action=body.action, health_score=health_score, price=price,
+        gate2=body.gate2, gate2_note=body.gate2_note,
+        reason=body.reason, conviction=body.conviction,
+    )
+
+
+@app.get("/api/decisions/{ticker}")
+def get_decisions(ticker: str, limit: int = 50):
+    return list_decisions(ticker.upper(), limit=limit)

@@ -301,3 +301,46 @@ export type MacroResponse = {
   geopolitical: GeoNews[];
   altseason: AltSeason | null;
 };
+
+// Phase 27: thesis + invalidation — เดิมเขียนไว้ตั้งแต่ Phase 5 แต่ไม่เคยมี endpoint ให้ frontend
+// เรียก (theses ว่างเปล่ามาตลอด) นี่คือระบบ "เตือนขาย": ตั้งเงื่อนไขที่พิสูจน์ว่าคิดผิดไว้ล่วงหน้า
+// แล้วให้เครื่องเช็คแบบ deterministic ทุกรอบวิเคราะห์ — ต่างจาก LLM sentiment ตรงที่เป็นกฎที่
+// *คุณ* กำหนดเอง ไม่ใช่เครื่องเดา
+export type InvalidationRule = { metric: string; op: "<" | "<=" | ">" | ">=" | "==" | "!="; value: number; note: string };
+
+export type Thesis = {
+  ticker: string;
+  thesis: string;
+  invalidation: InvalidationRule[];
+  fair_value: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InvalidationBreach = { type: string; metric: string; detail: string; severity: "alert" | "warn" };
+
+export type InvalidationCheck = {
+  ticker: string;
+  breaches: InvalidationBreach[];
+  no_margin_safety: boolean;
+  note: string;
+};
+
+// Phase 27: decision journal — จดทุกครั้งที่ตัดสินใจ ซื้อ/ผ่าน/รอ/ขาย รวมถึงตอน "ผ่าน" (เดิมไม่มี
+// ที่จดเลย) พร้อม gate2 = ผลเช็คกราฟ/EW ตอนนั้น (free-form note, EW เองแยกเป็นอีกโปรเจกต์) ไว้ย้อน
+// วัดทีหลังว่า gate ที่สองนี้ช่วยจริงไหม เทียบกับซื้อทันทีที่ health ถึงเกณฑ์
+export type DecisionAction = "buy" | "pass" | "wait" | "sell" | "trim";
+export type Gate2Status = "ready" | "not_ready" | "n/a";
+
+export type Decision = {
+  id: number;
+  ticker: string;
+  decided_at: string;
+  action: DecisionAction;
+  health_score: number | null;
+  price: number | null;
+  gate2: Gate2Status;
+  gate2_note: string;
+  reason: string;
+  conviction: number | null;
+};

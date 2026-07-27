@@ -246,6 +246,35 @@ ul.list li { font-size: 13px; line-height: 1.4; }
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
 }
 
+/* ---- Phase 27: thesis panel + invalidation banner + decision journal ---- */
+.thesis-panel { margin-bottom: 4px; }
+.thesis-box-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.thesis-empty { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+.inval-banner {
+  margin: 0 0 12px; padding: 12px 14px; border-radius: 10px;
+  background: rgba(248,81,73,.08); border: 1px solid rgba(248,81,73,.35);
+}
+.inval-banner-title { font-size: 13px; font-weight: 700; color: var(--red); margin-bottom: 6px; }
+.inval-banner-list { margin: 0; padding: 0 0 0 4px; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.inval-item { font-size: 12.5px; line-height: 1.5; }
+.inval-alert { color: var(--text); }
+.inval-warn { color: var(--amber); }
+
+.textarea { width: 100%; resize: vertical; font-family: inherit; min-width: 0; }
+
+.rule-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.rule-row .input { min-width: 0; flex: 1 1 120px; }
+
+.decision-log { margin-bottom: 16px; }
+.decision-form {
+  margin-top: 8px; padding: 12px 14px; background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.decision-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.decision-form-row .input { min-width: 0; }
+.decision-table td, .decision-table th { white-space: normal; }
+
 /* ---- Phase 20.2: health breakdown (ทำไมได้คะแนนนี้) ---- */
 .breakdown {
   margin: 0 0 16px; padding: 14px 16px;

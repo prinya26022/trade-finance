@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -153,5 +153,57 @@ export async function unfreezeTicker(ticker: string): Promise<void> {
 export async function getMacro(horizonDays = 1): Promise<MacroResponse> {
   const res = await fetch(`${API_BASE}/api/macro?horizon_days=${horizonDays}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// --- Phase 27: thesis / invalidation ---
+export async function getThesis(ticker: string): Promise<Thesis | null> {
+  const res = await fetch(`${API_BASE}/api/thesis/${ticker}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  const data = await res.json();
+  return data ?? null; // backend คืน null (200) ถ้ายังไม่เคยตั้ง
+}
+
+export async function setThesis(
+  ticker: string,
+  body: { thesis: string; invalidation: InvalidationRule[]; fair_value: number | null }
+): Promise<Thesis> {
+  const res = await fetch(`${API_BASE}/api/thesis/${ticker}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function deleteThesis(ticker: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/thesis/${ticker}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+}
+
+export async function getInvalidation(ticker: string): Promise<InvalidationCheck> {
+  const res = await fetch(`${API_BASE}/api/invalidation/${ticker}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// --- Phase 27: decision journal ---
+export async function getDecisions(ticker: string): Promise<Decision[]> {
+  const res = await fetch(`${API_BASE}/api/decisions/${ticker}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+export async function logDecision(
+  ticker: string,
+  body: { action: DecisionAction; gate2: Gate2Status; gate2_note: string; reason: string; conviction: number | null }
+): Promise<Decision> {
+  const res = await fetch(`${API_BASE}/api/decisions/${ticker}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
   return res.json();
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import type { Analysis, ChangeReport, WatchlistItem, EdgePosition, Investigation, Timeline } from "@/lib/types";
+import type { Analysis, ChangeReport, WatchlistItem, EdgePosition, Investigation, Timeline, Thesis, InvalidationCheck, Decision } from "@/lib/types";
 import { GlossaryText, Tip, BADGES } from "@/lib/glossary";
 import { resolveHealth } from "@/lib/health";
 import { fySeries, latestValue, fmt } from "@/lib/facts";
@@ -8,6 +8,8 @@ import { LineChart, BarChart, type Series } from "@/lib/charts";
 import { HealthMeter } from "../../health-meter";
 import { HealthBreakdown } from "../../health-breakdown";
 import { WhatsNew } from "./whats-new";
+import ThesisPanel from "./thesis-panel";
+import DecisionLog from "./decision-log";
 
 const C = { blue: "#58a6ff", green: "#3fb950", amber: "#d29922", red: "#f85149" };
 
@@ -54,6 +56,9 @@ export default function TickerDetail({
   edge,
   investigation,
   timeline,
+  thesis,
+  invalidation,
+  decisions,
 }: {
   ticker: string;
   history: Analysis[];
@@ -62,6 +67,9 @@ export default function TickerDetail({
   edge?: EdgePosition;
   investigation?: Investigation | null;
   timeline?: Timeline | null;
+  thesis?: Thesis | null;
+  invalidation?: InvalidationCheck | null;
+  decisions?: Decision[];
 }) {
   const a = history[0]; // ล่าสุด
   const s = a.summary;
@@ -149,6 +157,11 @@ export default function TickerDetail({
 
       {/* ---- Phase 22: "เปลี่ยนแปลงตั้งแต่ครั้งก่อน" ยกขึ้นเป็นสิ่งแรก (เดิมฝังอยู่ท้ายหน้า) ---- */}
       <WhatsNew changes={changes} from={change?.from} to={change?.to} note={change?.note} />
+
+      {/* ---- Phase 27: thesis + invalidation banner (ระบบเตือนขาย) + decision journal ----
+          อยู่ก่อน health breakdown ตั้งใจ: นี่คือส่วนที่ตอบ "ควรทำอะไรต่อ" ไม่ใช่แค่ "ตอนนี้เป็นไง" */}
+      <ThesisPanel ticker={ticker} thesis={thesis ?? null} invalidation={invalidation ?? null} />
+      <DecisionLog ticker={ticker} decisions={decisions ?? []} />
 
       {/* ---- Friendly verdict ---- */}
       {s.beginner_summary && <p className="verdict">{s.beginner_summary}</p>}
