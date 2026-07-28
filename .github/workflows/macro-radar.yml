@@ -49,6 +49,14 @@ jobs:
         run: |
           git config user.name "trade-finance-bot"
           git config user.email "actions@users.noreply.github.com"
+          # bug ที่เจอ (2026-07): ถ้า fetch FRED ล้มเหลวทุก series (ดู log step ด้านบน) store.py
+          # จะไม่เคยถูกเรียก -> data/macro.db ไม่ถูกสร้างเลย -> 'git add -f' path ที่ไม่มีอยู่จริง
+          # จะ exit ไม่เป็นศูนย์ -> job แดงทุกรอบ ทั้งที่ไม่ใช่ความผิดพลาดที่ต้อง fail จริง
+          # (แค่ 'ไม่มีอะไรให้บันทึกรอบนี้') เช็คว่าไฟล์มีอยู่ก่อน ไม่งั้นข้ามเงียบๆ
+          if [ ! -f data/macro.db ]; then
+            echo "[macro] data/macro.db ไม่ถูกสร้างรอบนี้ (ดึง FRED ไม่สำเร็จ ดู log ด้านบน) — ข้าม commit"
+            exit 0
+          fi
           git add -f data/macro.db
           if ! git diff --cached --quiet; then
             git commit -m "chore: macro radar state $(date -u +%Y-%m-%dT%H:%M)"

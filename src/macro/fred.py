@@ -66,7 +66,11 @@ def fetch_series(key_or_id: str) -> list[Observation]:
     try:
         req = urllib.request.Request(_CSV_URL.format(sid=sid), headers=_UA)
         raw = urllib.request.urlopen(req, timeout=20).read().decode("utf-8")
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        # เดิม swallow เงียบสนิท -> ตอน CI ดึงล้มเหลวทุก series ไม่มีทางรู้เหตุผลจาก log เลย
+        # (เจอจริง: data/macro.db ไม่เคยถูกสร้างใน CI แต่ไม่มีร่องรอยว่าทำไม) print ไว้ให้เห็นใน
+        # Action log แต่ยัง return [] เหมือนเดิม (ไม่ทำ flow อื่นพัง ตามเจตนาเดิม)
+        print(f"[fred] ดึง {sid} ล้มเหลว: {type(e).__name__}: {e}")
         return []
 
     out: list[Observation] = []
