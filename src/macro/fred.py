@@ -61,16 +61,57 @@ def fetch_series(key_or_id: str) -> list[Observation]:
     """ดึงค่ารายเดือนทั้งหมดของ series (เรียงเก่า -> ใหม่). ล้มเหลว -> [] (ไม่ทำ flow อื่นพัง).
 
     รับได้ทั้ง key ภายใน ('CPI') และ fred_id ตรงๆ ('CPIAUCSL').
+
+    สอง path: มี FRED_API_KEY -> ใช้ official API ก่อน (เชื่อถือได้กว่าใน CI, ดู docstring
+    _fetch_series_api) ไม่มีคีย์ หรือ API พังเฉยๆ -> fallback ไปหน้า CSV สาธารณะ (ไม่ต้องมีคีย์
+    แต่เจอจริงว่า timeout ทุก series พร้อมกันเวลารันจาก GitHub Actions — สงสัยว่า FRED (อยู่หลัง
+    Cloudflare) throttle/บล็อก IP ของ cloud runner แบบเงียบๆ แทนที่จะ reject ตรงๆ).
     """
     sid = SERIES[key_or_id].fred_id if key_or_id in SERIES else key_or_id
+    if _api_key():
+        obs = _fetch_series_api(sid)
+        if obs:
+            return obs
+    return _fetch_series_csv(sid)
+
+
+def _fetch_series_api(sid: str) -> list[Observation]:
+    """ดึง observations ผ่าน FRED official API (ต้องมี FRED_API_KEY) — endpoint สำหรับ
+    machine/programmatic access โดยเฉพาะ ต่างจาก fredgraph.csv ที่เป็นหน้าเว็บสาธารณะที่
+    Cloudflare อาจ throttle traffic จาก cloud/datacenter IP (เช่น GitHub Actions runner)."""
+    params = urllib.parse.urlencode({
+        "series_id": sid, "api_key": _api_key(), "file_type": "json", "sort_order": "asc",
+    })
+    try:
+        req = urllib.request.Request(f"{_API_URL}/series/observations?{params}", headers=_UA)
+        data = json.loads(urllib.request.urlopen(req, timeout=20).read().decode("utf-8"))
+    except Exception as e:
+        print(f"[fred] API ดึง {sid} ล้มเหลว: {type(e).__name__}: {e} -> fallback ไป CSV")
+        return []
+
+    out: list[Observation] = []
+    for o in data.get("observations", []):
+        v = o.get("value")
+        if v in (".", "", None):   # FRED ใช้ '.' แทนค่าที่ขาด
+            continue
+        try:
+            out.append(Observation(datetime.strptime(o["date"], "%Y-%m-%d").date(), float(v)))
+        except (ValueError, KeyError):
+            continue
+    return out
+
+
+def _fetch_series_csv(sid: str) -> list[Observation]:
+    """หน้า CSV สาธารณะ (ไม่ต้องมีคีย์) — path เดิมของโปรเจกต์, ยังเป็น fallback หลัก."""
     try:
         req = urllib.request.Request(_CSV_URL.format(sid=sid), headers=_UA)
         raw = urllib.request.urlopen(req, timeout=20).read().decode("utf-8")
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         # เดิม swallow เงียบสนิท -> ตอน CI ดึงล้มเหลวทุก series ไม่มีทางรู้เหตุผลจาก log เลย
-        # (เจอจริง: data/macro.db ไม่เคยถูกสร้างใน CI แต่ไม่มีร่องรอยว่าทำไม) print ไว้ให้เห็นใน
-        # Action log แต่ยัง return [] เหมือนเดิม (ไม่ทำ flow อื่นพัง ตามเจตนาเดิม)
-        print(f"[fred] ดึง {sid} ล้มเหลว: {type(e).__name__}: {e}")
+        # (เจอจริง: data/macro.db ไม่เคยถูกสร้างใน CI แต่ไม่มีร่องรอยว่าทำไม จนกระทั่ง print นี้
+        # เผยว่าเป็น TimeoutError ทุก series พร้อมกัน) print ไว้ให้เห็นใน Action log แต่ยัง
+        # return [] เหมือนเดิม (ไม่ทำ flow อื่นพัง ตามเจตนาเดิม)
+        print(f"[fred] CSV ดึง {sid} ล้มเหลว: {type(e).__name__}: {e}")
         return []
 
     out: list[Observation] = []

@@ -8,9 +8,18 @@ pattern เดียวกับ src/agent/report.py::send_portfolio_alert: ฟ�
       -> fallback DISCORD_WEBHOOK_URL -> ถ้าไม่ตั้งเลย discord.post() ข้ามเงียบๆ.
 """
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from src.macro import geonews, radar
 from src.notify.discord import post
+
+# เดิมไฟล์นี้ไม่เคย load .env เลย (ต่างจาก report.py/summarize.py/timeline.py ที่ทำ) ทำให้
+# python -m src.macro.notify รันมือในเครื่องอ่าน FRED_API_KEY/DISCORD_WEBHOOK_URL_MACRO ที่ตั้งไว้
+# ใน .env ไม่เห็นเลย (env var ว่างเปล่าเงียบๆ) — ใน CI ไม่กระทบ (workflow set env ตรงๆ ผ่าน
+# secrets, ไม่มีไฟล์ .env อยู่แล้ว load_dotenv หาไฟล์ไม่เจอก็แค่ no-op)
+load_dotenv(Path(__file__).parents[2] / ".env")
 
 
 def _webhook() -> str | None:
