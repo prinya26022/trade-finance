@@ -14,7 +14,7 @@
 import json
 import sqlite3
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date
 
 DB_PATH = Path(__file__).parents[2] / "data" / "watchlist.db"
 
@@ -43,6 +43,10 @@ def init_db() -> None:
             )
             """
         )
+        # Phase 30: expectations — เพิ่มทีหลังแบบ ALTER (DB เก่า/ที่ CI commit ไว้ไม่มีคอลัมน์นี้)
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(theses)")}
+        if "expectations_json" not in cols:
+            conn.execute("ALTER TABLE theses ADD COLUMN expectations_json TEXT NOT NULL DEFAULT '[]'")
 
 
 def _validate_rules(rules: list[dict]) -> list[dict]:
@@ -63,31 +67,74 @@ def _validate_rules(rules: list[dict]) -> list[dict]:
     return clean
 
 
+def _validate_expectations(items: list[dict]) -> list[dict]:
+    """ตรวจ expectations (Phase 30) — 'เรื่องเล่าที่รอพิสูจน์' ให้อยู่ในรูปที่ผิดได้จริง.
+
+    ต่างจาก invalidation rule ตรงเจตนา (โครงสร้างคล้ายกันโดยตั้งใจ ใช้ _OPS ชุดเดียวกัน):
+      - invalidation = "ถ้าเงื่อนไขนี้เป็นจริง แปลว่า thesis ตาย" -> alert ทันทีที่โดนแตะ
+      - expectation  = "ถ้าเรื่องนี้จริง ตัวเลขนี้ *ต้อง* มาถึงภายในวันนี้" -> ยังไม่มาไม่ใช่เรื่องผิด
+        แต่ 'เลยเส้นตายแล้วยังไม่มา' = เรื่องเล่านั้นไม่จริง (warn ไม่ใช่ alert)
+    บังคับมี deadline เพราะข้ออ้างที่ไม่มีวันหมดอายุคือข้ออ้างที่ไม่มีวันผิด — ซึ่งเป็นสิ่งที่
+    ฟีเจอร์นี้ตั้งใจกรองออกตั้งแต่ต้น (เช่น 'สินค้าใหม่น่าจะดี', 'ลงไปก็ไม่ขาดทุน').
+    """
+    clean = []
+    for e in items:
+        claim = str(e.get("claim", "")).strip()
+        metric = str(e.get("metric", "")).strip()
+        op = str(e.get("op", "")).strip()
+        by = str(e.get("by", "")).strip()
+        if not claim:
+            raise ValueError("expectation ต้องมี 'claim' (เรื่องที่รอพิสูจน์)")
+        if not metric:
+            raise ValueError(f"expectation '{claim}' ต้องมี 'metric' ที่วัดได้")
+        if op not in VALID_OPS:
+            raise ValueError(f"op '{op}' ไม่รองรับ (ใช้ได้: {sorted(VALID_OPS)})")
+        try:
+            value = float(e["value"])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(f"expectation '{claim}' ต้องมี 'value' เป็นตัวเลข")
+        try:
+            date.fromisoformat(by)
+        except ValueError:
+            raise ValueError(f"expectation '{claim}' ต้องมี 'by' เป็นวันที่ YYYY-MM-DD (ข้ออ้างที่ไม่มีเส้นตาย = ไม่มีวันผิด)")
+        clean.append({
+            "claim": claim, "metric": metric, "op": op, "value": value,
+            "by": by, "source": str(e.get("source", "")), "note": str(e.get("note", "")),
+        })
+    return clean
+
+
 def set_thesis(ticker: str, thesis: str, invalidation: list[dict] | None = None,
-               fair_value: float | None = None) -> None:
-    """เพิ่ม/แก้ thesis ของ ticker (upsert). invalidation = list ของ rule (อาจว่าง)."""
+               fair_value: float | None = None, expectations: list[dict] | None = None) -> None:
+    """เพิ่ม/แก้ thesis ของ ticker (upsert). invalidation = list ของ rule (อาจว่าง),
+    expectations = list ของ 'เรื่องเล่าที่รอพิสูจน์' พร้อมเส้นตาย (Phase 30, อาจว่าง)."""
     init_db()   # idempotent: กันกรณีตารางยังไม่ถูกสร้าง (เช่น DB ที่ CI commit ก่อนมีฟีเจอร์นี้)
     ticker = ticker.upper()
     rules = _validate_rules(invalidation or [])
+    expects = _validate_expectations(expectations or [])
     now = datetime.now().isoformat(timespec="seconds")
     with _connect() as conn:
         conn.execute(
             """
-            INSERT INTO theses (ticker, thesis, invalidation_json, fair_value, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO theses (ticker, thesis, invalidation_json, fair_value, expectations_json,
+                                created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(ticker) DO UPDATE SET
                 thesis            = excluded.thesis,
                 invalidation_json = excluded.invalidation_json,
                 fair_value        = excluded.fair_value,
+                expectations_json = excluded.expectations_json,
                 updated_at        = excluded.updated_at
             """,
-            (ticker, thesis, json.dumps(rules, ensure_ascii=False), fair_value, now, now),
+            (ticker, thesis, json.dumps(rules, ensure_ascii=False), fair_value,
+             json.dumps(expects, ensure_ascii=False), now, now),
         )
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["invalidation"] = json.loads(d.pop("invalidation_json"))
+    d["expectations"] = json.loads(d.pop("expectations_json", None) or "[]")   # แถวเก่าไม่มีคอลัมน์นี้
     return d
 
 

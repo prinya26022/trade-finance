@@ -9,6 +9,7 @@ import { HealthMeter } from "../health-meter";
 import { setHolding, addShares, sellHolding } from "@/lib/api";
 import { Tip } from "@/lib/glossary";
 import { Sparkline, trendColor } from "@/lib/charts";
+import SameBet from "./same-bet";
 
 function money(x: number | null | undefined) {
   if (x == null) return "—";
@@ -203,6 +204,9 @@ export default function PortfolioView({
           </table>
         </div>
       )}
+
+      {/* Phase 30: ความเสี่ยงกระจุกที่ตารางข้างบนมองไม่เห็น — ถือหลายตัวแต่เป็นเดิมพันเดียวกัน */}
+      <SameBet />
     </>
   );
 }

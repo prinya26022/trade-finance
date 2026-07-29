@@ -449,6 +449,46 @@ ul.list li { font-size: 13px; line-height: 1.4; }
 }
 @keyframes inv-blink { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
 
+/* ---- Phase 30: เรื่องเล่าที่รอพิสูจน์ (expectations) ---- */
+.exp-block { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.exp-head { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.exp-row { padding: 6px 0 6px 10px; border-left: 2px solid var(--border); margin-bottom: 6px; }
+.exp-row.exp-hit { border-left-color: var(--green); }
+.exp-row.exp-pending { border-left-color: var(--blue); }
+.exp-row.exp-missed { border-left-color: var(--red); }
+.exp-row.exp-na { border-left-color: var(--muted); }
+.exp-claim { font-size: 13px; }
+.exp-icon { margin-right: 3px; }
+.exp-detail { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.exp-detail code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+.exp-hit .exp-status { color: var(--green); }
+.exp-missed .exp-status { color: var(--red); }
+.exp-edit { margin-top: 8px; padding: 8px; border: 1px dashed var(--border); border-radius: 8px; }
+.exp-banner {
+  margin-bottom: 12px; padding: 10px 14px; border-radius: 10px;
+  background: rgba(210,153,34,.1); border: 1px solid rgba(210,153,34,.35);
+}
+.exp-banner-title { font-weight: 600; font-size: 13px; color: var(--amber); margin-bottom: 4px; }
+.exp-banner-item { font-size: 12.5px; }
+
+/* ---- Phase 30: ถือเดิมพันเดียวกันกี่ชั้น ---- */
+.samebet { margin-top: 26px; }
+.sb-summary {
+  font-size: 13px; padding: 9px 12px; border-radius: 8px; margin-bottom: 10px;
+  background: var(--panel); border: 1px solid var(--border);
+}
+.sb-summary.sb-alarm { background: rgba(248,81,73,.09); border-color: rgba(248,81,73,.35); }
+.sb-table { font-variant-numeric: tabular-nums; }
+.sb-held { background: rgba(248,81,73,.06); }
+.sb-tag {
+  margin-left: 6px; font-size: 11px; padding: 1px 6px; border-radius: 5px;
+  background: rgba(248,81,73,.15); color: var(--red);
+}
+.corr-same { color: var(--red); font-weight: 700; }
+.corr-high { color: var(--amber); font-weight: 600; }
+.corr-neg { color: var(--green); }
+.sb-caveat { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin-top: 8px; }
+
 /* ---- Phase 25: portfolio chat ---- */
 .chat-wrap { display: flex; flex-direction: column; gap: 14px; }
 .chat-suggestions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

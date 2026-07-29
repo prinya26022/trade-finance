@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { getHistory, getTickerChanges, getWatchlist, getPortfolio, getInvestigation, getTimeline, getThesis, getInvalidation, getDecisions } from "@/lib/api";
-import type { Analysis, ChangeReport, WatchlistItem, Portfolio, EdgePosition, Investigation, Timeline, Thesis, InvalidationCheck, Decision } from "@/lib/types";
+import { getHistory, getTickerChanges, getWatchlist, getPortfolio, getInvestigation, getTimeline, getThesis, getInvalidation, getDecisions, getExpectations } from "@/lib/api";
+import type { Analysis, ChangeReport, WatchlistItem, Portfolio, EdgePosition, Investigation, Timeline, Thesis, InvalidationCheck, Decision, ExpectationCheck, ExpectationsResponse } from "@/lib/types";
 import TickerDetail from "./detail";
 
 // ดึงสดทุกครั้ง (เหมือนหน้าแรก) — ไม่ cache
@@ -23,11 +23,12 @@ export default async function TickerPage({
   let thesis: Thesis | null = null;
   let invalidation: InvalidationCheck | null = null;
   let decisions: Decision[] = [];
+  let expectations: ExpectationCheck[] = [];
   let error: string | null = null;
   try {
-    const [h, c, watchlist, portfolio, inv, tl, th, iv, dec]: [
+    const [h, c, watchlist, portfolio, inv, tl, th, iv, dec, exp]: [
       Analysis[], ChangeReport, WatchlistItem[], Portfolio, Investigation | null, Timeline | null,
-      Thesis | null, InvalidationCheck, Decision[]
+      Thesis | null, InvalidationCheck, Decision[], ExpectationsResponse
     ] = await Promise.all([
       getHistory(ticker),
       getTickerChanges(ticker),
@@ -38,6 +39,7 @@ export default async function TickerPage({
       getThesis(ticker),
       getInvalidation(ticker),
       getDecisions(ticker),
+      getExpectations(ticker),
     ]);
     history = h;
     change = c;
@@ -48,6 +50,7 @@ export default async function TickerPage({
     thesis = th;
     invalidation = iv;
     decisions = dec;
+    expectations = exp.expectations;
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
@@ -76,6 +79,7 @@ export default async function TickerPage({
           thesis={thesis}
           invalidation={invalidation}
           decisions={decisions}
+          expectations={expectations}
         />
       )}
 

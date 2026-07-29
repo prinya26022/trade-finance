@@ -327,13 +327,76 @@ export type MacroResponse = {
 // *คุณ* กำหนดเอง ไม่ใช่เครื่องเดา
 export type InvalidationRule = { metric: string; op: "<" | "<=" | ">" | ">=" | "==" | "!="; value: number; note: string };
 
+// Phase 30: "เรื่องเล่าที่รอพิสูจน์" — ข้ออ้างจากบทวิเคราะห์/คลิป (เช่น "Bedrock จะดัน AWS")
+// ที่ถูกบังคับให้แปลงเป็น เมตริก + เป้า + เส้นตาย ก่อนถึงจะเก็บได้ ข้ออ้างที่ไม่มีวันหมดอายุ =
+// ไม่มีวันผิด = ไม่ใช่ thesis (นั่นคือสิ่งที่ฟีเจอร์นี้ตั้งใจกรองออก)
+export type Expectation = {
+  claim: string;
+  metric: string;
+  op: InvalidationRule["op"];
+  value: number;
+  by: string;       // YYYY-MM-DD
+  source: string;   // มาจากไหน — ไว้ย้อนดูว่าแหล่งไหนพูดถูกบ่อย
+  note: string;
+};
+
+export type ExpectationStatus = "hit" | "pending" | "missed" | "unmeasurable";
+
+export type ExpectationCheck = {
+  claim: string;
+  metric: string;
+  target: string;   // "Revenue CAGR >= 20"
+  actual: string;   // "11.7 (FY2026)" หรือ "—"
+  value: number | null;
+  period: string | null;
+  by: string;
+  days_left: number;
+  status: ExpectationStatus;
+  status_label: string;
+  source: string;
+  note: string;
+  severity: "warn" | "info";
+};
+
+export type ExpectationsResponse = { ticker: string; expectations: ExpectationCheck[]; note: string };
+
 export type Thesis = {
   ticker: string;
   thesis: string;
   invalidation: InvalidationRule[];
+  expectations: Expectation[];
   fair_value: number | null;
   created_at: string;
   updated_at: string;
+};
+
+// Phase 30: ถือเดิมพันเดียวกันกี่ชั้น — correlation ของผลตอบแทนรายวัน (วัดจริง ไม่ใช่ความเห็น)
+export type CorrelationPair = {
+  a: string;
+  b: string;
+  corr: Record<string, number | null>;   // {"90d": 0.74, "1y": 0.71}
+  days: Record<string, number>;
+  primary: number;
+  note: string;
+  high: boolean;
+  both_held: boolean;                    // ถืออยู่จริงทั้งคู่ = เคสที่ต้องเตือนแรงสุด
+  combined_weight: number | null;        // % ของพอร์ตที่คู่นี้กินรวมกัน
+};
+
+export type CorrelationResponse = {
+  tickers: string[];
+  pairs: CorrelationPair[];
+  high_pairs: CorrelationPair[];
+  summary: {
+    n_tickers: number;
+    n_pairs: number;
+    n_high: number;
+    n_high_held: number;
+    threshold: number;
+    held_weight_in_high: number;
+  };
+  weights: Record<string, number>;
+  caveat: string;
 };
 
 export type InvalidationBreach = { type: string; metric: string; detail: string; severity: "alert" | "warn" };

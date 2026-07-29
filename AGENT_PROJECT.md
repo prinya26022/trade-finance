@@ -732,6 +732,48 @@ not vibes.
   Suite 248/248, tsc + next build clean. Verified live via SSR: dashboard renders SPCX as
   "3.0/8 พื้นฐานล้วน" while BTC stays "— ประเมินไม่ได้", and the ticker page shows the caution block.
 
+## Phase 30 -- turning other people's stock narratives into things that can be wrong
+DONE. Trigger: brought me a list of claims from someone's analysis (AMZN good because AWS/Bedrock +
+"if Claude IPOs Amazon must pump", TSMC "can't lose money", MSFT "P/E very low", META "declining, no
+product", NVDA good because OpenAI buys from them, ASML best because EUV monopoly) and asked to make
+the tool dig like that -- but "filter the claims first". Checking them against data we already stored
+was the answer to both: 5 of 10 weren't wrong so much as UNFALSIFIABLE (no number would make the author
+admit error), and 2 of the checkable ones are contradicted by our own numbers (MSFT P/E 23.4, PEG 1.20,
+reverse-DCF gap +9.7pp -> 0.57/3, not "very low"; META is the HIGHEST health in the watchlist at
+10.2/11 with net margin 19.9->37.9% and gap -3.2pp -> 3.0/3, the opposite of "declining"). AMZN's story
+may be true while its price already embeds 36.1%/yr FCF growth vs 18.0% realistic -> 0/3. So the feature
+to build was NOT "make the agent write narratives like that" -- that machine would just manufacture
+reasons to buy. Two pieces instead:
+- **A. expectations** ("เรื่องเล่าที่รอพิสูจน์"): a 4th field on thesis next to invalidation rules and
+  fair value. Structure is deliberately the same shape as an invalidation rule (same _OPS) but the
+  intent is mirrored: invalidation = "if this becomes true, the thesis is dead"; expectation = "if the
+  story is true, this number MUST arrive by this date". A deadline is REQUIRED at validation time --
+  a claim with no expiry is a claim that can never be wrong, which is exactly what this filters out.
+  Four states: hit / pending (not-yet is NOT a failure) / missed (deadline passed, still short ->
+  warn, and warn only: a dead story is not a sell signal, invalidation covers that) / unmeasurable
+  (metric absent from the filings -- say so, never guess). Each row keeps `source` so it's possible to
+  ask later which pundit was actually right. Deterministic, no LLM.
+- **B. correlation** ("ถือเดิมพันเดียวกันกี่ชั้น"): the four names being pitched are one chain --
+  ASML -> TSM -> NVDA -> AMZN is a single AI-capex bet in four layers, and nothing in the tool said so.
+  src/agent/correlation.py measures Pearson correlation of DAILY RETURNS (not prices -- two names that
+  merely trend up would show fake-high correlation) over 90d/1y, from yfinance closes cached 12h.
+  Pairs are flagged at >=0.7, escalated when BOTH names are actually held (reports their combined
+  portfolio weight). Ships with a caveat printed alongside the numbers: correlation is unstable and
+  jumps toward 1 in a crash, i.e. it is a FLOOR on concentration risk, not a ceiling. `extra=` lets a
+  ticker be tested against the portfolio without adding it to the watchlist (no daily-quota cost).
+- New endpoints GET /api/expectations/{ticker} and GET /api/correlation (both LLM-free); thesis PUT
+  gained `expectations`. UI: expectations editor + status rows in thesis-panel with an amber banner for
+  missed ones; a SameBet panel on /portfolio that loads on click (a 1y price pull per ticker is too
+  slow to fire on every page view).
+- 23 new offline tests (12 expectations incl. deadline/metric validation and all four states, 11
+  correlation incl. returns-not-prices, minimum-overlap refusal, held-pair weighting, sort order,
+  caveat always present). Suite 271/271, tsc + next build clean. Verified live: all four expectation
+  states render (temporarily written into DUOL's thesis, then restored byte-for-byte), and the real
+  correlation run surfaced ASML~TSM at 0.74 (90d) -- the highest pair in the whole list.
+- Live-data finding worth keeping: the watchlist now contains **TSMC**, which is not a Yahoo symbol
+  (the correct one is TSM) -- it silently returns no data, so it can never be analyzed AND it hid the
+  single most important correlation pair until TSM was passed in via `extra`.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

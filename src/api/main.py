@@ -27,7 +27,8 @@ from src.agent.timeline import build_timeline
 from src.agent.timeline_store import get_narrative
 from src.agent.screener import screen
 from src.agent.chat import ask as ask_chat
-from src.agent.invalidation import check_invalidation
+from src.agent.invalidation import check_invalidation, check_expectations
+from src.agent.correlation import portfolio_correlation
 from src.macro.radar import dashboard as macro_dashboard
 from src.macro.geonews import fetch_geopolitical
 from src.macro.altseason import eth_btc_momentum
@@ -81,10 +82,21 @@ class InvalidationRule(BaseModel):
     note: str = ""
 
 
+class Expectation(BaseModel):
+    claim: str          # "Bedrock ดัน AWS จริง"
+    metric: str         # เมตริกที่จะพิสูจน์ (ต้องมีในงบ)
+    op: str
+    value: float
+    by: str             # เส้นตาย YYYY-MM-DD — บังคับ (ข้ออ้างที่ไม่มีวันหมดอายุ = ไม่มีวันผิด)
+    source: str = ""    # มาจากไหน (คลิป/โพสต์/บทวิเคราะห์)
+    note: str = ""
+
+
 class ThesisSet(BaseModel):
     thesis: str
     invalidation: list[InvalidationRule] = []
     fair_value: float | None = None
+    expectations: list[Expectation] = []
 
 
 class InvestigateStart(BaseModel):
@@ -331,6 +343,7 @@ def put_ticker_thesis(ticker: str, body: ThesisSet):
             body.thesis,
             invalidation=[r.model_dump() for r in body.invalidation],
             fair_value=body.fair_value,
+            expectations=[e.model_dump() for e in body.expectations],
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -348,6 +361,26 @@ def get_ticker_invalidation(ticker: str):
     """เทียบ invalidation rules ของ ticker กับตัวเลขงบล่าสุดที่บันทึกแล้ว (deterministic ไม่เรียก
     LLM) -> breaches ว่าง = thesis ยังอยู่ครบ. ดู src/agent/invalidation.py สำหรับตรรกะเต็ม."""
     return check_invalidation(ticker.upper())
+
+
+# ---- Phase 30 ----
+
+@app.get("/api/expectations/{ticker}")
+def get_ticker_expectations(ticker: str):
+    """สถานะ 'เรื่องเล่าที่รอพิสูจน์' ของ ticker (deterministic ไม่เรียก LLM): เข้าเป้า/ยังรอ/
+    เลยเส้นตายแล้วไม่ถึง/วัดไม่ได้. คนละทิศกับ invalidation — อันนั้นบอกว่าถึงเวลาออกหรือยัง
+    อันนี้บอกว่าเหตุผลที่ซื้อตอนแรกมันจริงไหม."""
+    return check_expectations(ticker.upper())
+
+
+@app.get("/api/correlation")
+def get_correlation(extra: str = ""):
+    """ถือเดิมพันเดียวกันกี่ชั้น — correlation ของผลตอบแทนรายวันระหว่างของใน watchlist
+    (ไม่รวมที่แช่แข็ง) + น้ำหนักพอร์ตจริง. ไม่เรียก LLM. ดึงราคาจาก yfinance (cache 12 ชม.)
+    จึงช้าในรอบแรกของวัน. extra = ticker นอก watchlist คั่นด้วย comma (เช่น 'TSM,ASML')
+    ไว้ลองว่าถ้าซื้อเพิ่มจะซ้ำกับของที่มีอยู่ไหม โดยไม่ต้องเพิ่มเข้า watchlist (ไม่กินโควตารายวัน)."""
+    tickers = [t.strip().upper() for t in extra.split(",") if t.strip()]
+    return portfolio_correlation(tickers)
 
 
 # ---- decision journal (Phase 27) ----

@@ -1,6 +1,6 @@
 "use client";
 
-import type { Analysis, ChangeReport, WatchlistItem, EdgePosition, Investigation, Timeline, Thesis, InvalidationCheck, Decision } from "@/lib/types";
+import type { Analysis, ChangeReport, WatchlistItem, EdgePosition, Investigation, Timeline, Thesis, InvalidationCheck, Decision, ExpectationCheck } from "@/lib/types";
 import { GlossaryText, Tip, BADGES } from "@/lib/glossary";
 import { resolveHealth } from "@/lib/health";
 import { fySeries, latestValue, fmt } from "@/lib/facts";
@@ -60,6 +60,7 @@ export default function TickerDetail({
   thesis,
   invalidation,
   decisions,
+  expectations,
 }: {
   ticker: string;
   history: Analysis[];
@@ -71,6 +72,7 @@ export default function TickerDetail({
   thesis?: Thesis | null;
   invalidation?: InvalidationCheck | null;
   decisions?: Decision[];
+  expectations?: ExpectationCheck[];
 }) {
   const a = history[0]; // ล่าสุด
   const s = a.summary;
@@ -161,7 +163,12 @@ export default function TickerDetail({
 
       {/* ---- Phase 27: thesis + invalidation banner (ระบบเตือนขาย) + decision journal ----
           อยู่ก่อน health breakdown ตั้งใจ: นี่คือส่วนที่ตอบ "ควรทำอะไรต่อ" ไม่ใช่แค่ "ตอนนี้เป็นไง" */}
-      <ThesisPanel ticker={ticker} thesis={thesis ?? null} invalidation={invalidation ?? null} />
+      <ThesisPanel
+        ticker={ticker}
+        thesis={thesis ?? null}
+        invalidation={invalidation ?? null}
+        expectations={expectations ?? []}
+      />
       <DecisionLog ticker={ticker} decisions={decisions ?? []} />
 
       {/* ---- Friendly verdict ---- */}

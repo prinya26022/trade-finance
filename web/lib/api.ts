@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, InvestigationJob, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, InvestigationJob, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status, Expectation, ExpectationsResponse, CorrelationResponse } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -186,7 +186,7 @@ export async function getThesis(ticker: string): Promise<Thesis | null> {
 
 export async function setThesis(
   ticker: string,
-  body: { thesis: string; invalidation: InvalidationRule[]; fair_value: number | null }
+  body: { thesis: string; invalidation: InvalidationRule[]; fair_value: number | null; expectations: Expectation[] }
 ): Promise<Thesis> {
   const res = await fetch(`${API_BASE}/api/thesis/${ticker}`, {
     method: "PUT",
@@ -204,6 +204,22 @@ export async function deleteThesis(ticker: string): Promise<void> {
 
 export async function getInvalidation(ticker: string): Promise<InvalidationCheck> {
   const res = await fetch(`${API_BASE}/api/invalidation/${ticker}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// --- Phase 30: เรื่องเล่าที่รอพิสูจน์ + เดิมพันซ้ำ (ทั้งคู่ deterministic ไม่กินโควตา LLM) ---
+export async function getExpectations(ticker: string): Promise<ExpectationsResponse> {
+  const res = await fetch(`${API_BASE}/api/expectations/${ticker}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// extra = ticker นอก watchlist (คั่น comma) ไว้ลองว่าถ้าซื้อเพิ่มจะซ้ำกับของที่มีไหม
+// ช้าในรอบแรกของวัน (ดึงราคา 1 ปีต่อ ticker แล้ว cache 12 ชม.)
+export async function getCorrelation(extra: string[] = []): Promise<CorrelationResponse> {
+  const q = extra.length ? `?extra=${encodeURIComponent(extra.join(","))}` : "";
+  const res = await fetch(`${API_BASE}/api/correlation${q}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }

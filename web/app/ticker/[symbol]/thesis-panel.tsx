@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Thesis, InvalidationCheck, InvalidationRule } from "@/lib/types";
+import type { Thesis, InvalidationCheck, InvalidationRule, Expectation, ExpectationCheck } from "@/lib/types";
 import { setThesis, deleteThesis } from "@/lib/api";
 
 const OPS: InvalidationRule["op"][] = ["<", "<=", ">", ">=", "==", "!="];
@@ -15,14 +15,30 @@ function emptyRule(): InvalidationRule {
   return { metric: "", op: "<", value: 0, note: "" };
 }
 
+// Phase 30: เส้นตายเริ่มต้น = อีก 1 ปี (ต้องมีเสมอ — ข้ออ้างที่ไม่มีวันหมดอายุคือข้ออ้างที่ไม่มีวันผิด)
+function emptyExpectation(): Expectation {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + 1);
+  return { claim: "", metric: "", op: ">=", value: 0, by: d.toISOString().slice(0, 10), source: "", note: "" };
+}
+
+const STATUS_STYLE: Record<ExpectationCheck["status"], { icon: string; cls: string }> = {
+  hit: { icon: "✅", cls: "exp-hit" },
+  pending: { icon: "⏳", cls: "exp-pending" },
+  missed: { icon: "❌", cls: "exp-missed" },
+  unmeasurable: { icon: "❔", cls: "exp-na" },
+};
+
 export default function ThesisPanel({
   ticker,
   thesis,
   invalidation,
+  expectations,
 }: {
   ticker: string;
   thesis: Thesis | null;
   invalidation: InvalidationCheck | null;
+  expectations: ExpectationCheck[];
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -32,14 +48,17 @@ export default function ThesisPanel({
   const [text, setText] = useState(thesis?.thesis ?? "");
   const [fairValue, setFairValue] = useState(thesis?.fair_value != null ? String(thesis.fair_value) : "");
   const [rules, setRules] = useState<InvalidationRule[]>(thesis?.invalidation.length ? thesis.invalidation : [emptyRule()]);
+  const [expects, setExpects] = useState<Expectation[]>(thesis?.expectations ?? []);
 
   const breaches = invalidation?.breaches ?? [];
   const hasBreach = breaches.length > 0;
+  const missed = expectations.filter((e) => e.status === "missed");
 
   function startEdit() {
     setText(thesis?.thesis ?? "");
     setFairValue(thesis?.fair_value != null ? String(thesis.fair_value) : "");
     setRules(thesis?.invalidation.length ? thesis.invalidation : [emptyRule()]);
+    setExpects(thesis?.expectations ?? []);
     setErr(null);
     setEditing(true);
   }
@@ -55,6 +74,10 @@ export default function ThesisPanel({
         thesis: text,
         invalidation: cleanRules,
         fair_value: fairValue.trim() === "" ? null : Number(fairValue),
+        // ทิ้งแถวที่ยังกรอกไม่ครบ (claim/metric ว่าง) แทนที่จะให้ backend โยน 400 ใส่หน้า
+        expectations: expects
+          .filter((e) => e.claim.trim() !== "" && e.metric.trim() !== "")
+          .map((e) => ({ ...e, value: Number(e.value) })),
       });
       setEditing(false);
       router.refresh();
@@ -90,6 +113,21 @@ export default function ThesisPanel({
         </div>
       )}
 
+      {/* เลยเส้นตายแล้วไม่ถึงเป้า = เหตุผลที่ซื้อตอนแรกไม่จริง — เตือน แต่คนละระดับกับ breach
+          (breach = ธุรกิจแตะเงื่อนไขออก, missed = เรื่องเล่าไม่เกิด ต้องกลับไปทบทวนว่ายังถือทำไม) */}
+      {missed.length > 0 && !editing && (
+        <div className="exp-banner">
+          <div className="exp-banner-title">🔭 เรื่องที่รอไว้ ไม่เกิดตามเส้นตาย ({missed.length})</div>
+          <ul className="inval-banner-list">
+            {missed.map((e, i) => (
+              <li key={i} className="exp-banner-item">
+                {e.claim} — ต้องเห็น {e.target} ภายใน {e.by} แต่ได้ {e.actual}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {!editing ? (
         <>
           {thesis ? (
@@ -114,10 +152,42 @@ export default function ThesisPanel({
                   ))}
                 </ul>
               )}
+
+              {/* ---- Phase 30: เรื่องเล่าที่รอพิสูจน์ ---- */}
+              {expectations.length > 0 && (
+                <div className="exp-block">
+                  <div className="exp-head">
+                    🔭 รอพิสูจน์
+                    <span className="muted-sm">
+                      {" "}— ข้ออ้างที่ต้องมีตัวเลขมายืนยันภายในเส้นตาย ไม่งั้นถือว่าเป็นแค่เรื่องเล่า
+                    </span>
+                  </div>
+                  {expectations.map((e, i) => {
+                    const st = STATUS_STYLE[e.status];
+                    return (
+                      <div key={i} className={`exp-row ${st.cls}`}>
+                        <div className="exp-claim">
+                          <span className="exp-icon">{st.icon}</span> {e.claim}
+                          {e.source && <span className="muted-sm"> · ที่มา: {e.source}</span>}
+                        </div>
+                        <div className="exp-detail">
+                          ต้องเห็น <code>{e.target}</code> ภายใน {e.by} · ตอนนี้ <strong>{e.actual}</strong>
+                          {" · "}
+                          <span className="exp-status">{e.status_label}</span>
+                          {e.status === "pending" && <span className="muted-sm"> (เหลือ {e.days_left} วัน)</span>}
+                        </div>
+                        {e.note && <div className="muted-sm">{e.note}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ) : (
             <div className="thesis-box thesis-empty">
-              <span className="muted">ยังไม่ได้ตั้ง thesis — ไม่มีเงื่อนไขออกที่เช็คได้สำหรับ {ticker}</span>
+              <span className="muted">
+                ยังไม่ได้ตั้ง thesis — ไม่มีเงื่อนไขออก และไม่มีข้ออ้างที่รอพิสูจน์สำหรับ {ticker}
+              </span>
               <button className="btn-sm" onClick={startEdit}>+ ตั้ง thesis</button>
             </div>
           )}
@@ -180,6 +250,68 @@ export default function ThesisPanel({
             </div>
           ))}
           <button className="btn-sm" onClick={() => setRules([...rules, emptyRule()])} type="button">+ เพิ่ม rule</button>
+
+          {/* ---- Phase 30: แปลงข้ออ้างจากบทวิเคราะห์/คลิป ให้กลายเป็นสิ่งที่ผิดได้ ---- */}
+          <div style={{ marginTop: 14 }}>
+            <span className="muted-sm">
+              🔭 รอพิสูจน์ — เอาข้ออ้างที่ได้ยินมา (&ldquo;สินค้าใหม่จะดัน…&rdquo;) มาแปลงเป็น เมตริก + เป้า + เส้นตาย
+              ถ้าแปลงไม่ได้ แปลว่ามันเป็นข้ออ้างที่ไม่มีวันผิด ไม่ควรเอามาใช้ตัดสินใจ
+            </span>
+          </div>
+          {expects.map((e, i) => (
+            <div key={i} className="exp-edit">
+              <div className="rule-row">
+                <input
+                  className="input"
+                  style={{ flex: 2 }}
+                  placeholder='ข้ออ้าง เช่น "Bedrock จะดัน AWS จริง"'
+                  value={e.claim}
+                  onChange={(ev) => setExpects(expects.map((x, j) => (j === i ? { ...x, claim: ev.target.value } : x)))}
+                />
+                <button className="chip-x" onClick={() => setExpects(expects.filter((_, j) => j !== i))} type="button">✕</button>
+              </div>
+              <div className="rule-row">
+                <input
+                  className="input"
+                  placeholder="metric ที่จะวัด เช่น Revenue CAGR"
+                  value={e.metric}
+                  onChange={(ev) => setExpects(expects.map((x, j) => (j === i ? { ...x, metric: ev.target.value } : x)))}
+                />
+                <select
+                  className="input"
+                  style={{ width: 70 }}
+                  value={e.op}
+                  onChange={(ev) => setExpects(expects.map((x, j) => (j === i ? { ...x, op: ev.target.value as Expectation["op"] } : x)))}
+                >
+                  {OPS.map((op) => (
+                    <option key={op} value={op}>{op}</option>
+                  ))}
+                </select>
+                <input
+                  className="input"
+                  style={{ width: 90 }}
+                  placeholder="เป้า"
+                  value={e.value}
+                  onChange={(ev) => setExpects(expects.map((x, j) => (j === i ? { ...x, value: Number(ev.target.value) } : x)))}
+                  inputMode="decimal"
+                />
+                <input
+                  className="input"
+                  style={{ width: 140 }}
+                  type="date"
+                  value={e.by}
+                  onChange={(ev) => setExpects(expects.map((x, j) => (j === i ? { ...x, by: ev.target.value } : x)))}
+                />
+                <input
+                  className="input"
+                  placeholder="ที่มา (คลิป/โพสต์/บทวิเคราะห์)"
+                  value={e.source}
+                  onChange={(ev) => setExpects(expects.map((x, j) => (j === i ? { ...x, source: ev.target.value } : x)))}
+                />
+              </div>
+            </div>
+          ))}
+          <button className="btn-sm" onClick={() => setExpects([...expects, emptyExpectation()])} type="button">+ เพิ่มข้ออ้างที่รอพิสูจน์</button>
 
           {err && <div className="notice" style={{ borderColor: "var(--red)", color: "var(--red)" }}>{err}</div>}
 
