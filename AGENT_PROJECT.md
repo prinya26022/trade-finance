@@ -692,6 +692,46 @@ Revenue -> get_event_timeline -> get_reverse_dcf -> get_recent_news and conclude
 only 7.5%/yr FCF growth -- it also flagged on its own that the 39.9% net margin looks tax/one-off driven
 rather than core. stopped="max_steps" (it used all 6), which the UI labels "ชนเพดาน".
 
+## Phase 29 -- "ประเมินราคาไม่ได้" != "ประเมินอะไรไม่ได้เลย" (partial health for cash-burners)
+DONE. Found by looking at how the tool is ACTUALLY used rather than at the roadmap: of 12 watchlist
+names, SPCX is analyzed every day (spending quota) yet the one number the user actually reads -- health
+-- was blank forever, because reverse-DCF needs positive FCF and SPCX burns cash, and the old rule
+excluded the WHOLE score whenever either leg failed. So the tool went silent exactly on the
+"fast-growing, not yet profitable" names a beginner needs most help with (DUOL itself was once one).
+This also answers the crypto question honestly: BTC is blank for a *different* reason -- 0/8 fundamental
+criteria are computable, i.e. the framework assumes a company -- so crypto needs a whole parallel scoring
+framework, not a data source, and it's the only crypto ticker and currently frozen. Deferred on evidence,
+not vibes.
+- health.py: fundamental-gate failure still => excluded (crypto, thin data -- nothing is trustworthy).
+  Valuation-only failure => NEW partial result: score = the fundamental leg, max = PARTIAL_MAX (8),
+  tier from the /8 scale, partial=True, plus a reason line stating in words that it can't be compared
+  against /11. Deliberately NOT normalized up to /11 -- that would invent a price score that doesn't
+  exist. Breach penalty still applies (thesis breakage is independent of whether price is computable).
+- The scale-mixing hazard is the real design work here, since analyses.health_score is a silent
+  "comparison arena" for the sparkline, Phase 20.3 health-at-entry, and changes.py health_jump. New
+  health.comparable_score() returns None for partial/excluded, and history/store.py writes THAT to the
+  column (the full number still lives in health_reasons_json for the UI). Result: every existing
+  consumer keeps behaving exactly as before instead of silently averaging /8 with /11. changes.py
+  additionally requires ch["max"] == ph["max"] before reporting a health jump -- otherwise a company
+  turning FCF-positive (partial -> full) would be announced as a score surge when nothing changed but
+  the unit.
+- UI: HealthMeter shows the denominator and the label "พื้นฐานล้วน" only when partial (a bare "3.0"
+  would read as 3.0/11 -- this is what keeps "a number beats a blank" from becoming "a number that
+  fools you"). HealthBreakdown no longer bails out when the valuation leg is missing: it renders the
+  fundamental leg normally, the price leg as a striped "—/3" (empty, NOT zero), and an amber caution
+  saying explicitly that this does not mean cheap, it means unanswerable.
+- backfill_health.py gained --only-excluded so recomputing history touches only previously-excluded
+  rows: a full re-run also shifts already-scored rows by ±0.1 because it applies TODAY's risk-free rate
+  to every historical row (documented caveat), and that noise shouldn't be written into history as a
+  side effect of shipping this. Applied: 15 rows, all SPCX (-> 3.0/8 weak) plus one MA day that had a
+  transient Market-Cap fetch failure (-> 8.0/8 strong).
+- Screener deliberately still skips these names: it exists to find "strong AND cheap", and "cheap" is
+  exactly the part that can't be computed here.
+- 4 new health tests (partial shape, comparable_score gating, breach penalty on partial, gate failure
+  still excluded) + the old "excluded when valuation unresolvable" test rewritten to the new intent.
+  Suite 248/248, tsc + next build clean. Verified live via SSR: dashboard renders SPCX as
+  "3.0/8 พื้นฐานล้วน" while BTC stays "— ประเมินไม่ได้", and the ticker page shows the caution block.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

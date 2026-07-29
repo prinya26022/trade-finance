@@ -36,6 +36,7 @@ from src.agent.valuation import reverse_dcf, capm_wacc, FALLBACK_RISK_FREE_PCT
 
 DATA_GATE_MIN_CRITERIA = 6   # ต้องคำนวณได้อย่างน้อย 6/8 เกณฑ์ ไม่งั้น disqualify ทั้งตัว
 TOTAL_MAX = 11.0             # Fundamental(8) + Valuation(3) — sentiment ไม่รวมแล้ว (19.3.1)
+PARTIAL_MAX = 8.0            # Phase 29: พื้นฐานล้วน (ไม่มีขาราคา) — ดู compute_health()
 
 
 def tier_from_score(score: float, max_score: float = TOTAL_MAX) -> tuple[str, str]:
@@ -333,14 +334,47 @@ def compute_health(summary, breaches: list[dict] | None = None, facts=None,
     valuation = _valuation_score(facts, risk_free_pct)
     sentiment_pts, sentiment_reason = _sentiment_points(summary)
 
-    if fundamental["disqualified"] or valuation["excluded"]:
-        reason = fundamental["reason"] if fundamental["disqualified"] else valuation["reason"]
+    # พื้นฐานไม่ผ่าน data gate = ประเมินอะไรไม่ได้เลยจริงๆ (เช่น crypto: คำนวณได้ 0/8) -> excluded
+    if fundamental["disqualified"]:
         return {
             "score": None, "max": TOTAL_MAX, "tier": "excluded", "label": "ประเมินไม่ได้",
-            "reasons": [reason],
+            "partial": False, "reasons": [fundamental["reason"]],
             "fundamental": fundamental, "valuation": valuation,
             "components": {"strength": fundamental["score"], "valuation": valuation["score"],
                             "sentiment": sentiment_pts, "breach_penalty": None},
+        }
+
+    # Phase 29: พื้นฐานคำนวณได้ แต่ขาราคาไม่ได้ (ส่วนใหญ่ = FCF ฐานติดลบ -> reverse-DCF ใช้ไม่ได้
+    # กับบริษัทที่ยัง burn cash) — เดิมเคสนี้ถูกตัดทิ้งทั้งก้อนเป็น excluded ทำให้ SPCX ถูกวิเคราะห์
+    # ทุกวันแต่ 'ตัวเลขที่ผู้ใช้อ่านจริง' ว่างเปล่าตลอด ทั้งที่ฝั่งพื้นฐาน /8 คำนวณได้ปกติ และกลุ่ม
+    # 'โตเร็วแต่ยังไม่กำไร' คือกลุ่มที่มือใหม่ต้องการตัวช่วยที่สุด (DUOL เองก็เคยอยู่สถานะนี้).
+    #
+    # คืนคะแนน 'พื้นฐานล้วน /8' แทน โดย **ไม่** normalize ขึ้นเป็น /11 (นั่นคือการเสกคะแนนราคา
+    # ที่ไม่มีอยู่จริง = fake precision) — max=8 ติดไปกับผลลัพธ์ และ partial=True ให้ทุกฝั่งที่
+    # 'เปรียบเทียบ/จัดอันดับ/ลากกราฟ' รู้ว่าห้ามเอาไปเทียบกับ /11 ตรงๆ (ดู comparable_score()
+    # ที่ตัดค่าพวกนี้ออกจากคอลัมน์ health_score ก่อนลง DB)
+    if valuation["excluded"]:
+        score = fundamental["score"]
+        reasons = [
+            fundamental["reason"],
+            f"ราคา: {valuation['reason']}",
+            f"คะแนนนี้เป็น 'พื้นฐานล้วน' เต็ม {PARTIAL_MAX:.0f} (ไม่มีขาราคา) — เทียบกับตัวที่ได้เต็ม "
+            f"{TOTAL_MAX:.0f} ตรงๆ ไม่ได้",
+            sentiment_reason,
+        ]
+        has_breach = any(b.get("severity") == "alert" for b in (breaches or []))
+        breach_penalty = -3.0 if has_breach else 0.0
+        if has_breach:
+            score += breach_penalty
+            reasons.append("เงื่อนไขออกโดนแตะ (−3)")
+        score = round(max(0.0, min(PARTIAL_MAX, score)), 1)
+        tier, label = tier_from_score(score, PARTIAL_MAX)
+        return {
+            "score": score, "max": PARTIAL_MAX, "tier": tier, "label": label,
+            "partial": True, "reasons": reasons,
+            "fundamental": fundamental, "valuation": valuation,
+            "components": {"strength": fundamental["score"], "valuation": None,
+                            "sentiment": sentiment_pts, "breach_penalty": breach_penalty},
         }
 
     # sentiment_reason ยังโชว์ให้เห็นมุมมองข่าววันนี้ (โปร่งใส) แต่ sentiment_pts ไม่บวกเข้า score
@@ -360,7 +394,22 @@ def compute_health(summary, breaches: list[dict] | None = None, facts=None,
 
     return {
         "score": rounded, "max": TOTAL_MAX, "tier": tier, "label": label, "reasons": reasons,
+        "partial": False,
         "fundamental": fundamental, "valuation": valuation,
         "components": {"strength": fundamental["score"], "valuation": valuation["score"],
                         "sentiment": sentiment_pts, "breach_penalty": breach_penalty},
     }
+
+
+def comparable_score(health: dict | None) -> float | None:
+    """คะแนนที่เอาไป 'เทียบข้ามตัว/ข้ามเวลา' ได้จริง — None ถ้าเป็น partial (Phase 29) หรือ excluded.
+
+    เหตุผลที่ต้องมีตัวกรองนี้แทนที่จะเก็บดิบๆ: คอลัมน์ analyses.health_score ถูกใช้เป็น 'สนาม
+    เปรียบเทียบ' หลายที่ (sparkline รายวัน, health-at-entry ของ Phase 20.3, changes.py health_jump)
+    ซึ่งทุกที่สมมติเงียบๆ ว่าทุกค่าอยู่บนสเกลเดียวกัน. ถ้าปล่อยคะแนน /8 ลงคอลัมน์เดียวกับ /11
+    กราฟจะกระโดดเองตอนบริษัทเริ่มมี FCF เป็นบวก (สเกลเปลี่ยน ไม่ใช่ธุรกิจเปลี่ยน) และการวัดว่า
+    'ซื้อตอน health สูงชนะ VT ไหม' จะปนคนละหน่วยกัน. คะแนน partial จึงอยู่ใน health JSON
+    (ให้ UI แสดงได้เต็มที่) แต่ไม่ลงคอลัมน์ตัวเลขที่ใช้เทียบ."""
+    if not health or health.get("partial"):
+        return None
+    return health.get("score")

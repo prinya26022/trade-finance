@@ -155,9 +155,13 @@ def _diff(cur: dict, prev: dict) -> list[dict]:
     # (แถวเก่าก่อน Phase 10/16 ไม่มี health หรือไม่มี components -> เงียบไว้ ไม่ crash; แถวที่
     # 'excluded' — Phase 18, ข้อมูลไม่พอ/ขาดทุน/crypto — score เป็น None ก็ต้อง guard เหมือนกัน
     # ไม่งั้น None - number ระเบิด)
+    # Phase 29: ต้องอยู่สเกลเดียวกันด้วย — คะแนน partial เป็น /8 (พื้นฐานล้วน, ไม่มีขาราคา) ส่วน
+    # ปกติเป็น /11 ถ้าไม่เช็ค max บริษัทที่เพิ่งพลิกมามี FCF เป็นบวก (partial -> เต็ม) จะถูกรายงาน
+    # ว่า 'คะแนนสุขภาพพุ่งขึ้น' ทั้งที่ธุรกิจไม่ได้เปลี่ยน — แค่หน่วยวัดเปลี่ยน
     ch, ph = cur.get("health"), prev.get("health")
     if (ch and ph and ch.get("components") and ph.get("components")
-            and ch.get("score") is not None and ph.get("score") is not None):
+            and ch.get("score") is not None and ph.get("score") is not None
+            and ch.get("max") == ph.get("max")):
         delta = ch["score"] - ph["score"]
         if abs(delta) >= HEALTH_JUMP_THRESHOLD:
             direction = "พุ่งขึ้น" if delta > 0 else "ร่วงลง"

@@ -18,7 +18,7 @@ from src.agent.health import (
     _normalize_facts, _criterion_roic_vs_wacc, _criterion_net_margin_level,
     _criterion_fcf_and_accruals, _criterion_revenue_growth, _criterion_leverage,
     _criterion_solvency, _criterion_margin_improving, _criterion_not_diluting,
-    DATA_GATE_MIN_CRITERIA,
+    DATA_GATE_MIN_CRITERIA, comparable_score,
 )
 
 RF = 4.0  # risk-free % คงที่สำหรับ test (ไม่พึ่ง network)
@@ -264,12 +264,53 @@ def test_compute_health_disqualified_when_fundamental_data_thin():
     assert h["tier"] == "excluded"
 
 
-def test_compute_health_excluded_when_valuation_unresolvable():
-    # fundamental ผ่าน data gate (8/8) แต่ FCF ติดลบ -> valuation excluded -> total ก็ excluded ด้วย
-    facts = _FULL_PASS_FACTS + [_fact("Market Cap", 1000.0), _fact("FCF Yield", -5.0)]
-    h = compute_health(_summary(), None, facts, RF)
-    assert h["score"] is None
+# ---- Phase 29: ประเมินราคาไม่ได้ (burn cash) != ประเมินอะไรไม่ได้เลย ----
+# เดิมเคสนี้ถูกตัดทั้งก้อนเป็น excluded -> หุ้นโตเร็วที่ยังไม่มี FCF (SPCX) ถูกวิเคราะห์ทุกวัน
+# แต่คะแนนที่ผู้ใช้อ่านว่างเปล่าตลอด. ตอนนี้คืน 'พื้นฐานล้วน /8' พร้อมธง partial
+
+def _burn_cash_facts():
+    """ผ่านเกณฑ์พื้นฐานครบ แต่ FCF ฐานติดลบ -> reverse-DCF ใช้ไม่ได้."""
+    return _FULL_PASS_FACTS + [_fact("Market Cap", 1000.0), _fact("FCF Yield", -5.0)]
+
+
+def test_partial_score_when_valuation_unresolvable():
+    h = compute_health(_summary(), None, _burn_cash_facts(), RF)
+
+    assert h["partial"] is True
+    assert h["score"] == h["fundamental"]["score"]     # = พื้นฐานล้วน ไม่มีขาราคาบวกเข้ามา
+    assert h["max"] == 8.0                             # ห้าม normalize ขึ้น /11 (= เสกคะแนนราคาปลอม)
+    assert h["tier"] != "excluded"
+    assert h["components"]["valuation"] is None
+    assert any("พื้นฐานล้วน" in r for r in h["reasons"])   # บอกผู้ใช้ตรงๆ ว่าเทียบกับ /11 ไม่ได้
+
+
+def test_partial_score_is_not_written_to_comparable_column():
+    """คะแนน /8 ต้องไม่ไหลลงคอลัมน์ที่ใช้เทียบข้ามตัว/ข้ามเวลา (sparkline, health-at-entry)."""
+    partial = compute_health(_summary(), None, _burn_cash_facts(), RF)
+    full = compute_health(_summary(), None,
+                          _FULL_PASS_FACTS + [_fact("Market Cap", 905.78), _fact("FCF Yield", 11.04)], RF)
+
+    assert comparable_score(partial) is None
+    assert comparable_score(full) == full["score"]
+    assert comparable_score(None) is None
+
+
+def test_partial_still_takes_breach_penalty_and_clamps_at_zero():
+    """เงื่อนไขออกโดนแตะเป็นเรื่องของ thesis ไม่เกี่ยวกับว่าประเมินราคาได้ไหม -> ต้องหักเหมือนกัน."""
+    breaches = [{"severity": "alert", "detail": "margin ต่ำกว่าเงื่อนไข"}]
+    h = compute_health(_summary(), breaches, _burn_cash_facts(), RF)
+    clean = compute_health(_summary(), None, _burn_cash_facts(), RF)
+
+    assert h["score"] == max(0.0, clean["score"] - 3.0)
+    assert 0.0 <= h["score"] <= 8.0
+
+
+def test_fundamental_gate_failure_still_excluded_even_though_partial_exists():
+    """crypto/ข้อมูลบาง = ประเมินไม่ได้จริงๆ ห้ามหลุดมาเป็น partial (พื้นฐานก็เชื่อไม่ได้)."""
+    h = compute_health(_summary(), None, [_fact("ROIC", 20.0)], RF)
     assert h["tier"] == "excluded"
+    assert h["score"] is None
+    assert h["partial"] is False
 
 
 def test_compute_health_crypto_like_facts_disqualified():

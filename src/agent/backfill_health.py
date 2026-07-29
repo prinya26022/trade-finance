@@ -19,8 +19,9 @@ breach_penalty ของแต่ละแถวเก่า 'คงสภาพ
 thesis เปลี่ยนไปแล้ว) — จึงอ่านจาก reasons เดิมว่าตอนนั้นโดน breach ไหม แล้วส่งต่อให้สูตรใหม่
 คำนวณ penalty ให้เหมือนเดิม.
 
-ใช้:  python -m src.agent.backfill_health          (dry-run, แค่ print diff ไม่เขียน DB)
-      python -m src.agent.backfill_health --apply  (เขียนจริง)
+ใช้:  python -m src.agent.backfill_health                          (dry-run, แค่ print diff ไม่เขียน DB)
+      python -m src.agent.backfill_health --apply                  (เขียนจริง ทุกแถว)
+      python -m src.agent.backfill_health --only-excluded --apply  (เฉพาะแถวที่เดิม excluded)
 """
 import sys
 from types import SimpleNamespace
@@ -40,9 +41,18 @@ def _fmt(score) -> str:
     return f"{score:.1f}" if score is not None else "excluded"
 
 
-def backfill(apply: bool = False) -> None:
+def backfill(apply: bool = False, only_excluded: bool = False) -> None:
+    """only_excluded (Phase 29): แตะเฉพาะแถวที่เดิมเป็น excluded (health_score เป็น null) เท่านั้น.
+
+    เหตุผล: การ recompute ทั้งตารางจะขยับคะแนนของแถวที่ 'มีคะแนนอยู่แล้ว' ไปด้วย ±0.1 เสมอ เพราะ
+    สคริปต์นี้ใช้ Rf *ปัจจุบัน* กับทุกแถว (ไม่มี snapshot Rf ย้อนหลัง — เขียนไว้ใน docstring บนสุด)
+    ซึ่งเป็นการเขียนประวัติทับด้วย noise ที่ไม่เกี่ยวกับสิ่งที่กำลังแก้. ตอนปล่อยกติกาใหม่ที่กระทบ
+    เฉพาะเคส excluded (เช่น partial /8 ของ Phase 29) ให้ใช้โหมดนี้ — แถวที่เคยมีคะแนนอยู่แล้ว
+    ไม่ควรขยับเพราะการ deploy ครั้งนี้."""
     risk_free_pct = get_risk_free_rate_pct()
     rows = all_rows()
+    if only_excluded:
+        rows = [r for r in rows if r.get("health_score") is None]
     changed = 0
     skipped = 0
     for row in rows:
@@ -70,4 +80,4 @@ def backfill(apply: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    backfill(apply="--apply" in sys.argv)
+    backfill(apply="--apply" in sys.argv, only_excluded="--only-excluded" in sys.argv)

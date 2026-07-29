@@ -9,11 +9,12 @@
 import type { Analysis, Change } from "./types";
 
 export type Health = {
-  score: number | null; // เดิม (fallback) เต็ม 10 หรือ Phase 18 เต็ม `max` — null = excluded (ข้อมูลไม่พอ/ขาดทุน/crypto)
-  max: number; // ตัวหารจริงของ score (10 fallback, 12 Phase 18) — ใช้คำนวณ % สำหรับ meter
+  score: number | null; // เดิม (fallback) เต็ม 10 หรือ Phase 18 เต็ม `max` — null = excluded (ข้อมูลไม่พอ/crypto)
+  max: number; // ตัวหารจริงของ score (10 fallback, 11 Phase 19.3.1, 8 ถ้า partial) — ใช้คำนวณ % สำหรับ meter
   tier: "strong" | "ok" | "weak" | "excluded"; // ไว้เลือกสี
   label: string; // ป้ายไทยสั้นๆ
   reasons: string[]; // ที่มาของคะแนน (โชว์ใน tooltip)
+  partial?: boolean; // Phase 29: คะแนนพื้นฐานล้วน /8 (ประเมินราคาไม่ได้) — ต้องโชว์ตัวหารให้เห็นเสมอ
 };
 
 const STRENGTH_PTS: Record<string, number> = { strong: 4, mixed: 2, weak: 0 };

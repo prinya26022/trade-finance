@@ -246,6 +246,10 @@ export type PersistedHealth = {
   tier: "strong" | "ok" | "weak" | "excluded";
   label: string;
   reasons: string[];
+  // Phase 29: true = คะแนน 'พื้นฐานล้วน' /8 (ประเมินราคาไม่ได้ เช่นบริษัทที่ยัง burn cash ->
+  // reverse-DCF ใช้ไม่ได้) — ห้ามเอาไปเทียบ/จัดอันดับกับคะแนนเต็ม /11 ตรงๆ. คอลัมน์
+  // analyses.health_score ของแถวพวกนี้เป็น null โดยตั้งใจ (sparkline/health-at-entry จึงข้ามไปเอง)
+  partial?: boolean;
   components?: HealthComponents;   // Phase 18+ (แถวเก่ากว่านั้นไม่มี -> breakdown ไม่ render)
   fundamental?: HealthFundamental; // Phase 18+
 };

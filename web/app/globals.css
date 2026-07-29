@@ -287,6 +287,17 @@ ul.list li { font-size: 13px; line-height: 1.4; }
   background: rgba(88,166,255,.1); border: 1px solid rgba(88,166,255,.25);
 }
 .bd-formula-pen { color: var(--red); }
+/* Phase 29: ขาราคาที่ประเมินไม่ได้ (บริษัทยัง burn cash) — จงใจให้ดู 'ว่าง' ไม่ใช่ 'ศูนย์คะแนน' */
+.bd-formula-na { color: var(--muted); }
+.bd-warn {
+  font-size: 12.5px; line-height: 1.6; margin: 0 0 14px; padding: 9px 12px; border-radius: 8px;
+  background: rgba(210,153,34,.09); border: 1px solid rgba(210,153,34,.28); color: var(--text);
+}
+.bd-leg-na .bd-leg-score, .bd-leg-na .bd-leg-name { color: var(--muted); }
+/* แถบลายทาง = 'ยังไม่มีคำตอบ' ต่างจากแถบว่างสีเดียวที่อ่านได้ว่า 'คะแนน 0' */
+.bd-leg-na .bd-bar { background: repeating-linear-gradient(90deg, var(--border) 0 5px, transparent 5px 10px); }
+.health-den { font-size: 11px; font-weight: 400; color: var(--muted); }
+.health-partial .health-num { color: var(--amber); }
 .bd-leg { margin-bottom: 12px; }
 .bd-leg-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
 .bd-leg-name { font-size: 13px; font-weight: 600; }

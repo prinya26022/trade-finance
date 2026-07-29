@@ -13,6 +13,8 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from datetime import datetime
 
+from src.agent.health import comparable_score
+
 DB_PATH = Path(__file__).parents[2] / "data" / "watchlist.db"
 
 
@@ -119,7 +121,7 @@ def save_analysis(summary, grounding: dict, facts=None, extraction: dict | None 
                 _facts_to_json(facts),                    # เก็บ facts ดิบ (อาจเป็น None ถ้าไม่ส่งมา)
                 extraction.get("accuracy") if extraction else None,
                 json.dumps(extraction, ensure_ascii=False) if extraction else None,
-                health.get("score") if health else None,
+                comparable_score(health),   # Phase 29: partial (/8) ไม่ลงคอลัมน์นี้ — ดู health.py
                 json.dumps(health, ensure_ascii=False) if health else None,
                 xbrl.get("accuracy") if xbrl else None,
                 json.dumps(xbrl, ensure_ascii=False) if xbrl else None,
@@ -221,5 +223,5 @@ def update_health(row_id: int, health: dict) -> None:
     with _connect() as conn:
         conn.execute(
             "UPDATE analyses SET health_score = ?, health_reasons_json = ? WHERE id = ?",
-            (health.get("score"), json.dumps(health, ensure_ascii=False), row_id),
+            (comparable_score(health), json.dumps(health, ensure_ascii=False), row_id),
         )

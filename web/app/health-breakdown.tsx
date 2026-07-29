@@ -120,10 +120,13 @@ export function HealthBreakdown({
   const c = health.components;
   const f = health.fundamental;
   // render เฉพาะแถวที่มีข้อมูลแตกได้จริง (Phase 18+, ไม่ excluded) — แถวเก่า/excluded ข้ามไป
-  if (!c || !f || c.strength == null || c.valuation == null) return null;
+  // Phase 29: c.valuation == null ไม่ใช่เหตุให้ซ่อนทั้งกล่องอีกต่อไป ถ้าขาพื้นฐานยังคำนวณได้
+  // (เคส burn cash) — ขาพื้นฐานคือสิ่งเดียวที่ผู้ใช้มีให้ตัดสินใจ ซ่อนไปคือทิ้งข้อมูลที่มีอยู่จริง
+  if (!c || !f || c.strength == null) return null;
 
   const max = health.max ?? 11;
   const hasBreach = c.breach_penalty != null && c.breach_penalty < 0;
+  const noValuation = c.valuation == null;
 
   return (
     <div className="breakdown">
@@ -136,10 +139,24 @@ export function HealthBreakdown({
       <div className="bd-formula">
         สุขภาพ <strong>{health.score?.toFixed(1)}</strong>/{max} ={" "}
         <span className="bd-formula-part">พื้นฐาน {c.strength.toFixed(1)}/{FUND_MAX}</span>
-        {" + "}
-        <span className="bd-formula-part">ราคา {c.valuation.toFixed(1)}/{VAL_MAX}</span>
+        {noValuation ? (
+          <span className="bd-formula-na"> + ราคา ✕ (ประเมินไม่ได้)</span>
+        ) : (
+          <>
+            {" + "}
+            <span className="bd-formula-part">ราคา {c.valuation!.toFixed(1)}/{VAL_MAX}</span>
+          </>
+        )}
         {hasBreach && <span className="bd-formula-pen"> − เงื่อนไขออกโดนแตะ {c.breach_penalty}</span>}
       </div>
+
+      {noValuation && (
+        <div className="bd-warn">
+          ⚠ ตัวนี้ยัง <strong>เผาเงินสด</strong> (FCF ฐานติดลบ) — reverse-DCF ต้องใช้กระแสเงินสดเป็นบวก
+          จึงประเมิน &ldquo;ถูก/แพง&rdquo; ไม่ได้ คะแนนที่เห็นเป็น <strong>พื้นฐานล้วนเต็ม {FUND_MAX}</strong>{" "}
+          เอาไปเทียบกับตัวที่ได้เต็ม 11 ตรงๆ ไม่ได้ และ <em>ไม่ได้แปลว่าราคาถูก</em> — แปลว่ายังตอบไม่ได้
+        </div>
+      )}
 
       {/* ---- ขาที่ 1: พื้นฐาน (คุณภาพธุรกิจ) ---- */}
       <div className="bd-leg">
@@ -167,16 +184,21 @@ export function HealthBreakdown({
         </div>
       </div>
 
-      {/* ---- ขาที่ 2: ราคา (ถูก/แพง) ---- */}
-      <div className="bd-leg">
+      {/* ---- ขาที่ 2: ราคา (ถูก/แพง) — Phase 29: โชว์เป็น 'ยังตอบไม่ได้' แทนที่จะหายไปทั้งขา ---- */}
+      <div className={`bd-leg${noValuation ? " bd-leg-na" : ""}`}>
         <div className="bd-leg-head">
           <Tip def="reverse-DCF: เอาราคาตลาดตอนนี้ตั้งเป็นโจทย์ แล้วหาว่าตลาดคาดการเติบโตของกระแสเงินสด (FCF) ไว้กี่ %/ปี เทียบกับที่บริษัทเคยทำได้จริง — ตลาดคาดต่ำกว่าจริง = ถูก (คะแนนสูง)">
             <span className="bd-leg-name">ราคา — ถูกหรือแพง</span>
           </Tip>
-          <span className="bd-leg-score">{c.valuation.toFixed(1)}<span className="bd-leg-max">/{VAL_MAX}</span></span>
+          <span className="bd-leg-score">
+            {noValuation ? "—" : c.valuation!.toFixed(1)}<span className="bd-leg-max">/{VAL_MAX}</span>
+          </span>
         </div>
-        <Bar value={c.valuation} max={VAL_MAX} tier={health.tier} />
-        <div className="bd-note">{valMeaning(c.valuation)} <span className="muted">(รายละเอียดในกล่อง Reverse-DCF ด้านล่าง)</span></div>
+        <Bar value={noValuation ? 0 : c.valuation!} max={VAL_MAX} tier={noValuation ? "na" : health.tier} />
+        <div className="bd-note">
+          {valMeaning(noValuation ? null : c.valuation!)}{" "}
+          {!noValuation && <span className="muted">(รายละเอียดในกล่อง Reverse-DCF ด้านล่าง)</span>}
+        </div>
       </div>
 
       {/* ---- ข่าว: บริบท ไม่นับคะแนน ---- */}
