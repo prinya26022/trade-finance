@@ -110,3 +110,65 @@ def test_policy_crash_returns_graceful_error_not_raise():
     assert inv.steps == []                       # ไม่ทันถึงสเต็ป tool เลย
     assert "Gemini" in inv.conclusion
     assert "RuntimeError" in inv.conclusion       # ชนิด exception โผล่ในข้อความ (ไม่ใช่แค่ raw str)
+
+# ---- Phase 28: on_step callback (ให้ผู้เรียกเห็นความคืบหน้าระหว่างทาง ไม่ใช่รอจนจบก้อน) ----
+
+def test_on_step_called_per_step_in_order():
+    tools = [_echo_tool("a", "obs-a"), _echo_tool("b", "obs-b")]
+    policy = ScriptedPolicy([Decision(name="a", args={}), Decision(name="b", args={}),
+                             Decision(final="done")])
+    seen = []
+    inv = run_investigation(policy, tools, ticker="X", on_step=lambda s: seen.append((s.tool, s.observation)))
+
+    assert seen == [("a", "obs-a"), ("b", "obs-b")]
+    assert [(s.tool, s.observation) for s in inv.steps] == seen   # ตรงกับ transcript สุดท้าย
+
+
+def test_broken_on_step_does_not_kill_investigation():
+    """callback เป็นแค่ผู้สังเกตการณ์ (UI progress) — พังแล้วต้องไม่ล้มการสืบทั้งครั้ง."""
+    def _boom(step):
+        raise RuntimeError("observer down")
+
+    tools = [_echo_tool("a", "obs-a")]
+    policy = ScriptedPolicy([Decision(name="a", args={}), Decision(final="ยังสรุปได้")])
+    inv = run_investigation(policy, tools, ticker="X", on_step=_boom)
+
+    assert inv.stopped == "concluded"
+    assert inv.conclusion == "ยังสรุปได้"
+    assert len(inv.steps) == 1
+
+
+# ---- Phase 28: quota lane — งานที่ผู้ใช้กดเองต้องเริ่มจากคนละโมเดลกับ analyze รายวัน ----
+
+def test_gemini_policy_defaults_to_daily_chain(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-offline")   # Client สร้างได้โดยไม่ยิง network
+    from src.agent.investigate import GeminiPolicy
+    from src.agent.llm import MODEL_CHAIN
+
+    policy = GeminiPolicy("hi", [_echo_tool()])
+    assert policy._models == list(MODEL_CHAIN)
+
+
+def test_investigate_uses_interactive_lane(monkeypatch):
+    """investigate() (ปุ่มสั่งสืบ/CLI) ต้องส่ง INTERACTIVE_CHAIN เข้า policy — ไม่งั้นการกดสืบ
+    จะไปกินโควตาโมเดลเดียวกับรอบวิเคราะห์รายวัน."""
+    import src.agent.investigate as inv_mod
+    from src.agent.llm import INTERACTIVE_CHAIN
+
+    seen = {}
+
+    class FakePolicy:
+        def __init__(self, prompt, tools, system=None, models=None):
+            seen["models"] = models
+
+        def decide(self, observation):
+            return Decision(final="done")
+
+        def force_conclude(self):
+            return ""
+
+    monkeypatch.setattr(inv_mod, "build_toolbox", lambda t: [_echo_tool()])
+    monkeypatch.setattr(inv_mod, "GeminiPolicy", FakePolicy)
+    inv_mod.investigate("AAPL", persist=False)
+
+    assert seen["models"] == INTERACTIVE_CHAIN

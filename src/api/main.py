@@ -8,6 +8,8 @@ Next.js dashboard จะ fetch จากที่นี่.
 รัน:  uvicorn src.api.main:app --reload
 ดู docs อัตโนมัติที่  http://localhost:8000/docs
 """
+import os
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -20,6 +22,7 @@ from src.watchlist.store import (
 from src.agent.changes import detect_changes
 from src.agent.performance import portfolio_edge
 from src.agent.investigate_store import latest_investigation
+from src.agent import investigate_runner
 from src.agent.timeline import build_timeline
 from src.agent.timeline_store import get_narrative
 from src.agent.screener import screen
@@ -82,6 +85,10 @@ class ThesisSet(BaseModel):
     thesis: str
     invalidation: list[InvalidationRule] = []
     fair_value: float | None = None
+
+
+class InvestigateStart(BaseModel):
+    focus: str = ""   # โจทย์เพิ่มเติมจากผู้ใช้ เช่น "ทำไม margin ตก" -> ต่อท้ายเป็น context ของ prompt
 
 
 class DecisionCreate(BaseModel):
@@ -215,12 +222,50 @@ def get_timeline(ticker: str):
 
 @app.get("/api/investigation/{ticker}")
 def get_investigation(ticker: str):
-    """transcript การสืบล่าสุดของ agent (Phase 13) — 204 ถ้ายังไม่เคยสืบ ticker นี้.
-    read-only: ไม่ trigger การสืบใหม่ (นั่นยิง Gemini — ทำผ่าน CLI/ปุ่มแยก ไม่ใช่ตอน render)."""
+    """transcript การสืบล่าสุดของ agent (Phase 13) — 404 ถ้ายังไม่เคยสืบ ticker นี้.
+    read-only: ไม่ trigger การสืบใหม่ (นั่นยิง Gemini — ต้องกดสั่งเองผ่าน POST ข้างล่าง)."""
     inv = latest_investigation(ticker.upper())
     if inv is None:
         raise HTTPException(status_code=404, detail=f"no investigation for {ticker}")
     return inv
+
+
+# ---- Phase 28: สั่งสืบจากหน้าเว็บ ----
+# agentic loop (Phase 13) เขียนเสร็จมานาน แต่ยิงได้จาก CLI อย่างเดียว (`python -m src.agent.investigate`)
+# หน้าเว็บอ่านได้แค่ transcript เก่า -> "agent จริง" ของโปรเจกต์ใช้งานไม่ได้จากตัวโปรดักต์เอง.
+# แยกเป็น POST (สั่ง, คืน 202 ทันที) + GET status (poll) เพราะการสืบกินเวลาระดับสิบวินาที-นาที
+# ยาวเกินกว่าจะให้ browser ค้างรอ — ดู docstring ของ investigate_runner.py สำหรับเหตุผลเต็ม.
+# เป็น endpoint ที่ 2 ในไฟล์นี้ที่แตะ LLM (คู่กับ /api/chat) — ยิงเฉพาะตอนผู้ใช้กดปุ่มเอง.
+
+@app.post("/api/investigation/{ticker}", status_code=202)
+def post_investigation(ticker: str, body: InvestigateStart | None = None):
+    """สั่ง agent สืบ ticker นี้ใหม่ (เบื้องหลัง). 409 ถ้าของเดิมยังวิ่งอยู่ — กันกดรัวๆ เผาโควตา."""
+    ticker = ticker.upper()
+    if not os.getenv("GEMINI_API_KEY"):
+        raise HTTPException(status_code=503, detail="ไม่มี GEMINI_API_KEY — สืบไม่ได้")
+
+    # toolbox ของ investigate() เป็น stock-only (yfinance fundamentals + SEC XBRL/EDGAR) — ยิงกับ
+    # crypto ได้ transcript ที่ tool คืน 'ไม่มีข้อมูล' ทุกอันแล้วเปลืองโควตาเปล่า จึงกันตั้งแต่ต้นทาง
+    item = next((w for w in list_all() if w["ticker"] == ticker), None)
+    if item is not None and item["asset_type"] != "stock":
+        raise HTTPException(status_code=400, detail=f"{ticker} เป็น {item['asset_type']} — การสืบรองรับเฉพาะหุ้น")
+
+    try:
+        job = investigate_runner.start(ticker, focus=(body.focus if body else "").strip())
+    except investigate_runner.AlreadyRunning:
+        raise HTTPException(status_code=409, detail=f"{ticker} กำลังถูกสืบอยู่แล้ว")
+    return job.as_dict()
+
+
+@app.get("/api/investigation/{ticker}/status")
+def get_investigation_status(ticker: str):
+    """ความคืบหน้าของการสืบที่สั่งไว้ — steps โตขึ้นทีละสเต็ประหว่าง status='running'.
+    404 = ยังไม่เคยสั่งสืบ ticker นี้ใน process ปัจจุบัน (state อยู่ในหน่วยความจำ ไม่ใช่ DB;
+    transcript ที่จบแล้วอ่านจาก GET /api/investigation/{ticker} ได้ตามปกติ)."""
+    job = investigate_runner.get(ticker.upper())
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"no investigation job for {ticker}")
+    return job.as_dict()
 
 
 @app.get("/api/screener")

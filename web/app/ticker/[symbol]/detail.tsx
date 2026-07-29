@@ -10,6 +10,7 @@ import { HealthBreakdown } from "../../health-breakdown";
 import { WhatsNew } from "./whats-new";
 import ThesisPanel from "./thesis-panel";
 import DecisionLog from "./decision-log";
+import InvestigatePanel from "./investigate-panel";
 
 const C = { blue: "#58a6ff", green: "#3fb950", amber: "#d29922", red: "#f85149" };
 
@@ -228,35 +229,9 @@ export default function TickerDetail({
         </div>
       )}
 
-      {/* ---- Agentic investigation transcript (Phase 13) ---- */}
-      {investigation && (
-        <div className="investigation">
-          <div className="section-title" style={{ margin: "0 0 6px" }}>
-            🔬 การสืบของ agent
-            <span className="inv-meta">
-              {investigation.steps.length} สเต็ป · {investigation.run_at.slice(0, 10)}
-              {investigation.stopped === "max_steps" && " · ชนเพดาน"}
-            </span>
-          </div>
-          <ol className="inv-steps">
-            {investigation.steps.map((st, i) => (
-              <li key={i}>
-                <div className="inv-tool">
-                  🔧 <code>{st.tool}</code>
-                  {Object.keys(st.args).length > 0 && (
-                    <span className="inv-args">({Object.values(st.args).join(", ")})</span>
-                  )}
-                </div>
-                <div className="inv-obs"><GlossaryText text={st.observation} /></div>
-              </li>
-            ))}
-          </ol>
-          <div className="inv-conclusion">
-            <span className="inv-brain">🧠 สรุป</span>
-            <GlossaryText text={investigation.conclusion} />
-          </div>
-        </div>
-      )}
+      {/* ---- Agentic investigation (Phase 13 transcript + Phase 28 ปุ่มสั่งสืบ/สเต็ปสดๆ) ---- */}
+      <InvestigatePanel ticker={ticker} initial={investigation ?? null} />
+
 
       {/* ---- Company biography timeline (Phase 14) ---- */}
       {timeline && timeline.events.length > 0 && (

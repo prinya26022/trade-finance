@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, InvestigationJob, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -53,6 +53,26 @@ export async function getHistory(ticker: string): Promise<Analysis[]> {
 // transcript การสืบล่าสุดของ agent (Phase 13) — null ถ้ายังไม่เคยสืบ ticker นี้
 export async function getInvestigation(ticker: string): Promise<Investigation | null> {
   const res = await fetch(`${API_BASE}/api/investigation/${ticker}`, { cache: "no-store" });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// Phase 28: สั่ง agent สืบใหม่ — ยิง Gemini จริง (เหมือน askChat) ทำงานเบื้องหลัง คืน job ทันที
+// ไม่รอจนสืบเสร็จ แล้วให้ pollInvestigation ตามความคืบหน้าต่อ. 409 = ของเดิมยังวิ่งอยู่
+export async function startInvestigation(ticker: string, focus = ""): Promise<InvestigationJob> {
+  const res = await fetch(`${API_BASE}/api/investigation/${ticker}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ focus }),
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+// สถานะงานสืบล่าสุด — null ถ้าไม่มี job ใน process ของ API ตอนนี้ (เช่น เพิ่งรีสตาร์ท backend)
+export async function getInvestigationStatus(ticker: string): Promise<InvestigationJob | null> {
+  const res = await fetch(`${API_BASE}/api/investigation/${ticker}/status`, { cache: "no-store" });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();

@@ -15,6 +15,7 @@ investigate.py) — ต่างกันแค่ 2 อย่าง:
 กัน 1 คำถามกิน tool-call เกินจำเป็น.
 """
 from src.agent.investigate import GeminiPolicy, ToolSpec, run_investigation
+from src.agent.llm import INTERACTIVE_CHAIN
 
 MAX_CHAT_STEPS = 4   # คำถามพอร์ตปกติไม่ต้องขุดลึกเท่า investigate ตัวเดียว (MAX_STEPS=6 ที่นั่น)
 
@@ -173,7 +174,8 @@ def ask(question: str, chat_history: list[dict] | None = None, max_steps: int = 
     คำถามจึงเป็น tool-calling loop ใหม่ของตัวเอง ใช้ history แค่ให้ 'จำบริบท' การสนทนาก่อนหน้า."""
     tools = build_portfolio_toolbox()
     prompt = _render_history(chat_history or []) + f"คำถาม: {question}"
-    policy = GeminiPolicy(prompt, tools, system=_CHAT_SYSTEM)
+    # เลนโควตาเดียวกับปุ่มสั่งสืบ (งานที่ผู้ใช้กดเอง) — ไม่แย่งถังของ analyze รายวัน
+    policy = GeminiPolicy(prompt, tools, system=_CHAT_SYSTEM, models=INTERACTIVE_CHAIN)
     inv = run_investigation(policy, tools, max_steps=max_steps, ticker="")
     return inv.to_dict()
 

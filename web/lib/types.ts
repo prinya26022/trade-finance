@@ -118,6 +118,21 @@ export type Investigation = {
   stopped: "concluded" | "max_steps" | "error";
 };
 
+// Phase 28: สั่งสืบจากหน้าเว็บ — งานเบื้องหลังที่ poll ดูความคืบหน้าได้ (steps โตทีละสเต็ป
+// ระหว่าง status='running'). state อยู่ในหน่วยความจำฝั่ง API เท่านั้น รีสตาร์ท API แล้วหาย
+// (transcript ที่จบแล้ว persist ลง DB ตามปกติ อ่านผ่าน getInvestigation)
+export type InvestigationJob = {
+  ticker: string;
+  focus: string;
+  status: "running" | "done" | "error";
+  started_at: string;
+  finished_at: string | null;
+  steps: InvestigationStep[];
+  conclusion: string;
+  stopped: "" | "concluded" | "max_steps" | "error";
+  error: string | null;
+};
+
 // Phase 25: portfolio chat — ถามคำถามภาษาคนเกี่ยวกับ watchlist/portfolio ของตัวเอง agent ไปดึง
 // ข้อมูลที่คำนวณเก็บไว้แล้ว (ไม่ fetch สด) มาตอบ พร้อม step trace ให้เห็นว่าอ้างอิงอะไร
 export type ChatMessage = { role: "user" | "assistant"; text: string; steps?: InvestigationStep[] };

@@ -605,6 +605,93 @@ geo-appended). Full suite 225/225. This is the POST-RELEASE "here's the number +
 NOT need a FRED key. PENDING option: a PRE-release "CPI in 30 min" heads-up needs the forward release
 calendar (free FRED_API_KEY -> release/dates) + a scheduler firing ahead of time -- offered, not yet built.
 
+## Phase 27 -- thesis/invalidation wired to the UI + decision journal
+DONE (commit a1378cc, backfilled into this doc during Phase 28 -- the commit itself didn't update the
+roadmap). thesis.py / invalidation.py had existed since Phase 5 but no endpoint ever exposed them, so
+`theses` was empty forever and the "sell alarm" never actually ran on anything. Added GET/PUT/DELETE
+/api/thesis/{ticker} + GET /api/invalidation/{ticker}, a thesis-panel.tsx editor on the ticker page, and
+a red banner when a rule is breached. Plus a NEW decisions table + decision-log.tsx journaling every
+buy/pass/wait/sell -- including "pass", which was never recorded anywhere before -- with gate2 (the
+chart/EW check result at that moment, free-form note; EW itself is a separate project) so it can later be
+measured whether the second gate actually helps. Set real thesis + invalidation rules for DUOL (the live
+holding, which until then had no exit condition at all).
+
+## Phase 28 -- run the agent from the web (the agentic loop was CLI-only)
+DONE. Same class of gap Phase 27 closed, one layer up: the Phase 13 agentic loop is the piece that makes
+this an agent rather than a script, but it could only be fired from `python -m src.agent.investigate` --
+the product surface could only *read back* a stale transcript (the GET endpoint's own docstring said
+"do it via CLI / a separate button", and that button was never built).
+- run_investigation(..., on_step=) -- optional per-step callback. The loop is otherwise unchanged; the
+  callback is a pure observer (wrapped in try/except -- a broken observer must never kill an
+  investigation) and exists so progress can be watched live instead of appearing as one lump at the end.
+- src/agent/investigate_runner.py -- in-memory job registry + background thread. Why a job at all: one
+  investigation = fundamentals/news/XBRL fetch, then up to MAX_STEPS Gemini turns = tens of seconds to a
+  minute, too long to hold a browser request open (dev server/proxy cuts it, and the user stares at
+  nothing meanwhile). So POST = start (202 immediately), GET /status = poll. Accepted limits, on purpose:
+  state is a dict+Lock in one process (restart the API = in-flight job is lost), which is fine because the
+  *result* is persisted to the investigations table by investigate() as always, and this app runs
+  single-process/single-user. One running job per ticker (AlreadyRunning -> 409) because a double-click
+  would otherwise burn Gemini quota twice. Thread exceptions AND the "policy died mid-loop" case
+  (stopped == "error", which run_investigation returns rather than raises) both become status="error" --
+  no job is ever left stuck on "running".
+- POST /api/investigation/{ticker} {focus?} + GET /api/investigation/{ticker}/status. Only the 2nd
+  LLM-touching endpoint in main.py (with /api/chat), never auto-triggered. Guards: 503 if no
+  GEMINI_API_KEY, 400 if the ticker is a non-stock in the watchlist (the toolbox is stock-only --
+  yfinance fundamentals + SEC XBRL/EDGAR -- so crypto would spend quota to get "no data" from every tool).
+  `focus` is an optional free-form prompt ("why did margin fall two years running?") passed through as
+  the investigate() context.
+- investigate-panel.tsx (client) replaces the read-only transcript block in detail.tsx: button + 🎯 focus
+  box, polls every 1.5s, and renders steps as they arrive ("agent is thinking about step 3…" with a
+  live elapsed counter) -- which is the honest demo of the loop, not a spinner. Remounting/refreshing
+  mid-run re-attaches to the running job; on finish it router.refresh()es so the persisted transcript
+  becomes the server-rendered state again.
+- 12 new offline tests (9 runner + 3 loop-callback): background start returns before finishing, steps are
+  visible *while* running, duplicate start rejected then allowed once done, two tickers run concurrently,
+  exception and policy-failure paths both land on error, focus passes through as context, as_dict has no
+  thread object in it. Gemini/network never touched (fake investigate_fn injected). tsc + next build
+  clean. Endpoint behaviour (202/409/400/404/503 + live step visibility) verified separately against a
+  TestClient with a gated fake, since httpx isn't a committed test dep.
+
+Two REAL bugs the live verification exposed (the button failed on the first try against real Gemini --
+both fixed, both pre-existing and NOT caused by Phase 28; the new button just made them visible):
+1. generate_with_fallback raised instead of falling through when a 5xx persisted past max_attempts, so
+   one model being busy killed the whole chain. Hit live: gemini-3.5-flash returned 503 "high demand"
+   (and later 429) while gemini-3-flash-preview and gemini-2.5-flash answered fine -- meaning the DAILY
+   analyze() pipeline was equally exposed, not just the new button. Now an exhausted 5xx is treated like
+   429 (advance to the next model); only a truly permanent code (e.g. 400) still raises immediately, and
+   the chain-exhausted raise is unchanged. 6 new offline tests (tests/test_llm_fallback.py) with a fake
+   client per model: healthy first model, persistent 5xx falls through after N retries, 429 skips without
+   retrying, 400 raises immediately, whole chain down raises last error, models= override.
+2. GeminiPolicy pinned MODEL_CHAIN[0] with no fallback at all (documented as a "known gap" since Phase
+   13) -- so investigation AND the Phase 25 chat page were both dead whenever the head model was busy.
+   The stated reason for the gap (multi-turn tool-calling makes mid-conversation model switching hard)
+   turned out not to hold: `contents` is sent whole on every turn and its parts (text / function_call /
+   function_response) are model-agnostic, so it just reuses generate_with_fallback with the chain
+   reordered to prefer its configured model.
+   Bonus third fix: the fallback's Thai log lines crashed with UnicodeEncodeError under uvicorn on
+   PowerShell (cp1252) and killed the run mid-loop -- a logging side-effect must never fail the job, so
+   they now go through llm._log() which degrades to backslash-escaped ASCII instead of raising.
+Then a follow-up from the same session: **quota lanes**. Free-tier quota is per-model per-day, so the
+scarce resource is a *bucket*, not model strength -- and the two workloads compete: analyze() must run
+daily (8 non-frozen tickers = 8 calls) while the investigate button can be pressed at will (up to 7 calls
+each) and chat draws from the same pool. Measured live: a handful of button tests put gemini-3.5-flash --
+the daily pipeline's primary -- into 429 the same afternoon. So llm.INTERACTIVE_CHAIN now rotates the
+chain (MODEL_CHAIN[1:] + head) for user-pressed work, and GeminiPolicy takes `models=` (replacing the
+single `model=`) with investigate() and chat.ask() both passing the interactive lane. Rotate, not
+reverse, and the reason is empirical: run live on the tail model (gemini-2.5-flash) the agent burned all
+6 steps on get_metric_trend and never touched news / SEC / reverse-DCF, whereas gemini-3-flash-preview
+walked timeline -> reverse-DCF -> news and flagged the tax-driven net margin unprompted. Deciding what to
+look at next IS the agentic loop, so the lane starts at the best model that isn't the daily one and only
+falls back onto the daily model as a last resort (tested). 5 new lane tests.
+Full suite 245/245 after the fixes.
+Verified live end-to-end on DUOL (the real holding): POST -> 202, duplicate POST -> 409, /status showed
+4 steps mid-run then 6 at done (37s), transcript persisted to the investigations table, and the ticker
+page SSR renders it with the button + glossary tooltips. The agent chose list_metrics -> Revenue CAGR ->
+Revenue -> get_event_timeline -> get_reverse_dcf -> get_recent_news and concluded strong fundamentals
+(41% revenue CAGR, operating margin from negative in 2022 to 13.07% in 2025) against a market pricing in
+only 7.5%/yr FCF growth -- it also flagged on its own that the 39.9% net margin looks tax/one-off driven
+rather than core. stopped="max_steps" (it used all 6), which the UI labels "ชนเพดาน".
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice
