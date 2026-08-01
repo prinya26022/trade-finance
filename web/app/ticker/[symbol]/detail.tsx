@@ -11,6 +11,7 @@ import { WhatsNew } from "./whats-new";
 import ThesisPanel from "./thesis-panel";
 import DecisionLog from "./decision-log";
 import InvestigatePanel from "./investigate-panel";
+import ClaimParser from "./claim-parser";
 
 const C = { blue: "#58a6ff", green: "#3fb950", amber: "#d29922", red: "#f85149" };
 
@@ -169,6 +170,7 @@ export default function TickerDetail({
         invalidation={invalidation ?? null}
         expectations={expectations ?? []}
       />
+      <ClaimParser ticker={ticker} thesis={thesis ?? null} />
       <DecisionLog ticker={ticker} decisions={decisions ?? []} />
 
       {/* ---- Friendly verdict ---- */}

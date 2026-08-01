@@ -360,6 +360,29 @@ export type ExpectationCheck = {
 
 export type ExpectationsResponse = { ticker: string; expectations: ExpectationCheck[]; note: string };
 
+// Phase 31: ตัวแปลข้ออ้าง — วางบทวิเคราะห์ดิบ -> แยกเป็นข้ออ้างย่อย + จัดชั้นว่าอันไหนตรวจได้จริง
+// metric ที่เสนอถูกบังคับ (ฝั่ง backend) ให้มาจาก facts จริงของ ticker นั้นเท่านั้น
+export type ClaimKind = "checkable" | "needs_data" | "unfalsifiable" | "timing" | "factual";
+
+export type ClaimProposal = {
+  claim: string;
+  kind: ClaimKind;
+  why: string;
+  metric: string;
+  op: InvalidationRule["op"] | "";
+  value: number | null;
+  by: string;
+  deadline_defaulted: boolean;   // true = เราเติมเส้นตายให้เอง ผู้ใช้ควรยืนยัน
+};
+
+export type ClaimExtraction = {
+  ticker: string;
+  proposals: ClaimProposal[];
+  counts: Partial<Record<ClaimKind, number>>;
+  kind_labels: Record<ClaimKind, string>;
+  n_metrics_available: number;
+};
+
 export type Thesis = {
   ticker: string;
   thesis: string;

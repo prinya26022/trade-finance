@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, InvestigationJob, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status, Expectation, ExpectationsResponse, CorrelationResponse } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, InvestigationJob, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status, Expectation, ExpectationsResponse, CorrelationResponse, ClaimExtraction } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -221,6 +221,17 @@ export async function getCorrelation(extra: string[] = []): Promise<CorrelationR
   const q = extra.length ? `?extra=${encodeURIComponent(extra.join(","))}` : "";
   const res = await fetch(`${API_BASE}/api/correlation${q}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// Phase 31: ตัวแปลข้ออ้าง — ยิง Gemini จริง (เลนโควตาเดียวกับ chat/ปุ่มสืบ) ผู้ใช้กดเองเท่านั้น
+export async function extractClaims(ticker: string, text: string): Promise<ClaimExtraction> {
+  const res = await fetch(`${API_BASE}/api/claims/${ticker}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
   return res.json();
 }
 

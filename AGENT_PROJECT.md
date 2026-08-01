@@ -774,6 +774,39 @@ reasons to buy. Two pieces instead:
   (the correct one is TSM) -- it silently returns no data, so it can never be analyzed AND it hid the
   single most important correlation pair until TSM was passed in via `extra`.
 
+## Phase 31 -- the claim translator (completes Phase 30's other half)
+DONE. Phase 30 built the storage and the checker for "stories waiting to be proven", but the user still
+had to do the hard part alone: turning "Bedrock will drive AWS" into metric + threshold + deadline. For
+someone who is explicitly not a finance person that is the whole difficulty, and an unusable field is an
+empty field -- exactly how thesis sat unused for 22 phases. So: paste the raw commentary, get back each
+claim sorted into checkable / needs_data / unfalsifiable / timing / factual, with a proposed metric,
+threshold and deadline for the checkable ones, and one click to store the selected ones as expectations.
+- src/agent/claims.py -- one structured-output Gemini call (not the agentic loop; this is a single
+  translation, not an investigation), on the interactive quota lane. The LLM's output is NEVER trusted
+  directly: `_vet()` re-checks every proposal deterministically -- the metric must be one that actually
+  exists in that ticker's stored facts (otherwise downgraded to needs_data with the invented name
+  quoted in the reason), the operator must be in VALID_OPS, the value must be numeric, the deadline must
+  parse (if missing it is filled with +1y and flagged `deadline_defaulted` so the UI asks for
+  confirmation rather than silently inventing an expiry).
+- The unfalsifiable/timing/factual buckets are kept and displayed, never filtered out -- seeing that a
+  confident-sounding paragraph contains more unprovable claims than provable ones IS the product.
+- **Unit anchoring, found by running it for real**: given only metric NAMES, the model proposed
+  `Revenue > 700000` for AMZN whose stored Revenue fact is 6.4e11 (it was thinking in millions) -- an
+  expectation that would read "hit" forever, i.e. one that can never be wrong, the exact failure this
+  feature exists to prevent. Fix: the prompt now lists each metric WITH its current value, unit and
+  period, formatted with thousands separators rather than scientific notation (6.37959e+11 is what
+  invites the millions misreading). Re-run live: it produced `Revenue FY > 800,000,000,000 by
+  2027-08-02` -- correct scale.
+- POST /api/claims/{ticker} (3rd LLM-touching endpoint, user-pressed only, 503 without a key) +
+  claim-parser.tsx on the ticker page (collapsed by default; checkboxes only on checkable rows; saving
+  APPENDS to existing expectations and preserves the hand-written thesis/rules).
+- 13 offline tests with an injected fake LLM (invented metric, bad operator, missing value, missing
+  deadline, unfalsifiable kept + explained, empty text never reaching the LLM, prompt contains only real
+  metrics and their current values). Suite 284/284, tsc + next build clean.
+- Live result on the user's own pasted paragraph about AMZN: 6 claims -> 1 checkable, 1 needs_data,
+  1 factual, **3 unfalsifiable** ("aws bedrock ดีสุด", "โมเดล claude จะชนะ", "amazon จะรวยมหาศาลถ้า
+  claude IPO"), each with a written reason why no number could settle it.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

@@ -29,6 +29,7 @@ from src.agent.screener import screen
 from src.agent.chat import ask as ask_chat
 from src.agent.invalidation import check_invalidation, check_expectations
 from src.agent.correlation import portfolio_correlation
+from src.agent.claims import extract_claims_with_context
 from src.macro.radar import dashboard as macro_dashboard
 from src.macro.geonews import fetch_geopolitical
 from src.macro.altseason import eth_btc_momentum
@@ -371,6 +372,30 @@ def get_ticker_expectations(ticker: str):
     เลยเส้นตายแล้วไม่ถึง/วัดไม่ได้. คนละทิศกับ invalidation — อันนั้นบอกว่าถึงเวลาออกหรือยัง
     อันนี้บอกว่าเหตุผลที่ซื้อตอนแรกมันจริงไหม."""
     return check_expectations(ticker.upper())
+
+
+class ClaimText(BaseModel):
+    text: str
+
+
+@app.post("/api/claims/{ticker}")
+def post_claims(ticker: str, body: ClaimText):
+    """Phase 31 — วางบทวิเคราะห์/คลิป/โพสต์ดิบเข้ามา -> แยกเป็นข้ออ้างย่อยแล้วจัดชั้นว่าอันไหน
+    ตรวจได้ / ไม่มีข้อมูล / ผิดไม่ได้ / เป็นการเดาจังหวะ / เป็นข้อเท็จจริงเชิงคุณภาพ พร้อมเสนอ
+    metric+เป้า+เส้นตายให้ข้อที่ตรวจได้ (ยังไม่บันทึก — ผู้ใช้เลือกเองแล้วค่อยกดบันทึกเข้า thesis).
+
+    ยิง Gemini จริง (endpoint ที่ 3 ในไฟล์นี้ที่แตะ LLM ต่อจาก /api/chat และ POST investigation)
+    ใช้เลนโควตาของงานที่ผู้ใช้กดเอง. metric ที่เสนอถูกบังคับให้มาจาก facts จริงของ ticker นั้น
+    เท่านั้น — ดู claims.py::_vet"""
+    ticker = ticker.upper()
+    if not os.getenv("GEMINI_API_KEY"):
+        raise HTTPException(status_code=503, detail="ไม่มี GEMINI_API_KEY — แปลข้ออ้างไม่ได้")
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="ไม่มีข้อความให้วิเคราะห์")
+    try:
+        return extract_claims_with_context(body.text, ticker)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"แปลข้ออ้างไม่สำเร็จ: {type(e).__name__}: {e}")
 
 
 @app.get("/api/correlation")
