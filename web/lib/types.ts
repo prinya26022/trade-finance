@@ -449,3 +449,55 @@ export type Decision = {
   reason: string;
   conviction: number | null;
 };
+
+// Phase 32: สมุดพกของเอเจนต์เอง — เอาเกณฑ์ที่ใช้จับข้ออ้างคนอื่น (Phase 31) มาจับคะแนนของเราเอง
+// gross = ผลรวมของ |การขยับ| ทีละคู่วัน (จับอาการเด้งไปมา), net = หัวถึงท้าย (เด้งกลับแล้วหักล้างกัน)
+export type ScoreBuckets = {
+  business: number;
+  data: number;
+  estimate: number;
+  price: number;
+  other: number;
+};
+
+export type StabilityRow = {
+  ticker: string;
+  points: number;
+  from: string;
+  to: string;
+  first_score: number;
+  last_score: number;
+  max: number;
+  low: number;
+  high: number;
+  swing: number;
+  gross: ScoreBuckets;
+  net: ScoreBuckets;
+  unexplained: number;      // จุดที่ขยับโดยไม่ได้มาจากธุรกิจหรือราคา
+  trustworthy: boolean;
+  basis_changes: number;    // จำนวนครั้งที่พลิกฐาน /8 <-> /11 (เทียบตรงๆ ไม่ได้)
+  notes: string[];
+};
+
+export type ScorecardHorizon = {
+  days: number;
+  eligible: number;
+  ready: boolean;
+  days_to_first: number | null;
+  first_at: string | null;
+};
+
+export type Scorecard = {
+  stability: { headline: string; flagged: number; total: number; rows: StabilityRow[] };
+  prediction: {
+    oldest: string | null;
+    history_days: number;
+    snapshots: number;
+    horizons: ScorecardHorizon[];
+    ready: boolean;
+    caveats: string[];
+  };
+  bucket_labels: Record<string, string>;
+  noise_points: number;
+  generated_at: string;
+};

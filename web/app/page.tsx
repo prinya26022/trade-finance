@@ -46,6 +46,7 @@ export default async function Home() {
             <Link href="/macro" className="nav-link">เรดาร์มหภาค →</Link>
             <Link href="/screener" className="nav-link">Screener →</Link>
             <Link href="/portfolio" className="nav-link">Portfolio →</Link>
+            <Link href="/scorecard" className="nav-link">สมุดพก →</Link>
           </div>
         </div>
         <p>Latest fundamental analysis per watchlist ticker · research, not advice</p>

@@ -625,3 +625,55 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
 .macro-alt-stats b { font-variant-numeric: tabular-nums; }
 .macro-alt-stats .pos { color: var(--green); }
 .macro-alt-stats .neg { color: var(--red); }
+
+/* ---- Phase 32: สมุดพกของเอเจนต์เอง ---- */
+.sc-wrap { display: flex; flex-direction: column; gap: 16px; }
+.sc-headline { margin: 4px 0 10px; font-size: 14px; line-height: 1.5; }
+.sc-intro { margin: 10px 0 0; line-height: 1.6; }
+.sc-muted { color: var(--muted); font-size: 12px; }
+.sc-ok-text { color: var(--green); }
+.sc-bad-text { color: var(--amber); }
+.sc-wait-text { color: var(--blue); }
+
+.sc-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+.sc-table th {
+  text-align: left; color: var(--muted); font-weight: 500; font-size: 11px;
+  padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.sc-table td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.sc-table tbody tr { cursor: pointer; }
+.sc-table tbody tr:hover { background: var(--panel-2); }
+.sc-table .sc-num { text-align: right; font-variant-numeric: tabular-nums; }
+.sc-flagged td { background: rgba(210, 153, 34, 0.06); }
+
+.sc-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; }
+.sc-ok { background: var(--green); }
+.sc-bad { background: var(--amber); }
+
+.sc-chip {
+  margin-left: 6px; padding: 1px 6px; border-radius: 999px; font-size: 10px;
+  background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
+}
+
+/* แถบสัดส่วนที่มาของการขยับ — ยาวตามสัดส่วน |การขยับ| สะสม ไม่ใช่ค่าสุทธิ */
+.sc-bars { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--panel-2); }
+.sc-bar { height: 100%; }
+.sc-bar-business { background: var(--green); }
+.sc-bar-price { background: var(--blue); }
+.sc-bar-data { background: var(--amber); }
+.sc-bar-estimate { background: #a371f7; }
+.sc-bar-other { background: var(--border); }
+
+.sc-detail td { background: var(--panel-2); cursor: default; }
+.sc-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.sc-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
+.sc-notes { margin: 6px 0; padding-left: 18px; font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+.sc-pending { border-style: dashed; }
+.sc-horizons { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+.sc-hz {
+  flex: 1; min-width: 130px; padding: 10px 12px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--border); font-size: 12px;
+}
+.sc-hz-ready { border-color: var(--green); }
+.sc-hz-days { font-size: 13px; font-weight: 600; margin-bottom: 4px; }

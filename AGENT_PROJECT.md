@@ -807,6 +807,55 @@ threshold and deadline for the checkable ones, and one click to store the select
   1 factual, **3 unfalsifiable** ("aws bedrock ดีสุด", "โมเดล claude จะชนะ", "amazon จะรวยมหาศาลถ้า
   claude IPO"), each with a written reason why no number could settle it.
 
+## Phase 32 -- the agent's own report card (pointing Phase 31 at ourselves)
+DONE. Phase 31 grades other people's claims on whether they can be wrong. Our own health score had
+never been held to that standard once. This closes the asymmetry, using only the point-in-time data
+already in `analyses` (every row's health_reasons_json carries the full criteria list + valuation
+inputs) -- no LLM, no Gemini quota, no new price fetches.
+
+Deliberately split into two questions, because "answerable now" differs and merging them is the
+easiest way to fool yourself:
+- **(1) Is the score stable enough to believe? -- answerable today.** The score of an unchanged
+  company should not move several points in a month with no new filing in between. If it does, we are
+  measuring the readiness of our own data, not the strength of the business.
+- **(2) Do high scores actually outperform low ones? -- not yet answerable.** History is 26 days
+  (2026-07-06 -> 2026-08-01); the shortest horizon needs 90. The machinery is written and tested, but
+  it reports "รออีก 64 วัน" instead of statistics over a sample of zero. Publishing a number computed
+  from 0 eligible snapshots would be worse than publishing nothing.
+
+- src/agent/scorecard.py -- attributes every day-over-day score move into buckets that always sum
+  back to the actual delta (anything unexplained lands in `other`, openly, rather than being absorbed
+  to make the numbers tidy):
+  `business` (criteria computable in both rounds whose value moved) / `data` (criteria flipping
+  null <-> number, or a valuation lens change) / `estimate` (our own realistic_growth revised) /
+  `price` (implied_growth moving with EV). Only `data` + `estimate` count as concerning -- business
+  is what we mean to measure and price is what the valuation leg is designed to react to; counting
+  those as noise would flag everything and mean nothing.
+- Price vs estimate are separated exactly, not proportionally, by scoring a hypothetical middle gap
+  (`f(implied_new − realistic_old)`) with valuation.py's own `_gap_to_score`, so the parts add back up.
+  Across a lens change they are not separated at all -- comparing gaps across lenses is comparing
+  scores from different exams; the whole delta goes to `data` with the reason stated.
+- Measured **gross (summed per consecutive pair), not first-vs-last**: a score that runs up 3 and back
+  down 3 is the worst instability there is, but head-to-tail scores it 0 and it would rank as the
+  calmest row in the table.
+- **What it found on the real DB, immediately -- 7 of 15 tickers flagged:**
+  - GOOGL 4.9 unexplained points: realistic growth oscillating 15.7% <-> 12.5% <-> 15.7% <-> 12.5%
+    <-> 15.7% across four consecutive runs. A deterministic formula bouncing between two answers.
+  - MSFT 6.3 -> 9.1 in 26 days (the case that prompted the feature): +1.0 from 'FCF+คุณภาพกำไร'
+    flipping null -> 1.0, +0.66 from lens growth -> standard, +1.66 from a realistic-growth revision.
+    Business contribution: +0.1.
+  - ASML: the same criterion toggling computable/uncomputable on three consecutive days.
+  - MA: swings 2 points purely by flipping between /8 (partial) and /11. `unexplained` is 0 there by
+    construction (cross-basis deltas can't be bucketed), so `trustworthy` also requires
+    basis_changes == 0 -- otherwise the ticker that flips basis most often ranks as the most stable.
+- GET /api/scorecard + /scorecard page (bucket bars per ticker, click a row for the dated list of what
+  changed; the pending half is a separate dashed card with a per-horizon countdown and the caveats
+  about overlapping windows and watchlist survivorship spelled out).
+- 21 offline tests on injected history: each bucket's attribution, the sum-to-total invariant,
+  oscillation caught when start == end, business+price staying trustworthy, basis flipping, same-day
+  rerun collapse, and two look-ahead guards on the forward-return half (snapshots inside the horizon
+  excluded, partial /8 rows excluded from the bands). Suite 312/312, tsc clean.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

@@ -30,6 +30,7 @@ from src.agent.chat import ask as ask_chat
 from src.agent.invalidation import check_invalidation, check_expectations
 from src.agent.correlation import portfolio_correlation
 from src.agent.claims import extract_claims_with_context
+from src.agent.scorecard import scorecard
 from src.macro.radar import dashboard as macro_dashboard
 from src.macro.geonews import fetch_geopolitical
 from src.macro.altseason import eth_btc_momentum
@@ -406,6 +407,13 @@ def get_correlation(extra: str = ""):
     ไว้ลองว่าถ้าซื้อเพิ่มจะซ้ำกับของที่มีอยู่ไหม โดยไม่ต้องเพิ่มเข้า watchlist (ไม่กินโควตารายวัน)."""
     tickers = [t.strip().upper() for t in extra.split(",") if t.strip()]
     return portfolio_correlation(tickers)
+
+
+@app.get("/api/scorecard")
+def get_scorecard():
+    """สมุดพกของเอเจนต์เอง (Phase 32) — คะแนนที่เราให้หุ้นคนอื่น เชื่อถือได้แค่ไหน.
+    อ่านจาก analyses ที่เก็บ point-in-time ไว้แล้วล้วนๆ ไม่เรียก LLM ไม่ดึงราคาใหม่ (เร็ว)."""
+    return scorecard()
 
 
 # ---- decision journal (Phase 27) ----

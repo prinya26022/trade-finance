@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, InvestigationJob, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status, Expectation, ExpectationsResponse, CorrelationResponse, ClaimExtraction } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, InvestigationJob, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status, Expectation, ExpectationsResponse, CorrelationResponse, ClaimExtraction, Scorecard } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -252,5 +252,12 @@ export async function logDecision(
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+// Phase 32: สมุดพก — อ่านจาก analyses ล้วน ไม่เรียก LLM ไม่ดึงราคาใหม่ จึงเร็วพอจะโหลดตอนเปิดหน้า
+export async function getScorecard(): Promise<Scorecard> {
+  const res = await fetch(`${API_BASE}/api/scorecard`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
