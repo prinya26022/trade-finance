@@ -2,6 +2,7 @@ import os
 import re
 from pathlib import Path
 from typing import Literal
+from urllib.parse import unquote
 
 from dotenv import load_dotenv
 from google import genai
@@ -23,6 +24,18 @@ CHECKLIST = (ROOT / "stock_analysis_checklist.md").read_text(encoding="utf-8")
 CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")   # C0 ยกเว้น \t \n \r
 THAI_RE = re.compile(r"[฀-๿]")
 MAX_OUTPUT_ATTEMPTS = 3
+
+# อาการเพี้ยนแบบที่ 3 (เจอจริง 2026-08-01 กับ DUOL): LLM คาย 'ข้อความไทยที่ถูก percent-encode'
+# ออกมาแทนตัวอักษรจริง -> UI โชว์ '%E0%B8%9C%E0%B8%A5...' ยาวเหยียด. ต้องมี escape ติดกัน >= 2 ตัว
+# ถึงจะนับ เพื่อไม่ให้ข้อความปกติอย่าง 'margin 50%' หรือ 'โต 12%' โดนจับผิด (UTF-8 ไทย 1 ตัวอักษร
+# = 3 escape ติดกันเสมอ). เจอเมื่อไหร่ = ให้ retry ก่อน (sampling เพี้ยนเป็นเรื่องสุ่ม เรียกใหม่มัก
+# หาย) แล้วค่อยถอดรหัสให้ในด่านสุดท้าย
+PERCENT_ESCAPE_RE = re.compile(r"(?:%[0-9A-Fa-f]{2}){2,}")
+
+# ตัวอักษรที่ 'กู้ไม่ได้แล้ว': U+FFFD (ไบต์เสียตอน decode) และ U+0E00 (ช่องว่างที่ไม่ถูกกำหนดใน
+# ตาราง Thai — โผล่เป็น ฀). เจอจริงในเคสเดียวกัน: บาง escape ที่ LLM คายมาเป็นไบต์ผิด (%E0%B8%80
+# แทน %E0%B9%80 ของ 'เ') ถอดกลับได้แค่บางส่วน — 'งบการเงิน/เอกสารแนบ' -> 'งบการ฀ิน/฀กสารันบ'
+DAMAGED_CHARS_RE = re.compile("[�฀]")
 
 # framework สำหรับ crypto (คนละโลกกับหุ้น: ไม่มีงบ/กำไร — ดู tokenomics + สภาพคล่อง + adoption)
 CRYPTO_FRAMEWORK = """\
@@ -94,30 +107,54 @@ def garbled_reason(summary: Summary) -> str | None:
     for text in _text_fields(summary):
         if CONTROL_CHARS_RE.search(text):
             return "มี control character ปนในข้อความ (ตัวอักษรกลายเป็นสี่เหลี่ยม □)"
+        if PERCENT_ESCAPE_RE.search(text):
+            return "ข้อความถูก percent-encode (โชว์เป็น %E0%B8... แทนตัวอักษรไทย)"
+        if DAMAGED_CHARS_RE.search(text):
+            return "มีตัวอักษรที่กู้ไม่ได้ (฀ / U+FFFD) ปนในข้อความ"
     if not THAI_RE.search(summary.beginner_summary):
         return "beginner_summary ไม่มีอักษรไทยเลย"
     return None
 
 
+def _decode_percent(text: str) -> str:
+    """ถอดเฉพาะช่วงที่เป็น percent-escape ติดกัน (ไม่แตะ '%' เดี่ยวๆ ในข้อความปกติ).
+    ไบต์ที่ LLM คายมาผิดจะกลายเป็น U+FFFD ซึ่งอ่านออกกว่า '%E0%B8%80' ดิบๆ (เจอจริง: บางไบต์
+    ถูกคายผิดจน decode กลับเป็นตัวอักษรเดิมไม่ได้ 100% — ยอมรับว่าอ่านได้บางส่วนดีกว่าไม่ได้เลย)."""
+    return PERCENT_ESCAPE_RE.sub(lambda m: unquote(m.group(0), errors="replace"), text)
+
+
 def _clean(text: str) -> str:
-    return CONTROL_CHARS_RE.sub("", text).strip()
+    return CONTROL_CHARS_RE.sub("", _decode_percent(text)).strip()
+
+
+def _is_damaged(text: str) -> bool:
+    """ข้อความที่ถอดรหัสแล้วยังมีตัวอักษรกู้ไม่ได้ — สำหรับ field ที่เป็น list (ข่าว/จุดแข็ง ฯลฯ)
+    การ 'ตัดทั้ง item ทิ้ง' ตรงไปตรงมากว่าปล่อยพาดหัวข่าวที่อ่านผิดความหมาย (เช่น 'งบการ฀ิน')
+    ขึ้นหน้าเว็บ — ตรงกับหลักเดิมของ scrub ที่ทิ้ง item ว่างเปล่าอยู่แล้ว."""
+    return bool(DAMAGED_CHARS_RE.search(text))
 
 
 def scrub(summary: Summary) -> Summary:
     """ด่านสุดท้าย: retry ครบแล้วยังเพี้ยน -> ตัด control char ทิ้ง (item ที่ว่างเปล่าก็ตัดทิ้ง)
     อย่างน้อยไม่มีสี่เหลี่ยมโผล่บน UI. ทิ้งแค่ 'ข้อความ' ไม่ทิ้งทั้งแถว — health/valuation
     คำนวณจากตัวเลขจริงล้วน (deterministic ไม่พึ่ง LLM) จึงยังใช้ได้เต็มๆ."""
+    def keep(text: str) -> str | None:
+        c = _clean(text)
+        return None if not c or _is_damaged(c) else c
+
     return summary.model_copy(update={
-        "beginner_summary": _clean(summary.beginner_summary),
-        "thesis_assessment": _clean(summary.thesis_assessment),
-        "strength_reasons": [c for r in summary.strength_reasons if (c := _clean(r))],
-        "what_to_watch": [c for w in summary.what_to_watch if (c := _clean(w))],
-        "key_news": [c for n in summary.key_news if (c := _clean(n))],
-        "thesis_relevant_news": [c for n in summary.thesis_relevant_news if (c := _clean(n))],
+        # field เดี่ยว: ตัดเฉพาะตัวอักษรที่เสีย (ทิ้งทั้ง field = เสียข้อมูลมากกว่าที่ควร)
+        "beginner_summary": DAMAGED_CHARS_RE.sub("", _clean(summary.beginner_summary)),
+        "thesis_assessment": DAMAGED_CHARS_RE.sub("", _clean(summary.thesis_assessment)),
+        # field ที่เป็น list: ทิ้งทั้ง item ที่เสีย (พาดหัวที่อ่านผิดความหมายแย่กว่าไม่มีพาดหัว)
+        "strength_reasons": [c for r in summary.strength_reasons if (c := keep(r))],
+        "what_to_watch": [c for w in summary.what_to_watch if (c := keep(w))],
+        "key_news": [c for n in summary.key_news if (c := keep(n))],
+        "thesis_relevant_news": [c for n in summary.thesis_relevant_news if (c := keep(n))],
         "weak_points": [
-            WeakPoint(area=_clean(w.area), detail=_clean(w.detail))
+            WeakPoint(area=_clean(w.area), detail=keep(w.detail))
             for w in summary.weak_points
-            if _clean(w.detail)
+            if keep(w.detail)
         ],
     })
 

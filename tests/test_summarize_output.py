@@ -73,3 +73,57 @@ def test_scrub_keeps_deterministic_fields_untouched():
     assert (clean.price, clean.sentiment, clean.confidence) == (100.0, "neutral", 0.8)
     assert clean.fundamental_strength == "strong"
     assert clean.key_news == ["Duolingo beats earnings estimates"]
+
+# ---- เคสจริง 2026-08-01 (DUOL): LLM คายข้อความไทยแบบ percent-encoded ----
+# หน้าเว็บโชว์ '%E0%B8%9C%E0%B8%A5...' ยาวเหยียดแทน 'ผลประกอบการ ...' — JSON valid, schema ผ่าน,
+# ไม่มี control char เลย ด่านเดิมจึงไม่จับ
+
+_ENCODED = ("☑ [SEC 8-K] 8-K (2026-05-04): %E0%B8%9C%E0%B8%A5%E0%B8%9B%E0%B8%A3%E0%B8%B0"
+            "%E0%B8%81%E0%B8%AD%E0%B8%9A%E0%B8%81%E0%B8%B2%E0%B8%A3 (earnings)")
+
+
+def test_percent_encoded_text_is_flagged_as_garbled():
+    bad = _summary(key_news=[_ENCODED])
+    assert "percent-encode" in garbled_reason(bad)
+
+
+def test_percent_encoded_in_any_field_is_flagged():
+    bad = _summary(beginner_summary="ธุรกิจดี %E0%B8%87%E0%B8%9A%E0%B8%81%E0%B8%B2%E0%B8%A3")
+    assert "percent-encode" in garbled_reason(bad)
+
+
+def test_plain_percent_signs_are_not_garbled():
+    """ข้อความปกติที่มี % ต้องไม่โดนจับผิด — ไทย 1 ตัวอักษร = 3 escape ติดกันเสมอ."""
+    ok = _summary(strength_reasons=["margin 50% และโต 12%", "ROIC 76.1%"])
+    assert garbled_reason(ok) is None
+
+
+def test_scrub_decodes_percent_escapes_back_to_thai():
+    """ด่านสุดท้าย (retry ครบแล้วยังเพี้ยน): ถอดรหัสให้อ่านออก ดีกว่าปล่อย %E0%B8 ขึ้นหน้าเว็บ."""
+    clean = scrub(_summary(key_news=[_ENCODED]))
+    assert "ผลประกอบการ" in clean.key_news[0]
+    assert "%E0%B8" not in clean.key_news[0]
+    assert garbled_reason(clean) is None
+
+
+def test_irrecoverable_chars_are_flagged():
+    """บาง escape ที่ LLM คายมาเป็นไบต์ผิด ถอดกลับได้แค่บางส่วน -> เหลือ ฀ / U+FFFD."""
+    bad = _summary(key_news=["8-K: งบการ฀ิน/฀กสารันบ"])
+    assert "กู้ไม่ได้" in garbled_reason(bad)
+
+
+def test_scrub_drops_damaged_list_items_but_keeps_the_rest():
+    dirty = _summary(key_news=["8-K: งบการ฀ิน/฀กสารันบ", "Duolingo beats estimates"],
+                     strength_reasons=["ROIC 76.1% สูงมาก"])
+    clean = scrub(dirty)
+
+    assert clean.key_news == ["Duolingo beats estimates"]   # ทิ้งเฉพาะ item ที่เสีย
+    assert clean.strength_reasons == ["ROIC 76.1% สูงมาก"]  # ของดีไม่โดนลูกหลง
+    assert garbled_reason(clean) is None
+
+
+def test_scrub_keeps_beginner_summary_minus_damaged_chars():
+    """field เดี่ยวๆ ทิ้งทั้งก้อนไม่ได้ (prompt บังคับให้ไม่ว่าง) -> ตัดเฉพาะตัวอักษรที่เสีย."""
+    clean = scrub(_summary(beginner_summary="ธุรกิจดี฀มาก ราคาไม่แพง"))
+    assert clean.beginner_summary == "ธุรกิจดีมาก ราคาไม่แพง"
+    assert garbled_reason(clean) is None
