@@ -856,6 +856,257 @@ easiest way to fool yourself:
   rerun collapse, and two look-ahead guards on the forward-return half (snapshots inside the horizon
   excluded, partial /8 rows excluded from the bands). Suite 312/312, tsc clean.
 
+## Phase 33 -- second opinion without a second API key (chat handoff + head-to-head)
+DONE. Everything the pipeline judges is judged by one model family (Gemini free tier). Buying a second
+API key isn't in the budget, but a second opinion doesn't actually require one: the data can be
+exported to a file, pasted into a chat with any model, and the answer imported back. Monthly, by hand
+-- this leg is powered by a human, so it is not a cron job.
+
+The point is not "now there are two opinions". It is that the two are **comparable**:
+- The pack is assembled from the *same prompt pieces* Gemini reads (`asset_profile` / `data_block` /
+  `TASK_BLOCK` in summarize.py), rearranged only in layout -- framework once at the top instead of
+  once per ticker (the checklist is 20KB; 11 copies is not pasteable). Nothing is retyped here, so
+  editing the prompt can't silently make the comparison unfair. A test asserts the exact data block.
+- The answer must validate against the **same `Summary` schema**, then runs the **same evals**
+  (check_grounding / check_facts_grounding) and the same garbled-text scrub as the API path. So
+  "more detailed" is settled by numbers -- cited figures that match a real Fact -- not by vibes.
+- The `.json` snapshot is written next to the `.md`, and import checks the reply against *that*, not
+  against today's data. Otherwise price_ok would degrade with time and blame the model for it.
+
+- What can't differ, stated up front: **health_score is not LLM output** (Piotroski + reverse-DCF
+  since Phase 17/18). Same data = identical score whoever answers. The comparison is over what the
+  LLM actually decides: the three labels, grounding accuracy, and countable depth.
+- src/history/claude_store.py -- separate table on purpose. Hand-carried rows must never leak into
+  `analyses`, or changes/timeline/scorecard/performance would quietly mix a monthly manual row into
+  daily statistics. UNIQUE(ticker, period, model) + upsert, because re-pasting is the normal case.
+- src/agent/compare.py -- pairs each row with the exact `analyses.id` recorded at export time
+  (falls back to the newest row in the period, flagged `same_snapshot: false`). Gemini's
+  `cited_count` was never stored, so it is recomputed from that row's own summary+facts with the
+  same eval rather than shown as N/A -- otherwise the depth column is empty on one side and useless.
+- `python scripts/claude_handoff.py export | import | compare` (export costs zero Gemini quota --
+  price/news/fundamentals only), plus GET /api/claude-analyses and GET /api/compare/{period}.
+- `/compare` page, shaped entirely by the fact that this leg runs **rarely, by hand**: it opens on
+  the newest period that *has* data (never the current month, which is empty most of the time and
+  would read as broken), the not-yet-pasted state is a neutral how-to card rather than a warning
+  colour, and it never enumerates which tickers are missing -- that would be nagging about a job
+  deliberately done a few times a year. Rows expand to both sides' reasons side by side, because
+  when two verdicts differ the useful question is "what did the other one see", which a label
+  can't answer.
+- Honesty fix caught while verifying the page: the row flag was called `same_snapshot`, which was
+  not true -- it only meant "paired with the analyses row recorded at export time". The chat side
+  reads a fresh snapshot; the daily row is its own run, up to a day or more earlier. Renamed to
+  `linked` and the row now reports `data_gap_days`, with a chip from 2 days apart. Annual
+  fundamentals don't move day to day, but price and news do, so a disagreement is only evidence
+  about interpretation once the gap is known.
+- 13 offline tests: pack carries the identical data block, framework/task appear once, crypto items
+  get the crypto framework, invented numbers land in `unmatched_numbers`, code-fenced replies parse,
+  re-import overwrites, a bad ticker doesn't fail the batch, and import without a snapshot refuses
+  rather than silently grading against today's prices. Suite 325/325.
+
+## Phase 33.1 -- acting on what the second opinion found (compute it, don't ask for it)
+DONE. The first head-to-head produced one substantive disagreement worth acting on: DUOL, where the
+daily model called the stock cheap off `P/E 15.42x` without noticing that `Net Margin 39.91%` sits
+far above `Operating Margin 13.07%`, `CFO < Net Income`, and `Forward P/E > trailing P/E` -- i.e. the
+P/E is flattered by something below the operating line, not by a low price.
+
+**The tempting fix was the wrong one.** "Improve the prompt so Gemini reasons like Claude" fails on
+two counts, and both are checkable rather than matters of taste:
+- `stock_analysis_checklist.md:51` **already says** "Operating Cash Flow เทียบ Net Income — ถ้ากำไร
+  ทางบัญชีสูงแต่เงินสดไม่เข้า = คุณภาพกำไรต่ำ (ธงแดง)", and both numbers were in the DATA it was
+  given. It is a compliance gap, not a missing-instruction gap; sentence 52 does not fix sentence 51
+  being ignored.
+- Writing one model's reasoning into the shared prompt destroys the instrument that found the
+  problem: next month's comparison would measure "who follows my checklist" instead of "who sees
+  more", with the same author writing both the checklist and one of the answers. Two opinions are
+  only worth having while they can differ.
+
+So the rule applied instead: **if it can be computed, compute it and put it in the DATA** -- the same
+principle that already makes health and reverse-DCF deterministic. Three derived facts
+(`fundamentals.py::_derived_facts`), skipped rather than faked when they can't be compared (loss-making
+=> no CFO/NI ratio; mismatched periods => no margin gap):
+- `Earnings Quality Gap` (Net Margin − Operating Margin) -- caught both directions on real data
+  immediately: DUOL +26.84pp (flattered), META −11.36pp (business is *better* than net income says)
+- `CFO / Net Income` -- DUOL 0.937x, META 1.915x
+- `Forward P/E - P/E` -- positive means the market itself expects EPS to fall (DUOL +1.78x)
+
+Now no one has to notice: both models read it as a line, health can score it, and the eval can check
+whether anyone misquoted it.
+
+- health criterion #2 is now `min(graded(Net Margin), graded(Operating Margin))` -- fuzzy AND, the
+  same shape criterion #3 already used. Net income the business didn't earn no longer gets full
+  credit (synthetic case OM 5% / NM 30%: 1.0 -> 0.0). **The label string is deliberately unchanged**:
+  scorecard.py matches criteria across days by label, so renaming would register as a null<->number
+  flip for every ticker at once and flag the whole board as `data` noise.
+- **A/B over all 279 stored rows with identical inputs: 0 scores change.** DUOL only ever passed
+  because OM 13.07% grazed the band edge at 13.0 -- lucky, not correct. This is a guard against a
+  case the watchlist hasn't hit yet, and it needs no backfill.
+- **The eval itself was measuring writing style.** Two bugs, both biasing the score of whoever writes
+  numbers plainly: Thai scale words ("2.69 หมื่นล้าน" = the exact Fact value) were counted as
+  unmatched because only 1e3/1e6/1e9 multipliers were tried, and dates/form names ("8-K วันที่
+  2026-06-10") were parsed as cited metrics. Fixed both; numbers that carry an explicit unit no
+  longer get the loose multiplier sweep, so the check gets *stricter* about order-of-magnitude
+  errors while it stops punishing readable prose. compare.py now prefers the freshly recomputed
+  ratio over the stored column so both sides are always scored by the same eval version -- the same
+  cross-basis trap `comparable_score` guards against for /8 vs /11.
+- Effect on the same 11 tickers, nothing else changed: Claude 98% -> 100%, Gemini 93% -> 98%. NVDA's
+  Gemini row went 50% -> 100% -- that entire gap was measurement error. What survives is real: TSLA's
+  Gemini row still cites "ยอดส่งมอบ Q2 เพิ่ม 25% มาที่ 480,126 คัน ตามข้อมูลจากข่าวล่าสุด", numbers
+  that appear nowhere in the news it was given. That fabrication is the one thing no other layer
+  catches, and it is now the only thing the metric is complaining about.
+- 9 new offline tests (scale units, order-of-magnitude still caught, dates ignored, criterion capped/
+  not double-penalised/period-matched, derived facts present and skipped correctly). Suite 335/335.
+
+## Phase 33.2 -- the two things the comparison exposed that were never about the models
+DONE. Both items came out of the same head-to-head, and neither is fixable by prompting.
+
+**1. Foreign ADRs: statements and price are in different currencies, and nothing knew.**
+`info['financialCurrency'] != info['currency']` for ASML (EUR/USD) and TSM (TWD/USD). Every fact was
+labelled "USD" regardless, so the DATA claimed TSM earns 4.44e12 **USD**, and every ratio dividing a
+price-side number by a statement-side one was meaningless while looking perfectly reasonable:
+- TSM showed `P/S 0.47x` (reads as "extremely cheap"), `P/B 84.3x`, `FCF Yield 35.25%`
+- ASML showed `EV/EBITDA 2576.692x`, `P/B 1380.7482x`
+- Worse, silently: `reverse_dcf` builds `EV = market_cap + net_debt`. ASML scored its valuation leg
+  **0.0/3 off an implied growth of 31.4%/yr computed from a USD EV over EUR FCF** -- a fabricated
+  number sitting in the health score on the dashboard. TSM escaped only because the garbage landed
+  outside the model's interpretable range. Escaped by luck, not by design.
+- The daily model's TSM answer contradicted itself as a result: verdict `cheap`, while its own weak
+  point said `P/B 84.30622x` means a very high premium. Both readings came from broken inputs.
+
+Fix: **do not convert** (which yfinance field sits on which side is not knowable, and a wrong FX
+guess is worse than no number) -- instead tell the truth and refuse. Units now carry the reporting
+currency (`Revenue: ... TWD` next to `Market Cap: ... USD`), the four cross-currency ratios are
+dropped entirely, and `reverse_dcf` returns None on mismatch. P/E / Forward P/E / PEG survive:
+Yahoo puts EPS on the same side as price, verified against both tickers' actual numbers.
+- The suppression lives in `to_facts()`, not in the provider, so an object built anywhere gets the
+  same rule. Detection for the health path reads **fact unit strings**, because that path runs off
+  facts loaded from the DB during backfill where no source object exists -- and old rows labelled
+  "USD" everywhere therefore evaluate to "no mismatch", leaving history untouched.
+- Result on live data: ASML 6.9/11 (with a fabricated price leg) -> **7.9/8 partial**, TSM ->
+  7.5/8 partial, both with the honest reason "งบกับราคาคนละสกุลเงิน". DUOL unchanged.
+
+**2. Framework versioning -- the prerequisite for ever touching the checklist.**
+`summarize.framework_version()` hashes checklist + crypto framework + TASK block into 12 chars,
+stored on every `analyses` row, every `claude_analyses` row, and inside the pack snapshot (the
+imported row records the version from **export** time, since that is the framework the answer was
+written against). compare.py reports `same_framework`, and the CLI/UI flag mismatches loudly.
+- A hash, not a hand-maintained number: a version you have to remember to bump is a version you
+  forget to bump.
+- Three states, not two: `null` means "one side predates the column" and must never render as
+  "same framework" -- unknown is not agreement.
+- This is the same failure mode as Phase 32's `basis_changes` and Phase 29's /8-vs-/11 split: when
+  the measuring basis changes, the comparison has to know, or the difference gets misread as signal.
+
+- 8 + 4 new offline tests. Suite 347/347, tsc clean.
+- **The 2026-08 round was deliberately not re-exported.** Rerunning a recorded comparison against
+  changed data and a changed framework is exactly the mid-exam rule change this phase exists to
+  prevent. The fixes apply from the next round forward.
+
+## Phase 33.3/33.4 -- clearing the queue, then proving the claim the whole comparison rests on
+
+**GOOGL's oscillating growth estimate (open since Phase 32) -- found, and it was a silent fallback.**
+`realistic_growth` flipped 15.7 <-> 12.51 across consecutive runs with no flag and no lens change.
+Diffing the stored facts between a 15.7 day and a 12.51 day left exactly one culprit: **`D&A` was
+present on one and `None` on the other**, because yfinance returns a different set of cashflow rows
+between calls. With D&A missing, `reinvestment_rate` correctly returns None -> `sustainable_pct` is
+None -> `valuation_guard` adds no flag -> `flags` is empty -> `route = "standard"` -> and then
+reverse_dcf's standard branch quietly substitutes `historical_cagr` while still labelling the lens
+`standard`. A missing input became a different anchor with nothing recording that it happened.
+- Missing input *is* "sustainable can't be trusted", which is the same condition as every other flag
+  in that function -> now raises `SUSTAINABLE_UNCOMPUTABLE` and routes to the growth lens, which
+  anchors on real FCF/revenue growth and needs no D&A. The fallback is now visible and consistent.
+- `_first()` also stopped at the first *existing* row name and gave up if that cell was NaN, ignoring
+  later aliases that had the number. It now walks every alias until one yields a value, and D&A gained
+  two more aliases. That removes the flapping at source.
+- A/B across all 203 stored rows with a real lens: **exactly the 8 GOOGL rows change**, all of them
+  the ones that were flipping. AAPL/SPCX/JPM also differ from stored values, but re-running with the
+  *old* guard reproduces those too -- they are a pre-existing loop-vs-duck path difference, not this.
+
+**Banks: a second criteria set, built from what can actually be fetched.**
+JPM had been "ประเมินไม่ได้" every day since being added: 5 of the 8 standard criteria need numbers
+that are meaningless for a bank (deposits aren't leverage; lending drives CFO/FCF to
+-147,782,000,000 USD without anything being wrong), so only 4/8 were computable and the data gate
+disqualified it. Adapting the existing criteria was not an option -- they measure the wrong things.
+- `BANK_CRITERIA` (still /8, so scores stay on one scale with every other holding): ROTCE, ROE,
+  Net Margin, Equity/Assets, NII/Assets, Cost+Provision/Revenue, revenue growth, dilution.
+- Built from fetchable data, not from a wish list: CET1, NPLs and provisions are not in yfinance, so
+  they are simply absent rather than approximated into a score. Where a proxy *is* used the name says
+  so -- `NII / Assets` not "NIM" (the denominator should be earning assets), `Cost+Provision /
+  Revenue` not "efficiency ratio" (no non-interest expense line) -- because a label that implies an
+  industry-standard metric invites comparison against industry-standard thresholds for a different
+  number.
+- Detection is `Net Interest Income / Revenue >= 20%` read from **facts**, not a sector string:
+  facts are what the backfill path has, and "Financial Services" also covers insurers and asset
+  managers, which this framework cannot read either.
+- Valuation uses justified P/B = (ROTCE − g) / (COE − g) with the same CAPM and terminal growth as
+  everything else. It deliberately does **not** reuse `_gap_to_score`'s bands: those are percentage
+  points of annual growth, where 10pp is enormous, while this is a percentage premium over fair
+  value, where 10% is unremarkable -- sharing the bands would put nearly every bank at 0 or 3 and
+  reintroduce the binary cliff that audit 19.3 removed. Bank bands are 0/15/35% with a 7pp taper.
+- JPM now scores 10.6/11 (fundamental 7.6/8, price 2.68/3 at a 2.6% discount to justified P/B).
+
+**Model invariance -- the claim is now measured, not asserted.**
+Every answer given about this feature has leaned on "health score isn't LLM output, so the model
+doesn't change the numbers" -- justified by reading the code, which is exactly the evidence that
+already failed once this month on currency. `src/evals/check_model_invariance.py` feeds **one fact
+set** through the whole deterministic layer twice, changing only whose analysis it is, and diffs
+score, tier, max, partial, every sub-criterion, the valuation leg and its reason, and the breach
+penalty. `python scripts/claude_handoff.py invariance` runs it on real data.
+- **11/11 tickers identical on the 2026-08 round, with the two models disagreeing on sentiment for
+  10 of them.** Different reading, same numbers -- which is the property the entire comparison
+  depends on.
+- Locked in as tests for both the standard and bank frameworks, including one that deliberately
+  feeds *different* data and asserts the checker reports a difference -- a check that can only pass
+  proves nothing.
+- 15 new tests. Suite 362/362, tsc clean.
+
+## Phase 33.5 -- the last two queue items: ground truth for ADRs, real data for crypto
+
+**20-F / IFRS: TSM and ASML had never once been checked against what they actually filed.**
+The XBRL eval matched `form == "10-K"`, taxonomy `us-gaap`, unit `USD` -- all three assumptions fail
+for foreign filers, so both returned N/A forever. That is the worst possible pair to have no ground
+truth for, since Phase 33.2 had just found their yfinance data broken in another way. What the real
+companyfacts show: **ASML files 20-F but tags in us-gaap** (only the form filter was wrong), while
+**TSM uses `ifrs-full` throughout and reports in TWD** (taxonomy *and* currency).
+- Annual forms widened to 10-K/10-K/A/20-F/20-F/A; IFRS concept names added per key, verified
+  against TSM's actual filings rather than guessed. Keys with no confident IFRS counterpart are
+  left out -- when the reference itself is wrong, the eval reports *us* as wrong.
+- `reporting_currency()` picks one currency **per company**, not per concept. TSM attaches USD
+  convenience translations to some concepts (usually latest year only); letting each concept choose
+  would take Revenue in TWD and Net Income in USD and produce a margin that is garbage but looks
+  plausible -- the identical bug shape as Phase 33.2, so it gets the identical treatment.
+- Result: **ASML 12/12 concepts, TSM 10/12, both 100% accurate** on every margin the eval checks
+  (AAPL/JPM unchanged). Independent confirmation of the 33.2 diagnosis too: the statement-side
+  numbers were always right, only the price-derived ratios were broken.
+
+**Crypto on-chain: the framework had been asking for evidence that was never supplied.**
+`CRYPTO_FRAMEWORK` has instructed the model to judge "real usage, integrations, upgrades" and
+security since Phase 9, while the DATA block carried nothing but tokenomics. Asking for a verdict
+with no data for it is a recipe for confident guessing -- the same lesson as 33.1.
+- `src/providers/crypto/onchain.py` -- active addresses, transactions/day, transaction fees and
+  hash rate from blockchain.info (free, no key), 1-day cache, failures degrade to `{}` rather than
+  raising, and each metric ships as a **30-day average plus a YoY change**: daily on-chain values
+  swing hard enough that a single day is noise, and a level with no trend has no benchmark to be
+  read against.
+- **Bitcoin only, deliberately.** blockchain.info covers one chain; bolting on per-chain endpoints
+  would file numbers with different definitions under one label (an account-based chain's "active
+  addresses" is not BTC's).
+- First real read is immediately non-obvious: active addresses **−13.2%** YoY and fees **−21.7%**
+  while transactions/day is **+42.5%** -- more transactions from fewer addresses paying less.
+  Exactly the kind of thing the old DATA block could not have surfaced at all.
+
+**What was deliberately not built: a crypto /8 score.** The bank framework was justified because
+ROTCE, capital ratios and cost/income are established metrics with defensible thresholds. Crypto has
+no equivalent -- any eight cutoffs I picked would be invented, and the project's own rule is that a
+number nobody can justify is worse than an honest gap (partial /8, "excluded", "unclear" all exist
+for this reason). Crypto still scores `excluded`; what changed is that the *analysis* now has
+evidence to work from. Note also that BTC is still frozen in the watchlist, so nothing consumes this
+until it is unfrozen -- that is the owner's call, not a code change.
+
+- 15 new offline tests (no network): 20-F accepted, IFRS fallback, us-gaap precedence, quarterly rows
+  still excluded inside annual filings, one-currency-per-company enforced, 10-K path unchanged,
+  unsupported chains return nothing, short series produce no fake trend, API failure degrades
+  quietly, zero baseline yields a level without a fabricated trend. Suite 377/377.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

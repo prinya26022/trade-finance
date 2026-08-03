@@ -195,3 +195,59 @@ def test_screen_rescans_when_cache_stale(monkeypatch, tmp_path):
 
     data = screener.screen(force=False)
     assert data["results"] == [{"ticker": "NEW"}]
+
+
+# ── Phase 33.3: ธนาคารใน screener ต้องใช้เลนส์ราคาเดียวกับ health ────────────
+# ถ้าไม่แก้: _fundamental_score จับได้ว่าเป็นแบงก์แล้วให้คะแนนด้วยเกณฑ์ธนาคาร แต่ขาราคายังเรียก
+# reverse_dcf ซึ่งอ่าน FCF ของแบงก์ไม่ได้ -> คืน None -> แบงก์หายไปจาก screener เงียบๆ ทั้งที่
+# health ให้ 10.6/11 = สองพาธที่อ้างว่าใช้ 'เอนจิ้นเดียวกัน' ตอบคนละอย่างสำหรับหุ้นตัวเดียวกัน
+
+class _FakeBank:
+    """ธนาคารแบบย่อ: FCF ติดลบมหาศาลตามธรรมชาติของธุรกิจ (ปล่อยสินเชื่อ) — reverse_dcf ต้องไม่ถูกใช้."""
+    free_cash_flow = -147_782_000_000.0
+    market_cap = 935_128_203_264.0
+    fcf_series: list = []
+    revenue_series: list = []
+    revenue = 181_847_000_000.0
+    revenue_cagr = 12.5
+    net_debt = 156_644_000_000.0
+    beta = 0.977
+    capex = None
+    depreciation_amortization = 8_821_000_000.0
+    nwc_change = -218_801_000_000.0
+    nopat = None
+    roic = None
+    fcf_margin = None
+
+    def to_facts(self):
+        from src.domain.interfaces import Fact
+        rows = [
+            ("Revenue", 181_847_000_000.0, "USD", "FY2025"),
+            ("Net Interest Income", 95_443_000_000.0, "USD", "FY2025"),
+            ("ROTCE", 20.53, "%", "FY2025"),
+            ("Equity / Assets", 8.19, "%", "FY2025"),
+            ("NII / Assets", 2.16, "%", "FY2025"),
+            ("Cost+Provision / Revenue", 61.04, "%", "FY2025"),
+            ("Revenue CAGR", 12.5, "%", "FY2025"),
+            ("P/B", 2.6448984, "x", "FY2025"),
+            ("Beta", 0.977, "x", "FY2025"),
+            ("ROE", 15.74, "%", "FY2025"),
+            ("Net Margin", 31.37, "%", "FY2025"),
+            ("Diluted Shares", 2_781_500_000.0, "shares", "FY2025"),
+            ("Diluted Shares", 2_879_000_000.0, "shares", "FY2024"),
+        ]
+        return [Fact(label=a, value=b, unit=c, period=d) for a, b, c, d in rows]
+
+
+def test_screener_scores_a_bank_instead_of_dropping_it(monkeypatch):
+    monkeypatch.setattr(
+        screener.StockFundamentalsProvider, "get_fundamentals",
+        lambda self, ticker: _FakeBank(),
+    )
+    result = screener.screen_one("JPM", 4.0)
+
+    assert result is not None
+    assert result["lens"] == "bank_pb"
+    assert result["valuation_score"] > 0
+    # เลนส์ธนาคารไม่มี growth gap -> ต้องเป็น None ไม่ใช่ 0 ที่อ่านว่า 'ราคาตรงมูลค่าพอดี'
+    assert result["gap"] is None and result["implied_growth"] is None

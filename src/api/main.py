@@ -19,6 +19,8 @@ from src.watchlist.store import (
     list_all, add as add_ticker, remove as remove_ticker,
     set_holding, add_shares, set_watching, set_frozen,
 )
+from src.history.claude_store import for_period as claude_for_period, periods as claude_periods
+from src.agent.compare import compare_period
 from src.agent.changes import detect_changes
 from src.agent.performance import portfolio_edge
 from src.agent.investigate_store import latest_investigation
@@ -195,6 +197,28 @@ def get_ticker_history(ticker: str, limit: int = 50):
     if not rows:
         raise HTTPException(status_code=404, detail=f"no analyses for {ticker}")
     return rows
+
+
+@app.get("/api/claude-analyses")
+def get_claude_periods():
+    """งวดที่มีบทวิเคราะห์จากแชทแล้ว (Phase 33) — ใหม่ -> เก่า. [] = ยังไม่เคยนำเข้าเลย."""
+    return claude_periods()
+
+
+@app.get("/api/claude-analyses/{period}")
+def get_claude_period(period: str):
+    """บทวิเคราะห์รายเดือนที่นำเข้ามาจากแชท (คนละตารางกับ /api/analyses ซึ่งเป็นรอบรายวันของ Gemini)."""
+    rows = claude_for_period(period)
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"no chat-sourced analyses for {period}")
+    return rows
+
+
+@app.get("/api/compare/{period}")
+def get_compare(period: str, model: str | None = None):
+    """เทียบสองสำนักของงวดนั้น — ป้ายวินิจฉัยตรงกันไหม + ใครอ้างตัวเลขตรง Fact มากกว่า.
+    ไม่เรียก LLM (อ่านจาก DB + คำนวณ eval เดิมซ้ำแบบ deterministic)."""
+    return compare_period(period, model=model)
 
 
 @app.get("/api/health-trends")

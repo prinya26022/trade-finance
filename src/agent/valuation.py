@@ -164,6 +164,20 @@ def valuation_guard(
         flags.append("NEGATIVE_REINVESTMENT")
 
     sustainable_pct = round(rr * roic_pct, 2) if (rr is not None and roic_pct is not None) else None
+
+    # ── fix 2026-08 (ต้นตอของ 'GOOGL realistic growth เด้ง 15.7 <-> 12.51' ที่ Phase 32 จับได้):
+    # คำนวณ sustainable ไม่ได้เลย (input ตัวใดตัวหนึ่งขาด — เจอจริงคือ D&A หายจาก yfinance บางรอบ)
+    # เดิมไม่ติดธงอะไรเลย -> flags ว่าง -> route = 'standard' -> แล้วโค้ดข้างล่างใน reverse_dcf
+    # เจอ sustainable=None ก็ **เงียบๆ เปลี่ยนไปใช้ historical_cagr แทน** โดยยังปักป้าย lens
+    # ว่า 'standard' เหมือนเดิม. ผลคือ anchor สลับไปมาระหว่างสองค่าตามความพร้อมของข้อมูล โดยไม่มี
+    # ใครรู้ว่าคนละฐาน — ซึ่งคือนิยามของบั๊กที่ Phase 32 ถูกสร้างมาเพื่อจับ.
+    #
+    # ข้อมูลขาด = 'sustainable เชื่อไม่ได้' ซึ่งเป็นเงื่อนไขเดียวกับธงอื่นในฟังก์ชันนี้ทุกประการ
+    # จึงต้องไป growth lens (anchor จาก FCF/revenue growth จริง ซึ่งไม่ต้องใช้ D&A) พร้อมติดธงให้
+    # เห็น ไม่ใช่แอบเปลี่ยนไปใช้ CAGR ในอดีตแล้วบอกว่ายังเป็น lens เดิม
+    if sustainable_pct is None:
+        flags.append("SUSTAINABLE_UNCOMPUTABLE")
+
     if sustainable_pct is not None and historical_cagr is not None:
         contradiction = sustainable_pct < 0 and historical_cagr > 10.0
         divergence = abs(sustainable_pct - historical_cagr) > DIVERGENCE_TRIGGER_PP
@@ -325,6 +339,15 @@ def reverse_dcf(
     depreciation_amortization, nwc_change, nopat, roic, fcf_margin) -> dict (ผ่าน
     ReverseDcfResult.to_dict()). คืน None ถ้าข้อมูลพื้นฐาน (market_cap) ไม่มีเลย — คำนวณไม่ได้
     ตั้งแต่ต้น. risk_free_pct ควรมาจาก src.providers.stock.market.get_risk_free_rate_pct()."""
+    # fix 2026-08: EV = market_cap + net_debt ซึ่งอยู่คนละสกุลได้ถ้าเป็น ADR ต่างชาติ (งบสกุล
+    # บ้านเกิด ราคา USD) — เจอจริงทั้งคู่ใน watchlist: TSM ได้ ev = 3.93e11 จาก USD 2.10e12 +
+    # TWD -1.70e12, ASML คำนวณ implied growth 31.4%/ปี จาก EV สกุล USD หารด้วย FCF สกุล EUR
+    # แล้วให้คะแนนขาราคา 0.0/3 ไปเต็มๆ. TSM รอดมาได้เพราะผลลัพธ์บังเอิญหลุดช่วงที่โมเดลตีความ
+    # ได้ (= รอดด้วยโชค ไม่ใช่ด้วยการออกแบบ). ตัวเลขที่คำนวณจากสองสกุลไม่ใช่ตัวเลขที่ผิดนิดหน่อย
+    # — มันไม่มีความหมายเลย จึงต้องปฏิเสธ ไม่ใช่ปรับแก้
+    if getattr(fundamentals, "currency_mismatch", False):
+        return None
+
     market_cap = fundamentals.market_cap
     if market_cap is None or market_cap <= 0:
         return None

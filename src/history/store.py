@@ -14,6 +14,7 @@ from pathlib import Path
 from datetime import datetime
 
 from src.agent.health import comparable_score
+from src.agent.summarize import framework_version
 
 DB_PATH = Path(__file__).parents[2] / "data" / "watchlist.db"
 
@@ -49,7 +50,8 @@ def init_db() -> None:
                 health_reasons_json  TEXT,
                 xbrl_accuracy        REAL,
                 xbrl_json            TEXT,
-                valuation_json       TEXT
+                valuation_json       TEXT,
+                framework_version    TEXT
             )
             """
         )
@@ -68,6 +70,9 @@ def init_db() -> None:
             ("xbrl_accuracy", "REAL"),
             ("xbrl_json", "TEXT"),
             ("valuation_json", "TEXT"),
+            # Phase 33.2: ลายนิ้วมือของ checklist/TASK ที่ใช้ตัดสินรอบนั้น — ไม่มีตัวนี้
+            # การเทียบข้ามงวดจะปนกันระหว่าง "โมเดลเปลี่ยน" กับ "เราเปลี่ยนโจทย์"
+            ("framework_version", "TEXT"),
         ]:
             if col not in cols:
                 conn.execute(f"ALTER TABLE analyses ADD COLUMN {col} {coltype}")
@@ -103,8 +108,9 @@ def save_analysis(summary, grounding: dict, facts=None, extraction: dict | None 
                 ticker, run_at, fundamental_strength, valuation_view, sentiment,
                 price, confidence, price_ok, news_grounded_ratio, facts_grounded_ratio,
                 summary_json, facts_json, extraction_accuracy, extraction_json,
-                health_score, health_reasons_json, xbrl_accuracy, xbrl_json, valuation_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                health_score, health_reasons_json, xbrl_accuracy, xbrl_json, valuation_json,
+                framework_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 summary.ticker,
@@ -126,6 +132,7 @@ def save_analysis(summary, grounding: dict, facts=None, extraction: dict | None 
                 xbrl.get("accuracy") if xbrl else None,
                 json.dumps(xbrl, ensure_ascii=False) if xbrl else None,
                 json.dumps(valuation, ensure_ascii=False) if valuation else None,
+                framework_version(),
             ),
         )
         return cur.lastrowid
@@ -184,6 +191,15 @@ def all_rows() -> list[dict]:
     with _connect() as conn:
         rows = conn.execute("SELECT * FROM analyses ORDER BY id").fetchall()
         return [_row_to_dict(r) for r in rows]
+
+
+def get(row_id: int) -> dict | None:
+    """แถวเดียวตาม id — คู่เทียบของ Phase 33 ผูกกับ analyses.id ที่ตอน export บันทึกไว้ว่า
+    'แถว Gemini ที่ข้อมูลใกล้กันที่สุด' (ไม่ใช่ค้นจากวันที่ตอนนำเข้า ซึ่งอาจได้คนละ snapshot)."""
+    init_db()
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM analyses WHERE id = ?", (row_id,)).fetchone()
+    return _row_to_dict(row) if row else None
 
 
 def health_trends(limit_per_ticker: int = 20) -> dict[str, list[dict]]:

@@ -5,13 +5,15 @@ crypto ไม่มีรายได้/กำไร/margin — สิ่งท
   - scarcity: มี hard cap ไหม (BTC=21M) หรือ uncapped (ETH)
   - liquidity: 24h volume เทียบ market cap -> ซื้อขายคล่องแค่ไหน
 ทั้งหมดดึงจาก yfinance info (ชุดเดียวกับหุ้น) — ไม่เพิ่ม dependency/API ใหม่ (thin slice).
-ลึกกว่านี้ (active addresses, fees/revenue, TVL) = on-chain source รอบหน้า.
+Phase 33.5: เพิ่มชั้น on-chain (active addresses/transactions/fees/hash rate) จาก
+blockchain.info สำหรับ BTC — ดู src/providers/crypto/onchain.py ว่าทำไมรองรับเชนเดียว.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import yfinance as yf
 
 from src.domain.interfaces import Fundamentals, FundamentalsProvider, Fact
+from src.providers.crypto.onchain import get_onchain_metrics
 from src.providers.crypto.price import yf_symbol
 
 
@@ -24,6 +26,8 @@ class CryptoFundamentals(Fundamentals):
     circulating_supply: float | None = None
     max_supply: float | None = None          # None = ไม่มีเพดาน (เฟ้อได้เรื่อยๆ เช่น ETH)
     total_supply: float | None = None
+    # {ป้าย: (ค่า, หน่วย)} จาก src/providers/crypto/onchain.py — ว่างถ้าเชนนั้นยังไม่รองรับ
+    onchain: dict = field(default_factory=dict)
 
     def to_facts(self) -> list[Fact]:
         facts: list[Fact] = []
@@ -50,6 +54,12 @@ class CryptoFundamentals(Fundamentals):
             if self.price:
                 add("Fully Diluted Valuation", self.max_supply * self.price, "USD")
 
+        # Phase 33.5: การใช้งานจริงบนเครือข่าย — CRYPTO_FRAMEWORK สั่งให้ประเมิน adoption/security
+        # มาตั้งแต่ Phase 9 แต่ไม่เคยมีตัวเลขให้ประเมินเลย (มีแค่ tokenomics). ไม่มีข้อมูล
+        # (ไม่ใช่ BTC / API ล่ม) = ไม่มี fact กลุ่มนี้ ไม่ใช่ใส่ 0
+        for label, (value, unit) in self.onchain.items():
+            add(label, value, unit)
+
         return facts
 
 
@@ -64,4 +74,5 @@ class CryptoFundamentalsProvider(FundamentalsProvider):
             circulating_supply=info.get("circulatingSupply"),
             max_supply=info.get("maxSupply"),
             total_supply=info.get("totalSupply"),
+            onchain=get_onchain_metrics(ticker),
         )

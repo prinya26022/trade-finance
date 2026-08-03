@@ -50,6 +50,34 @@ CONCEPTS: dict[str, tuple[list[str], str]] = {
     "LongTermDebtCurrent": (["LongTermDebtCurrent"], "instant"),
 }
 
+# ── Phase 33.5: หุ้นต่างชาติ (ADR) ยื่น **20-F ไม่ใช่ 10-K** และบางรายใช้ taxonomy IFRS ไม่ใช่
+# us-gaap — เดิม eval นี้จึงคืน N/A ให้ TSM/ASML ตลอด แปลว่าสองตัวนี้ 'ไม่เคยถูก cross-check
+# กับต้นฉบับที่บริษัทยื่นเลย' ทั้งที่เพิ่งพบว่าข้อมูลฝั่ง yfinance ของทั้งคู่มีปัญหาสกุลเงินจริงๆ
+# (Phase 33.2) — เป็นคู่ที่ต้องการ ground truth มากที่สุดในพอร์ตแต่กลับไม่มีเลย
+#
+# ที่พบจากข้อมูลจริง: ASML ใช้ us-gaap แต่ยื่นด้วยฟอร์ม 20-F (แก้แค่ตัวกรองฟอร์มก็พอ)
+#                    TSM ใช้ ifrs-full ทั้งชุด และรายงานเป็น TWD (ต้องรองรับทั้ง taxonomy และสกุล)
+ANNUAL_FORMS = {"10-K", "10-K/A", "20-F", "20-F/A"}
+
+# ชื่อ concept ฝั่ง IFRS ที่ตรงกับ key เดียวกันของ us-gaap ข้างบน — ตรวจกับ companyfacts จริงของ
+# TSM แล้วว่ามีครบทุกตัว. key ไหนไม่มีคู่เทียบที่มั่นใจ ไม่ต้องใส่ (ปล่อยว่างดีกว่าจับคู่มั่ว
+# เพราะ eval นี้คือ 'ตัวตัดสินความถูก' — ถ้าตัวอ้างอิงผิดเอง มันจะฟ้องว่าเราผิดทั้งที่เราถูก)
+IFRS_CONCEPTS: dict[str, list[str]] = {
+    "Revenues": ["Revenue"],
+    "NetIncomeLoss": ["ProfitLossAttributableToOwnersOfParent", "ProfitLoss"],
+    "OperatingIncomeLoss": ["ProfitLossFromOperatingActivities"],
+    "StockholdersEquity": ["EquityAttributableToOwnersOfParent", "Equity"],
+    "Assets": ["Assets"],
+    "IncomeTaxExpense": ["IncomeTaxExpenseContinuingOperations"],
+    "PretaxIncome": ["ProfitLossBeforeTax"],
+    "OperatingCashFlow": ["CashFlowsFromUsedInOperatingActivities"],
+    "Capex": ["PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"],
+    "CashAndEquivalents": ["CashAndCashEquivalents"],
+}
+
+# หน่วยที่ไม่ใช่สกุลเงิน — companyfacts ปนหน่วยพวกนี้มาด้วย (อัตราส่วน/จำนวนหุ้น)
+_NON_CURRENCY_UNITS = {"pure", "shares", "USD/shares", "TWD/shares", "EUR/shares"}
+
 
 def _cache_path(ticker: str) -> Path:
     return _CACHE_DIR / f"{ticker.upper()}.json"
@@ -93,36 +121,73 @@ def _dedup_latest_filed(rows: list[dict]) -> dict[int, float]:
     return {year: val for year, (_, val) in by_year.items()}
 
 
-def _annual_values(facts: dict, concept_names: list[str], kind: str) -> list[tuple[str, float]]:
-    """ค่ารายปีจาก 10-K ของ concept แรกที่เจอใน concept_names -> [(FY{year}, value), ...] ใหม่ก่อน.
-    duration: กรองเฉพาะช่วง >= _MIN_ANNUAL_DAYS (ตัด quarter ที่ปนอยู่ใน 10-K เดียวกันออก).
-    instant: เอาทุกแถว form=10-K ตรงๆ (มีแค่ end, ไม่มี duration ให้กรอง)."""
-    us_gaap = facts.get("facts", {}).get("us-gaap", {})
-    for name in concept_names:
-        concept = us_gaap.get(name)
-        if concept is None:
-            continue
-        rows = concept.get("units", {}).get("USD", [])
-        tenk = [r for r in rows if r.get("form") == "10-K" and r.get("end")]
-        if kind == "duration":
-            tenk = [
-                r for r in tenk
-                if r.get("start")
-                and (date.fromisoformat(r["end"]) - date.fromisoformat(r["start"])).days >= _MIN_ANNUAL_DAYS
-            ]
-        by_year = _dedup_latest_filed(tenk)
-        if by_year:
-            return sorted(((f"FY{y}", v) for y, v in by_year.items()), reverse=True)
+def reporting_currency(facts: dict) -> str | None:
+    """สกุลเงินที่บริษัทใช้รายงานใน companyfacts — เลือก 'สกุลที่พบบ่อยที่สุด' ครั้งเดียวต่อบริษัท
+    แล้วใช้ตัวนั้นทุก concept.
+
+    ทำไมต้องล็อกทั้งบริษัท ไม่ใช่เลือกทีละ concept: TSM รายงานเป็น TWD แต่บาง concept แถม USD
+    (ตัวเลขแปลงค่าเพื่อความสะดวก มักมีแค่ปีล่าสุด) — ถ้าปล่อยให้แต่ละ concept เลือกเอง Revenue
+    อาจได้ TWD ขณะที่ Net Income ได้ USD แล้ว margin ที่คำนวณจากสองตัวนี้จะกลายเป็นขยะที่ดู
+    น่าเชื่อ ซึ่งเป็นบั๊กพันธุ์เดียวกับที่เพิ่งแก้ไปใน Phase 33.2 พอดี
+    """
+    counts: dict[str, int] = {}
+    for taxonomy in ("us-gaap", "ifrs-full"):
+        concepts = facts.get("facts", {}).get(taxonomy, {})
+        for names, _ in CONCEPTS.values():
+            for name in names:
+                for unit, rows in (concepts.get(name) or {}).get("units", {}).items():
+                    if unit not in _NON_CURRENCY_UNITS:
+                        counts[unit] = counts.get(unit, 0) + len(rows)
+        for names in IFRS_CONCEPTS.values():
+            for name in names:
+                for unit, rows in (concepts.get(name) or {}).get("units", {}).items():
+                    if unit not in _NON_CURRENCY_UNITS:
+                        counts[unit] = counts.get(unit, 0) + len(rows)
+    return max(counts, key=counts.get) if counts else None
+
+
+def _annual_values(facts: dict, key: str, concept_names: list[str], kind: str,
+                   currency: str) -> list[tuple[str, float]]:
+    """ค่ารายปีจากงบประจำปี (10-K หรือ 20-F) ของ concept แรกที่เจอ -> [(FY{year}, value), ...] ใหม่ก่อน.
+    duration: กรองเฉพาะช่วง >= _MIN_ANNUAL_DAYS (ตัด quarter ที่ปนอยู่ในงบเดียวกันออก).
+    instant: เอาทุกแถวของฟอร์มรายปีตรงๆ (มีแค่ end, ไม่มี duration ให้กรอง).
+    ลอง us-gaap ก่อนแล้วค่อย ifrs-full — บริษัทหนึ่งใช้ taxonomy เดียว ไม่ปนกัน."""
+    candidates = [("us-gaap", concept_names), ("ifrs-full", IFRS_CONCEPTS.get(key, []))]
+    for taxonomy, names in candidates:
+        concepts = facts.get("facts", {}).get(taxonomy, {})
+        for name in names:
+            concept = concepts.get(name)
+            if concept is None:
+                continue
+            rows = concept.get("units", {}).get(currency, [])
+            annual = [r for r in rows if r.get("form") in ANNUAL_FORMS and r.get("end")]
+            if kind == "duration":
+                annual = [
+                    r for r in annual
+                    if r.get("start")
+                    and (date.fromisoformat(r["end"]) - date.fromisoformat(r["start"])).days >= _MIN_ANNUAL_DAYS
+                ]
+            by_year = _dedup_latest_filed(annual)
+            if by_year:
+                return sorted(((f"FY{y}", v) for y, v in by_year.items()), reverse=True)
     return []
 
 
 def get_annual_series(ticker: str) -> dict[str, list[tuple[str, float]]]:
     """ทุก concept ใน CONCEPTS -> series รายปี (label ตรงกับ FY{year} เหมือน fundamentals.py).
-    {} ทั้งก้อนถ้าดึง companyfacts ไม่ได้เลย (EDGAR ล่ม/ไม่มี CIK) — เรียกยังไงก็ไม่ raise."""
+    {} ทั้งก้อนถ้าดึง companyfacts ไม่ได้เลย (EDGAR ล่ม/ไม่มี CIK) — เรียกยังไงก็ไม่ raise.
+
+    ทุก concept ถูกอ่านด้วยสกุลเดียวกันเสมอ (ดู reporting_currency) — eval ที่ใช้ต่อคำนวณเป็น
+    'อัตราส่วน' ทั้งหมด (margin/ROE/ROIC) จึงเทียบได้ตรงๆ ไม่ว่าบริษัทจะรายงานสกุลไหน
+    """
     facts = get_company_facts(ticker)
     if facts is None:
         return {}
-    return {key: _annual_values(facts, names, kind) for key, (names, kind) in CONCEPTS.items()}
+    currency = reporting_currency(facts)
+    if currency is None:
+        return {}
+    return {key: _annual_values(facts, key, names, kind, currency)
+            for key, (names, kind) in CONCEPTS.items()}
 
 
 if __name__ == "__main__":

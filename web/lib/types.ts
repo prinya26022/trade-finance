@@ -157,7 +157,7 @@ export type ScreenerResult = {
   implied_growth: number | null;
   realistic_growth: number | null;
   gap: number | null;
-  lens: "standard" | "growth" | "NA";
+  lens: "standard" | "growth" | "NA" | "bank_pb";   // bank_pb = ธนาคาร (justified P/B)
   pe: number | null;
   roic: number | null;
   market_cap: number | null;
@@ -500,4 +500,64 @@ export type Scorecard = {
   bucket_labels: Record<string, string>;
   noise_points: number;
   generated_at: string;
+};
+
+// --- Phase 33: เทียบสองสำนัก (Gemini รายวัน vs โมเดลที่แปะในแชทเดือนละครั้ง) ---
+// side เดียวกันทั้งสองฝั่งโดยตั้งใจ: ถ้าโครงต่างกัน หน้าเว็บจะเผลอแสดงคนละอย่างให้คนละฝั่ง
+// แล้วการ "เทียบ" จะกลายเป็นการเปรียบคนละหน่วยโดยไม่มีใครสังเกต
+export type CompareDetail = {
+  strength_reasons: number | null;
+  weak_points: number | null;
+  what_to_watch: number | null;
+  thesis_relevant_news: number | null;
+  cited_numbers: number | null;
+  beginner_summary_chars: number | null;
+  thesis_assessment_chars: number | null;
+};
+
+export type CompareSide = {
+  fundamental_strength: string | null;
+  valuation_view: string | null;
+  sentiment: string | null;
+  confidence: number | null;
+  price: number | null;
+  price_ok: boolean;
+  news_grounded_ratio: number | null;
+  facts_grounded_ratio: number | null;
+  detail: CompareDetail;
+  beginner_summary: string;
+  strength_reasons: string[];
+  weak_points: { area: string; detail: string }[];
+  what_to_watch: string[];
+  thesis_assessment: string;
+  run_at: string | null;
+};
+
+export type CompareRow = {
+  ticker: string;
+  model: string;
+  linked: boolean;                 // จับคู่กับแถวที่ผูกไว้ตอน export (ไม่ได้แปลว่าข้อมูลชุดเดียวกัน)
+  data_gap_days: number | null;    // ข้อมูลสองฝั่งห่างกันกี่วัน — null = ไม่มีคู่เทียบ
+  same_framework: boolean | null;  // กรอบที่ใช้ตัดสินเวอร์ชันเดียวกันไหม (null = แถวเก่า ไม่รู้)
+  claude: CompareSide;
+  gemini: CompareSide | null;      // null = เดือนนั้นฝั่งรายวันไม่มีรอบไหนเลย
+  agree: Record<string, boolean | null>;
+};
+
+export type CompareResult = {
+  period: string;
+  model: string | null;
+  models: string[];
+  snapshot_at: string | null;      // เวลาที่ export ข้อมูลออกไป = 'ของเมื่อไหร่'
+  imported_at: string | null;
+  rows: CompareRow[];
+  totals: {
+    tickers: number;
+    paired: number;
+    agree_rate: Record<string, number | null>;
+    facts_grounded_avg: { claude: number | null; gemini: number | null };
+    news_grounded_avg: { claude: number | null; gemini: number | null };
+    detail_avg: { claude: Record<string, number | null>; gemini: Record<string, number | null> };
+  };
+  disagreements: { ticker: string; field: string; claude: string | null; gemini: string | null }[];
 };

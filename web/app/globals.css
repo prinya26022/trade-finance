@@ -677,3 +677,61 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
 }
 .sc-hz-ready { border-color: var(--green); }
 .sc-hz-days { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+
+/* --- Phase 33: เทียบสองสำนัก (/compare) ---
+   ทั้งหน้าเป็นคู่ "ซ้าย = ฝั่งแชท / ขวา = รอบรายวัน" เสมอ ไม่สลับที่ไหนเลย —
+   ถ้าสลับแม้แต่ตารางเดียว คนอ่านจะเทียบผิดข้างโดยไม่ทันสังเกต */
+.cmp-wrap { display: flex; flex-direction: column; gap: 16px; }
+.cmp-muted { color: var(--muted); font-size: 12px; }
+.cmp-summary { margin: 8px 0 0; font-size: 13px; line-height: 1.65; color: var(--text); }
+.cmp-note { margin-top: 0; line-height: 1.6; }
+.cmp-foot { margin: 10px 0 0; line-height: 1.6; }
+
+.cmp-head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cmp-head-row .section-title { margin: 0; }
+
+.cmp-periods { display: flex; gap: 8px; flex-wrap: wrap; }
+.cmp-period {
+  font-size: 12px; padding: 4px 10px; border-radius: 999px; text-decoration: none;
+  border: 1px solid var(--border); color: var(--muted); background: var(--panel);
+}
+.cmp-period:hover { border-color: var(--blue); color: var(--blue); }
+.cmp-period-on { border-color: var(--blue); color: var(--blue); background: var(--panel-2); }
+
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+.cmp-table th {
+  text-align: left; font-weight: 500; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border);
+}
+.cmp-table td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.cmp-table tbody tr { cursor: pointer; }
+.cmp-table tbody tr:hover { background: var(--panel-2); }
+.cmp-table .cmp-num { text-align: right; font-variant-numeric: tabular-nums; }
+.cmp-totals tbody tr { cursor: default; }
+
+.cmp-val { font-size: 13px; }
+.cmp-vs { color: var(--muted); margin: 0 6px; font-size: 11px; }
+/* ต่างกัน = ไฮไลต์อ่อน ไม่ใช่สีเตือน — ความเห็นไม่ตรงกันไม่ใช่ข้อผิดพลาด */
+.cmp-differ { background: rgba(88, 166, 255, .07); }
+.cmp-differ .cmp-val:first-child { color: var(--blue); }
+
+.cmp-chip {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+  font-size: 10px; color: var(--amber); border: 1px solid rgba(210,153,34,.4);
+}
+
+.cmp-chip-warn { color: var(--red); border-color: rgba(248,81,73,.45); }
+.cmp-detail td { background: var(--panel-2); cursor: default; }
+.cmp-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 780px) { .cmp-cols { grid-template-columns: 1fr; } }
+.cmp-col { min-width: 0; }
+.cmp-col-head { font-size: 12px; font-weight: 600; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+.cmp-head-a { border-bottom-color: var(--blue); }
+.cmp-head-b { border-bottom-color: var(--muted); }
+.cmp-list { margin: 6px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.7; color: var(--text); }
+.cmp-list li { margin-bottom: 4px; }
+
+.cmp-code {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px; font-size: 12px; line-height: 1.6; overflow-x: auto; color: var(--text);
+}

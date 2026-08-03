@@ -356,3 +356,42 @@ def test_normalize_facts_accepts_dataclass_and_dict():
     dc = [Fact(label="ROIC", value=15.0, unit="%", period="FY2025")]
     d = [{"label": "ROIC", "value": 15.0, "unit": "%", "period": "FY2025"}]
     assert _normalize_facts(dc) == _normalize_facts(d)
+
+# ── fix 2026-08 (มาจากการเทียบกับโมเดลอื่น): เกณฑ์ 'Net Margin สูง' เพียวๆ ให้เครดิตกำไรที่
+# ธุรกิจไม่ได้ทำเอง — ดูคอมเมนต์ใน health.py::_criterion_net_margin_level
+
+def _margin_facts(net_margin, operating_margin, period="FY2025"):
+    return [
+        {"label": "Net Margin", "value": net_margin, "unit": "%", "period": period},
+        {"label": "Operating Margin", "value": operating_margin, "unit": "%", "period": period},
+    ]
+
+
+def test_net_margin_criterion_capped_by_operating_margin():
+    """กำไรสุทธิ 30% ที่มาจากรายการภาษี ขณะที่ธุรกิจทำได้จริง 5% ต้องไม่ได้คะแนนเต็ม."""
+    from src.agent.health import _criterion_net_margin_level
+
+    assert _criterion_net_margin_level(_margin_facts(30.0, 5.0), 4.0) == 0.0
+
+
+def test_net_margin_criterion_unchanged_when_business_really_earns_it():
+    from src.agent.health import _criterion_net_margin_level
+
+    assert _criterion_net_margin_level(_margin_facts(39.91, 13.07), 4.0) == 1.0
+
+
+def test_net_margin_criterion_not_double_penalised_when_pressed_below_the_line():
+    """ทิศตรงข้าม (META: OM 41.44% > NM 30.08%) — NM เป็นตัวที่ต่ำกว่าและเป็นตัวผูกอยู่แล้ว
+    การเอา min มาใช้ต้องไม่ทำให้โดนลงโทษซ้ำ."""
+    from src.agent.health import _criterion_net_margin_level
+
+    assert _criterion_net_margin_level(_margin_facts(30.08, 41.44), 4.0) == 1.0
+
+
+def test_net_margin_criterion_ignores_operating_margin_from_another_period():
+    """เทียบข้ามงวด = คนละฐาน ต้องไม่เอามาหักคะแนนกัน."""
+    from src.agent.health import _criterion_net_margin_level
+
+    facts = [{"label": "Net Margin", "value": 30.0, "unit": "%", "period": "FY2025"},
+             {"label": "Operating Margin", "value": 5.0, "unit": "%", "period": "FY2023"}]
+    assert _criterion_net_margin_level(facts, 4.0) == 1.0

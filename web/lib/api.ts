@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, InvestigationJob, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status, Expectation, ExpectationsResponse, CorrelationResponse, ClaimExtraction, Scorecard } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, InvestigationJob, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status, Expectation, ExpectationsResponse, CorrelationResponse, ClaimExtraction, Scorecard, CompareResult } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -258,6 +258,22 @@ export async function logDecision(
 // Phase 32: สมุดพก — อ่านจาก analyses ล้วน ไม่เรียก LLM ไม่ดึงราคาใหม่ จึงเร็วพอจะโหลดตอนเปิดหน้า
 export async function getScorecard(): Promise<Scorecard> {
   const res = await fetch(`${API_BASE}/api/scorecard`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// --- Phase 33: ความเห็นที่สองจากแชท (นานๆ ครั้ง ไม่ใช่รายวัน) ---
+// งวดที่มีข้อมูลแล้ว ใหม่->เก่า. [] = ยังไม่เคยแปะเลย (สถานะปกติ ไม่ใช่ error)
+export async function getClaudePeriods(): Promise<string[]> {
+  const res = await fetch(`${API_BASE}/api/claude-analyses`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// เทียบทั้งงวด — อ่านจาก DB + คำนวณ eval เดิมซ้ำ ไม่เรียก LLM จึงเปิดหน้าได้ตลอด
+export async function getCompare(period: string, model?: string): Promise<CompareResult> {
+  const q = model ? `?model=${encodeURIComponent(model)}` : "";
+  const res = await fetch(`${API_BASE}/api/compare/${period}${q}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }

@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 from pathlib import Path
@@ -159,7 +160,52 @@ def scrub(summary: Summary) -> Summary:
     })
 
 
-def summarize(price, news, facts, thesis: str | None = None, asset_type: str = "stock") -> Summary:
+def framework_version() -> str:
+    """ลายนิ้วมือสั้นๆ ของ 'กรอบที่ใช้ตัดสิน' = checklist หุ้น + framework คริปโต + TASK block.
+
+    ทำไมต้องมี: ผลเทียบข้ามงวดจะอ่านไม่ได้ทันทีที่มีการแก้ checklist — ความต่างที่เห็นจะปนกัน
+    ระหว่าง 'โมเดลเก่งขึ้น/แย่ลง' กับ 'เราเปลี่ยนโจทย์' โดยไม่มีใครรู้ว่าอันไหนเป็นอันไหน. เป็น
+    ปัญหาเดียวกับ basis_changes ของ Phase 32 (คะแนน /8 กับ /11 คนละฐาน เทียบตรงๆ ไม่ได้) —
+    วิธีแก้ก็แบบเดียวกัน คือ **ติดฐานไปกับข้อมูล** แล้วให้ชั้นที่เปรียบเทียบเห็นเองว่าคนละฐาน.
+
+    เก็บเป็น hash ไม่ใช่เลขเวอร์ชันที่ต้องจำเพิ่มเอง เพราะเลขที่ต้องอัปเดตด้วยมือคือเลขที่ลืม
+    อัปเดต — ส่วน hash เปลี่ยนเองทันทีที่เนื้อหาเปลี่ยนแม้แต่ตัวอักษรเดียว.
+    """
+    payload = "\n".join([CHECKLIST, CRYPTO_FRAMEWORK, TASK_BLOCK])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def asset_profile(asset_type: str) -> dict:
+    """ส่วนของ prompt ที่ 'ต่างกันตาม asset' — ต่างกันแค่ 3 จุด (role / data header / framework)
+    + note เตือนว่าเป็น crypto. ที่เหลือ (schema, grounding, guardrails) reuse ทั้งหมด
+    นี่คือจุดที่ asset-agnostic คุ้ม."""
+    if asset_type == "crypto":
+        return {
+            "role": ("a crypto asset analyst serving a LONG-TERM investor (holds through cycles, "
+                     "exits only when the thesis breaks — not on daily price/news moves)"),
+            "data_header": "Tokenomics & market metrics (point-in-time snapshot — NOT fiscal-year statements):",
+            "framework": CRYPTO_FRAMEWORK,
+            "asset_note": (
+                "\nNOTE: This is a CRYPTO asset — there are NO earnings, margins, P/E or cash flows. "
+                "Judge `fundamental_strength` from tokenomics (supply schedule, dilution ahead, "
+                "scarcity/hard cap) and liquidity (24h volume vs market cap), plus adoption/network "
+                "signals in the news. `valuation_view` is a ROUGH relative read (market cap vs supply "
+                "dynamics, liquidity, adoption) — use 'unclear' if the data can't support a view.\n"
+            ),
+        }
+    return {
+        "role": ("a fundamental equity analyst serving a LONG-TERM investor (holds for years, "
+                 "exits only when the thesis breaks — not on daily price/news moves)"),
+        "data_header": "Fundamentals (some metrics span multiple fiscal years — read them as a TREND):",
+        "framework": CHECKLIST,
+        "asset_note": "",
+    }
+
+
+def data_block(price, news, facts, thesis: str | None = None, asset_type: str = "stock") -> str:
+    """ส่วน '## DATA' ของ prompt (ข้อมูลดิบของ ticker เดียว) — แยกจาก framework/task เพราะ
+    handoff.py ต้องแปะ framework ครั้งเดียวแล้วตามด้วยบล็อกนี้ทีละตัว (checklist 20KB x หลายตัว
+    = แปะไม่ไหว)."""
     # material (8-K ที่บริษัทถูกกฎหมายบังคับให้ยื่น) ทำ marker ให้เด่น เพื่อให้ LLM ถ่วงน้ำหนักสูงกว่าข่าว aggregator
     news_lines = "\n".join(
         (f"- ⚑ [SEC 8-K, company-filed material event] {n.title}"
@@ -168,33 +214,9 @@ def summarize(price, news, facts, thesis: str | None = None, asset_type: str = "
     )
     fact_lines = "\n".join(f"- {f.label}: {f.value} {f.unit} ({f.period})" for f in facts)
     thesis_block = f"\n## MY THESIS (why I hold/watch this)\n{thesis}\n" if thesis else ""
+    data_header = asset_profile(asset_type)["data_header"]
 
-    # ต่างกันแค่ 3 จุด (role / data header / framework) + note เตือนว่าเป็น crypto —
-    # ที่เหลือ (schema, grounding, guardrails) reuse ทั้งหมด นี่คือจุดที่ asset-agnostic คุ้ม
-    if asset_type == "crypto":
-        role = ("a crypto asset analyst serving a LONG-TERM investor (holds through cycles, "
-                "exits only when the thesis breaks — not on daily price/news moves)")
-        data_header = "Tokenomics & market metrics (point-in-time snapshot — NOT fiscal-year statements):"
-        framework = CRYPTO_FRAMEWORK
-        asset_note = (
-            "\nNOTE: This is a CRYPTO asset — there are NO earnings, margins, P/E or cash flows. "
-            "Judge `fundamental_strength` from tokenomics (supply schedule, dilution ahead, "
-            "scarcity/hard cap) and liquidity (24h volume vs market cap), plus adoption/network "
-            "signals in the news. `valuation_view` is a ROUGH relative read (market cap vs supply "
-            "dynamics, liquidity, adoption) — use 'unclear' if the data can't support a view.\n"
-        )
-    else:
-        role = ("a fundamental equity analyst serving a LONG-TERM investor (holds for years, "
-                "exits only when the thesis breaks — not on daily price/news moves)")
-        data_header = "Fundamentals (some metrics span multiple fiscal years — read them as a TREND):"
-        framework = CHECKLIST
-        asset_note = ""
-
-    prompt = f"""
-You are {role}. Analyze ONLY the
-data provided below — do not invent numbers you were not given. Research, not advice.
-{asset_note}
-## DATA
+    return f"""## DATA
 Ticker: {price.ticker}
 Price: {price.price} {price.currency} (as of {price.as_of})
 
@@ -203,11 +225,12 @@ Recent news:
 
 {data_header}
 {fact_lines}
-{thesis_block}
-## HOW TO THINK (framework)
-{framework}
+{thesis_block}"""
 
-## TASK
+
+FRAMEWORK_HEADER = "## HOW TO THINK (framework)"
+
+TASK_BLOCK = """## TASK
 Judge, from ONLY the data above, whether the fundamentals look STRONG or WEAK and WHERE.
 
 ### LANGUAGE (strict)
@@ -244,6 +267,26 @@ Judge, from ONLY the data above, whether the fundamentals look STRONG or WEAK an
   jargon dumps, and still NOT a buy/sell recommendation.
 - Fill every field of the required output schema.
 """
+
+
+def build_prompt(price, news, facts, thesis: str | None = None, asset_type: str = "stock") -> str:
+    """prompt ทั้งก้อนที่ส่งให้ LLM — ประกอบจากชิ้นส่วนข้างบน. handoff.py ใช้ชิ้นส่วนเดียวกันนี้
+    เรียงใหม่ (framework ครั้งเดียว + DATA ทีละตัว) เพื่อให้ 'ข้อความที่ Claude อ่าน' กับ
+    'ข้อความที่ Gemini อ่าน' เป็นต้นฉบับเดียวกัน — ไม่งั้นแก้ prompt ฝั่งเดียวแล้วการเทียบพัง."""
+    p = asset_profile(asset_type)
+    return f"""
+You are {p['role']}. Analyze ONLY the
+data provided below — do not invent numbers you were not given. Research, not advice.
+{p['asset_note']}
+{data_block(price, news, facts, thesis=thesis, asset_type=asset_type)}
+{FRAMEWORK_HEADER}
+{p['framework']}
+
+{TASK_BLOCK}"""
+
+
+def summarize(price, news, facts, thesis: str | None = None, asset_type: str = "stock") -> Summary:
+    prompt = build_prompt(price, news, facts, thesis=thesis, asset_type=asset_type)
 
     # ---- เรียก Gemini (retry+backoff ต่อโมเดล + fallback ข้ามโมเดลถ้าโควตาเต็ม) แล้วบังคับ
     # output ให้ตรง Summary schema (ดู src/agent/llm.py — MODEL_CHAIN) ----

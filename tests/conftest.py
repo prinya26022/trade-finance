@@ -13,6 +13,7 @@ import pytest
 _STORE_MODULES = [
     "src.watchlist.store",
     "src.history.store",
+    "src.history.claude_store",
     "src.thesis.store",
     "src.settings.store",
 ]

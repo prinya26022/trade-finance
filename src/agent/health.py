@@ -32,7 +32,10 @@ None ได้เมื่อ excluded — changes.py ต้อง guard ก่�
 from types import SimpleNamespace
 
 from src.agent.grading import graded_above as _graded_above, graded_below as _graded_below
-from src.agent.valuation import reverse_dcf, capm_wacc, FALLBACK_RISK_FREE_PCT
+from src.agent.valuation import (
+    reverse_dcf, capm_wacc, FALLBACK_RISK_FREE_PCT,
+    DEFAULT_TERMINAL_GROWTH,
+)
 
 DATA_GATE_MIN_CRITERIA = 6   # ต้องคำนวณได้อย่างน้อย 6/8 เกณฑ์ ไม่งั้น disqualify ทั้งตัว
 TOTAL_MAX = 11.0             # Fundamental(8) + Valuation(3) — sentiment ไม่รวมแล้ว (19.3.1)
@@ -102,6 +105,35 @@ def _scalar(facts: list[dict], label: str) -> float | None:
     return None
 
 
+# ป้ายหน่วยที่ 'ไม่ใช่สกุลเงิน' — ใช้คัดออกตอนหาว่าฝั่งงบกับฝั่งราคาเป็นสกุลเดียวกันไหม
+_NON_CURRENCY_UNITS = {"%", "x", "days", "shares", "pp", ""}
+
+
+def _currency_mismatch(facts: list[dict]) -> bool:
+    """งบกับราคาคนละสกุลไหม — ดูจากป้ายหน่วยของ 'Market Cap' (ฝั่งราคา) เทียบกับตัวเลขจากงบ.
+
+    เจอจริง 2026-08: ADR ต่างชาติยื่นงบสกุลบ้านเกิดแต่ราคาเป็น USD (ASML EUR/USD, TSM TWD/USD)
+    -> EV = market_cap + net_debt กลายเป็นการบวกคนละสกุล และคะแนนขาราคาที่ได้ออกมาไม่มีความหมาย.
+    ตรวจจากป้ายหน่วยเพราะ path นี้ต้องใช้ได้กับ facts ที่อ่านจาก DB ตอน backfill ด้วย (ไม่มี
+    object ต้นทางให้ถามแล้ว) — แถวเก่าที่ติดป้าย 'USD' ทั้งคู่จะได้ False = พฤติกรรมเดิมเป๊ะ
+    """
+    price_unit = _unit(facts, "Market Cap")
+    if not price_unit or price_unit in _NON_CURRENCY_UNITS:
+        return False
+    for label in ("Net Debt", "Revenue", "Net Income", "CFO", "Free Cash Flow"):
+        unit = _unit(facts, label)
+        if unit and unit not in _NON_CURRENCY_UNITS:
+            return unit != price_unit
+    return False
+
+
+def _unit(facts: list[dict], label: str) -> str | None:
+    for f in facts:
+        if f["label"] == label:
+            return str(f.get("unit") or "")
+    return None
+
+
 def _fy_series(facts: list[dict], label: str) -> list[tuple[str, float]]:
     """อนุกรมรายปี (period ขึ้นต้นด้วย FY) ของ label หนึ่ง เรียงเก่า -> ใหม่ — dedupe เอาค่า
     ล่าสุดต่อ period (บาง label เช่น ROE/Current Ratio/Net Debt-EBITDA มีทั้ง scalar ที่
@@ -137,7 +169,28 @@ def _criterion_net_margin_level(facts, _rf):
     จึงกระจายความเสี่ยง และยังเป็นเกณฑ์คุณภาพมาตรฐาน (double-digit net margin) ที่ใช้กันทั่วไป.
     audit fix 19.3: ไล่ระดับรอบ 10%±3pp (AMZN 10.83% เคยผ่านเต็มจุดทั้งที่ห่างเกณฑ์แค่ 0.83pp)."""
     pts = _fy_series(facts, "Net Margin")
-    return None if not pts else _graded_above(pts[-1][1], NET_MARGIN_MIN_PCT, BAND_PCT)
+    if not pts:
+        return None
+    degree = _graded_above(pts[-1][1], NET_MARGIN_MIN_PCT, BAND_PCT)
+
+    # ── fix 2026-08 (เจอจากการเทียบกับโมเดลอื่น): Net Margin เพียวๆ ให้เครดิตกำไรที่ 'ธุรกิจไม่ได้
+    # ทำเอง' ได้เต็มจุด. เคสสังเคราะห์ที่ชัดที่สุด: Operating Margin 5% แต่ Net Margin 30% เพราะ
+    # รายการภาษี -> เกณฑ์นี้ให้ 1.0 เต็ม ทั้งที่ธุรกิจจริงควรได้ 0.0. เคสจริงที่จุดชนวนคือ DUOL
+    # (NM 39.91% vs OM 13.07%) ซึ่ง 'บังเอิญ' ไม่เปลี่ยนคะแนนเพราะ OM 13.07 เฉียดขอบ band ที่ 13.0
+    # พอดี — บังเอิญรอด ไม่ใช่ถูกต้อง.
+    #
+    # แก้เป็น fuzzy AND กับ Operating Margin (รูปแบบเดียวกับเกณฑ์ #3 ที่ทำอยู่แล้ว): กำไรสุทธิที่
+    # สูงกว่ากำไรจากการดำเนินงานจะไม่ได้เครดิตเกินกว่าที่ธุรกิจทำได้เอง. ทิศตรงข้าม (OM สูงกว่า NM
+    # เช่น META) ไม่ถูกลงโทษเพิ่ม เพราะ NM เป็นตัวที่ต่ำกว่าและเป็นตัวผูกอยู่แล้ว — และการที่กำไร
+    # ถูกกดใต้เส้น (ดอกเบี้ย/ภาษี) ก็เป็นความอ่อนแอจริงที่ควรนับ.
+    #
+    # หมายเหตุตั้งใจ: **ไม่เปลี่ยนชื่อ label** เพราะ scorecard.py (Phase 32) จับคู่เกณฑ์ข้ามวันด้วย
+    # ชื่อ label ตรงๆ — เปลี่ยนชื่อ = เกณฑ์เก่าหายและเกณฑ์ใหม่โผล่พร้อมกันในวันเดียว ซึ่งจะถูกนับเป็น
+    # ถัง 'data' (ข้อมูลฝั่งเราเปลี่ยน) ให้ทุก ticker พร้อมกัน = ตั้งธงปลอมทั้งกระดาน
+    op = _fy_series(facts, "Operating Margin")
+    if op and op[-1][0] == pts[-1][0]:      # ต้องเป็นงวดเดียวกันเท่านั้นถึงเทียบได้
+        degree = min(degree, _graded_above(op[-1][1], NET_MARGIN_MIN_PCT, BAND_PCT))
+    return degree
 
 
 def _criterion_fcf_and_accruals(facts, _rf):
@@ -220,6 +273,89 @@ def _criterion_not_diluting(facts, _rf):
     return _graded_below(delta_pct, 0.0, BAND_DILUTION_PCT)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PART A' — ธนาคาร (Phase 33.3)
+#
+# ทำไมต้องมีชุดแยก ไม่ใช่ปรับเกณฑ์เดิม: เกณฑ์เดิม 5 ใน 8 ข้อ (ROIC>WACC, FCF+คุณภาพกำไร,
+# หนี้ไม่บานปลาย, จ่ายดอกเบี้ยไหว, Margin ขยาย) ต้องใช้ตัวเลขที่ไม่มีความหมายกับธนาคาร — เงินฝาก
+# ไม่ใช่ 'หนี้ที่บานปลาย' แต่คือวัตถุดิบ, การปล่อยสินเชื่อทำให้ CFO/FCF ติดลบมหาศาลโดยไม่ได้แปลว่า
+# เผาเงิน (JPM: FCF -147,782,000,000 USD), และไม่มี Operating Margin ให้ดู trend. ผลคือ JPM
+# คำนวณได้ 4/8 ตกด่านข้อมูล -> 'ประเมินไม่ได้' ทุกวันตั้งแต่เพิ่มเข้า watchlist
+#
+# ชุดนี้จงใจสร้างจาก 'สิ่งที่ดึงได้จริง' ไม่ใช่สิ่งที่อยากได้: CET1 / NPL / provisions ไม่มีใน
+# yfinance จึงไม่มีในเกณฑ์ (แทนที่จะประมาณเอาเองแล้วให้คะแนนจากตัวเลขที่แต่งขึ้น) — ตัวหารคงที่ /8
+# เหมือนกันเป๊ะ เพื่อให้คะแนนของแบงก์อยู่บนสเกลเดียวกับหุ้นตัวอื่นและเทียบกันได้จริง
+# ─────────────────────────────────────────────────────────────────────────────
+ROTCE_MIN_PCT = 12.0          # ผลตอบแทนต่อทุนที่จับต้องได้ — เกณฑ์คุณภาพหลักของธนาคาร
+BANK_ROE_MIN_PCT = 10.0
+BANK_NET_MARGIN_MIN_PCT = 20.0
+EQUITY_TO_ASSETS_MIN_PCT = 6.0   # กันชนทุนต่อสินทรัพย์ — ตัวแทนหยาบของ CET1 ที่ดึงไม่ได้
+NII_TO_ASSETS_MIN_PCT = 2.0      # กำลังหารายได้ของงบดุล (ตัวแทนหยาบของ NIM)
+COST_INCOME_MAX_PCT = 65.0       # ต้นทุนรวม+ค่าเผื่อหนี้สูญต่อรายได้ — ต่ำกว่าดีกว่า
+BAND_BANK_PCT = 2.0              # band ของเกณฑ์กลุ่มนี้ (แคบกว่าหุ้นทั่วไป: ตัวเลขแบงก์แกว่งน้อยกว่า)
+BAND_COST_INCOME_PP = 5.0
+
+# ขาราคาของแบงก์: ราคาสูงกว่า justified P/B กี่ % -> คะแนน /3 (รูปแบบเดียวกับ _gap_to_score
+# แต่คนละ band โดยตั้งใจ — ดูเหตุผลใน _bank_valuation_score). ตั้งจากช่วงที่ P/B ของแบงก์
+# กระจายตัวจริง (หลักสิบ %) ไม่ใช่หลักหน่วยแบบส่วนต่างอัตราการเติบโต
+BANK_PREMIUM_FULL_PCT = 0.0    # ที่/ต่ำกว่ามูลค่าที่เป็นธรรม -> ~3 เต็ม
+BANK_PREMIUM_GOOD_PCT = 15.0   # แพงกว่า ~15% -> ~2
+BANK_PREMIUM_FAIR_PCT = 35.0   # แพงกว่า ~35% -> ~1, เกินไปมาก -> เข้าใกล้ 0
+BANK_PREMIUM_BAND_PCT = 7.0
+
+
+def _is_bank(facts: list[dict]) -> bool:
+    """ตัดสินจาก 'ดอกเบี้ยรับสุทธิเป็นสัดส่วนหลักของรายได้' — ตรวจจาก facts ล้วนเพื่อให้พาธ
+    backfill (อ่านจาก DB) ได้ผลเดียวกับตอนวิเคราะห์สด. ไม่ใช้ sector string เพราะไม่ได้เก็บลง
+    facts และ 'Financial Services' รวมประกัน/บลจ. ซึ่งอ่านด้วยกรอบนี้ไม่ได้เหมือนกัน."""
+    nii = _scalar(facts, "Net Interest Income")
+    revenue = _scalar(facts, "Revenue")
+    return nii is not None and bool(revenue) and (nii / revenue) >= 0.20
+
+
+def _criterion_rotce(facts, _rf):
+    v = _scalar(facts, "ROTCE")
+    return None if v is None else _graded_above(v, ROTCE_MIN_PCT, BAND_BANK_PCT)
+
+
+def _criterion_bank_roe(facts, _rf):
+    pts = _fy_series(facts, "ROE")
+    v = pts[-1][1] if pts else _scalar(facts, "ROE")
+    return None if v is None else _graded_above(v, BANK_ROE_MIN_PCT, BAND_BANK_PCT)
+
+
+def _criterion_bank_net_margin(facts, _rf):
+    pts = _fy_series(facts, "Net Margin")
+    return None if not pts else _graded_above(pts[-1][1], BANK_NET_MARGIN_MIN_PCT, BAND_BANK_PCT)
+
+
+def _criterion_capital_cushion(facts, _rf):
+    v = _scalar(facts, "Equity / Assets")
+    return None if v is None else _graded_above(v, EQUITY_TO_ASSETS_MIN_PCT, BAND_BANK_PCT)
+
+
+def _criterion_nii_to_assets(facts, _rf):
+    v = _scalar(facts, "NII / Assets")
+    return None if v is None else _graded_above(v, NII_TO_ASSETS_MIN_PCT, 0.5)
+
+
+def _criterion_cost_income(facts, _rf):
+    v = _scalar(facts, "Cost+Provision / Revenue")
+    return None if v is None else _graded_below(v, COST_INCOME_MAX_PCT, BAND_COST_INCOME_PP)
+
+
+BANK_CRITERIA = [
+    ("ROTCE สูง(>=12%)", _criterion_rotce),
+    ("ROE สูง(>=10%)", _criterion_bank_roe),
+    ("Net Margin สูง(>=20%)", _criterion_bank_net_margin),
+    ("กันชนทุน (Equity/Assets>=6%)", _criterion_capital_cushion),
+    ("งบดุลหารายได้ได้ (NII/Assets>=2%)", _criterion_nii_to_assets),
+    ("คุมต้นทุน+หนี้เสีย(<=65%)", _criterion_cost_income),
+    ("รายได้เติบโตจริง(>3%)", _criterion_revenue_growth),
+    ("ไม่เจือจางหุ้น", _criterion_not_diluting),
+]
+
+
 PIOTROSKI_CRITERIA = [
     ("ROIC>WACC", _criterion_roic_vs_wacc),
     ("Net Margin สูง(>=10%)", _criterion_net_margin_level),
@@ -237,21 +373,27 @@ def _fundamental_score(facts: list[dict], risk_free_pct: float) -> dict:
     (list ของ (label, float 0.0-1.0 | None)), disqualified (bool), reason (str|None).
     audit fix 19.3: score เดิมเป็น int (นับ True ตรงๆ) ตอนนี้เป็นผลรวม degree ต่อเนื่อง — ไล่ระดับ
     ทุกเกณฑ์ (ดู _graded_above/_graded_below) กัน binary-cliff swing คะแนนจากตัวเลขขยับนิดเดียว."""
-    results = [(label, check(facts, risk_free_pct)) for label, check in PIOTROSKI_CRITERIA]
+    # Phase 33.3: ธนาคารใช้เกณฑ์คนละชุด (ตัวหารยัง /8 เท่ากัน -> คะแนนอยู่บนสเกลเดียวกัน
+    # เทียบกับหุ้นตัวอื่นในพอร์ตได้ตรงๆ) — ดู BANK_CRITERIA ว่าทำไมปรับเกณฑ์เดิมแทนไม่ได้
+    is_bank = _is_bank(facts)
+    criteria = BANK_CRITERIA if is_bank else PIOTROSKI_CRITERIA
+    results = [(label, check(facts, risk_free_pct)) for label, check in criteria]
     computable = sum(1 for _, d in results if d is not None)
     passed = round(sum(d for _, d in results if d is not None), 2)
 
     if computable < DATA_GATE_MIN_CRITERIA:
         return {
             "score": None, "computable": computable, "passed": passed, "criteria": results,
-            "disqualified": True,
+            "disqualified": True, "framework": "bank" if is_bank else "standard",
             "reason": f"ข้อมูลไม่พอ: คำนวณเกณฑ์พื้นฐานได้แค่ {computable}/8 (ต้องการ >= {DATA_GATE_MIN_CRITERIA}) — ตัดออกจาก screen นี้",
         }
 
     passed_labels = [label for label, d in results if d is not None and d >= 0.5]
-    reason = f"พื้นฐาน: ผ่าน {passed:.1f}/8 เกณฑ์ ({', '.join(passed_labels) if passed_labels else 'ไม่ผ่านเลย'}) (+{passed:.1f}/8)"
+    prefix = "พื้นฐาน (เกณฑ์ธนาคาร)" if is_bank else "พื้นฐาน"
+    reason = f"{prefix}: ผ่าน {passed:.1f}/8 เกณฑ์ ({', '.join(passed_labels) if passed_labels else 'ไม่ผ่านเลย'}) (+{passed:.1f}/8)"
     return {"score": passed, "computable": computable, "passed": passed, "criteria": results,
-            "disqualified": False, "reason": reason}
+            "disqualified": False, "framework": "bank" if is_bank else "standard",
+            "reason": reason}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -265,6 +407,10 @@ def _build_duck_fundamentals(facts: list[dict]) -> SimpleNamespace:
     market_cap = _scalar(facts, "Market Cap")
     fcf = (fcf_yield / 100.0 * market_cap) if fcf_yield is not None and market_cap else None
     return SimpleNamespace(
+        # ตรวจสกุลเงินจาก 'ป้ายหน่วย' ของ Fact ไม่ใช่จาก object ต้นทาง — path นี้ต้องทำงานกับ
+        # facts ที่อ่านจาก DB ตอน backfill ด้วย ซึ่งไม่มี object ให้ถามแล้ว. แถวเก่าที่ยังติดป้าย
+        # 'USD' ทั้งคู่จะได้ False = พฤติกรรมเดิมเป๊ะ (ไม่ไปรื้อประวัติ) ส่วนแถวใหม่จะจับได้เอง
+        currency_mismatch=_currency_mismatch(facts),
         free_cash_flow=fcf,
         market_cap=market_cap,
         revenue=_scalar(facts, "Revenue"),
@@ -282,13 +428,70 @@ def _build_duck_fundamentals(facts: list[dict]) -> SimpleNamespace:
     )
 
 
+def _bank_valuation_score(facts: list[dict], risk_free_pct: float) -> dict:
+    """ขาราคาของธนาคาร — reverse-DCF ใช้ไม่ได้เลย (FCF ของแบงก์ไม่ใช่ 'เงินสดอิสระ' แต่คือผลของ
+    การปล่อยสินเชื่อ/เงินฝากที่ไหลผ่านงบ) เลนส์มาตรฐานของกลุ่มนี้คือ **justified P/B**:
+
+        P/B ที่เป็นธรรม = (ROTCE − g) / (COE − g)
+
+    ธนาคารที่ทำ ROTCE ได้สูงกว่าต้นทุนส่วนของผู้ถือหุ้นควรซื้อขายเหนือมูลค่าทางบัญชี และสูงกว่า
+    มากแค่ไหนขึ้นกับส่วนต่างนั้น — เป็นสูตรเดียวกับที่ใช้กันทั้งอุตสาหกรรม ไม่ใช่ที่คิดขึ้นเอง.
+    COE ใช้ CAPM ตัวเดียวกับที่ reverse-DCF ใช้ (capm_wacc = Rf + β×ERP) เพื่อให้สมมติฐาน
+    ต้นทุนเงินทุนของทั้งพอร์ตมาจากที่เดียวกัน. g = terminal growth ตัวเดียวกัน.
+
+    ให้คะแนน 0-3 ด้วย **รูปแบบเดียวกับ _gap_to_score (graded ซ้อนสามชั้น) แต่ตั้ง band เอง** —
+    จงใจไม่ยืม GAP_PP_* มาใช้ตรงๆ แม้ทั้งคู่จะมีหน่วยเป็น '%' เพราะมันคนละของกัน: ของ reverse-DCF
+    คือ 'ส่วนต่างอัตราการเติบโตต่อปี' ซึ่ง 10pp = มหาศาล ส่วนของที่นี่คือ 'ราคาสูงกว่ามูลค่าที่
+    เป็นธรรมกี่ %' ซึ่ง 10% = เรื่องปกติมาก. ถ้าใช้ band เดียวกันจริง แบงก์เกือบทุกตัวจะกองอยู่ที่
+    0 หรือ 3 โดยแทบไม่มีตรงกลาง = กลับไปเป็น binary cliff ที่ audit 19.3 อุตส่าห์แก้ไปแล้ว.
+    """
+    rotce = _scalar(facts, "ROTCE")
+    pb = _scalar(facts, "P/B")
+    beta = _scalar(facts, "Beta")
+    if rotce is None or pb is None or pb <= 0:
+        return {"score": None, "excluded": True,
+                "reason": "ไม่มี ROTCE/P-B พอประเมินราคาแบบธนาคาร — ตัดออกจาก screen นี้"}
+
+    coe_pct = capm_wacc(beta, risk_free_pct) * 100.0
+    g_pct = DEFAULT_TERMINAL_GROWTH * 100.0
+    if coe_pct - g_pct <= 0:
+        return {"score": None, "excluded": True,
+                "reason": "ต้นทุนส่วนของผู้ถือหุ้นต่ำกว่าการเติบโตระยะยาว — สูตร justified P/B ใช้ไม่ได้"}
+
+    justified_pb = (rotce - g_pct) / (coe_pct - g_pct)
+    if justified_pb <= 0:
+        return {"score": None, "excluded": True, "justified_pb": round(justified_pb, 2),
+                "reason": "ROTCE ต่ำกว่าการเติบโตระยะยาว — ธนาคารกำลังทำลายมูลค่า ประเมินด้วยสูตรนี้ไม่ได้"}
+
+    # premium เป็น % ของ justified — แปลงเป็น pp เพื่อป้อน _gap_to_score ที่ออกแบบมาสำหรับ
+    # 'ตลาดคาดหวังเกินจริงกี่ pp' (บวก = แพงกว่าที่ควร ซึ่งตรงทิศกับ gap ของ reverse-DCF)
+    premium_pp = round((pb / justified_pb - 1) * 100, 2)
+    score = round(
+        _graded_below(premium_pp, BANK_PREMIUM_FULL_PCT, BANK_PREMIUM_BAND_PCT)
+        + _graded_below(premium_pp, BANK_PREMIUM_GOOD_PCT, BANK_PREMIUM_BAND_PCT)
+        + _graded_below(premium_pp, BANK_PREMIUM_FAIR_PCT, BANK_PREMIUM_BAND_PCT),
+        2,
+    )
+    return {
+        "score": score, "excluded": False, "lens": "bank_pb",
+        "rotce": rotce, "pb": pb, "justified_pb": round(justified_pb, 2),
+        "premium_pct": premium_pp, "coe": round(coe_pct, 2),
+        "terminal_growth": round(g_pct, 2),
+        "reason": (f"ราคา (เกณฑ์ธนาคาร): P/B {pb:.2f}x เทียบ justified P/B {justified_pb:.2f}x "
+                   f"จาก ROTCE {rotce:.1f}% และ COE {coe_pct:.1f}% "
+                   f"(premium {premium_pp:+.1f}%) (+{score}/3)"),
+    }
+
+
 def _valuation_score(facts: list[dict], risk_free_pct: float) -> dict:
     """คืน dict: score (0-3 หรือ None), excluded (bool), reason (str|None), + field อื่นจาก
     reverse_dcf() ทั้งหมด (implied_growth/realistic_growth/gap/wacc/...) เพื่อความโปร่งใส."""
     duck = _build_duck_fundamentals(facts)
     dcf = reverse_dcf(duck, risk_free_pct=risk_free_pct)
     if dcf is None:
-        return {"score": None, "excluded": True, "reason": "ไม่มี Market Cap/FCF พอคำนวณ reverse-DCF — ตัดออกจาก screen นี้"}
+        reason = ("งบกับราคาคนละสกุลเงิน — คำนวณ EV/reverse-DCF ไม่ได้"
+                  if duck.currency_mismatch else "ไม่มี Market Cap/FCF พอคำนวณ reverse-DCF")
+        return {"score": None, "excluded": True, "reason": f"{reason} — ตัดออกจาก screen นี้"}
     if dcf["score"] is None:
         reason = dcf.get("note") or "reverse-DCF คำนวณไม่ได้"
         return {"score": None, "excluded": True, "reason": f"{reason} — ตัดออกจาก screen นี้", **dcf}
@@ -331,7 +534,10 @@ def compute_health(summary, breaches: list[dict] | None = None, facts=None,
     facts = _normalize_facts(facts)
 
     fundamental = _fundamental_score(facts, risk_free_pct)
-    valuation = _valuation_score(facts, risk_free_pct)
+    # ธนาคารใช้เลนส์ราคาคนละตัว (justified P/B) เพราะ reverse-DCF ตีความ FCF ของแบงก์ไม่ได้ —
+    # คะแนนยังเป็น /3 บนสเกลเดียวกัน (ยืม _gap_to_score ตัวเดียวกัน) จึงรวมเป็น /11 ได้ตามปกติ
+    valuation = (_bank_valuation_score(facts, risk_free_pct) if _is_bank(facts)
+                 else _valuation_score(facts, risk_free_pct))
     sentiment_pts, sentiment_reason = _sentiment_points(summary)
 
     # พื้นฐานไม่ผ่าน data gate = ประเมินอะไรไม่ได้เลยจริงๆ (เช่น crypto: คำนวณได้ 0/8) -> excluded

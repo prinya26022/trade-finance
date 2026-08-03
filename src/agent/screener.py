@@ -23,7 +23,9 @@ import json
 import time
 from pathlib import Path
 
-from src.agent.health import _fundamental_score, _normalize_facts, tier_from_score
+from src.agent.health import (
+    _bank_valuation_score, _fundamental_score, _is_bank, _normalize_facts, tier_from_score,
+)
 from src.agent.valuation import reverse_dcf
 from src.providers.stock.fundamentals import StockFundamentalsProvider
 from src.providers.stock.market import get_risk_free_rate_pct
@@ -70,8 +72,15 @@ def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
     if fundamental["disqualified"]:
         return None
 
-    dcf = reverse_dcf(obj, risk_free_pct=risk_free_pct)
-    if dcf is None or dcf["score"] is None:
+    # Phase 33.3: ธนาคารต้องใช้เลนส์ราคาของตัวเอง (justified P/B) — reverse-DCF ตีความ FCF ของ
+    # แบงก์ไม่ได้ (ติดลบมหาศาลจากการปล่อยสินเชื่อ) แล้วจะคืน None ทำให้แบงก์ถูกข้ามเงียบๆ ทั้งที่
+    # ฝั่งพื้นฐานเพิ่งให้คะแนนไปแล้วด้วยเกณฑ์ธนาคาร. ปล่อยไว้ = สองพาธที่อ้างว่าใช้ 'เอนจิ้น
+    # เดียวกัน' ให้คำตอบคนละอย่างสำหรับหุ้นตัวเดียวกัน (health ให้ JPM 10.6/11 แต่ screener ไม่เห็น)
+    if _is_bank(facts):
+        dcf = _bank_valuation_score(facts, risk_free_pct)
+    else:
+        dcf = reverse_dcf(obj, risk_free_pct=risk_free_pct)
+    if dcf is None or dcf.get("score") is None:
         return None
 
     score = round(fundamental["score"] + dcf["score"], 2)
@@ -85,10 +94,11 @@ def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
         "label": label,
         "fundamental_score": fundamental["score"],
         "valuation_score": dcf["score"],
-        "implied_growth": dcf["implied_growth"],
-        "realistic_growth": dcf["realistic_growth"],
-        "gap": dcf["gap"],
-        "lens": dcf["lens"],
+        # แบงก์ไม่มี implied/realistic growth (คนละเลนส์) -> None ไม่ใช่ 0 ที่ชวนให้อ่านผิด
+        "implied_growth": dcf.get("implied_growth"),
+        "realistic_growth": dcf.get("realistic_growth"),
+        "gap": dcf.get("gap"),
+        "lens": dcf.get("lens", "NA"),
         "pe": _fact_value(facts, "P/E"),
         "roic": _fact_value(facts, "ROIC"),
         "market_cap": _fact_value(facts, "Market Cap"),
@@ -130,7 +140,9 @@ if __name__ == "__main__":
     print(f"=== Screener: {len(results)}/{len(UNIVERSE)} ผ่านเกณฑ์ข้อมูลพอ "
           f"(computed_at={time.strftime('%Y-%m-%d %H:%M', time.localtime(data['computed_at']))}) ===")
     for r in results:
+        # gap เป็น None ได้ (ธนาคารใช้เลนส์ justified P/B ซึ่งไม่มี growth gap)
+        gap = f"{r['gap']:+.1f}pp" if r["gap"] is not None else "  n/a "
         print(
             f"  {r['ticker']:6} score={r['score']:.1f}/11 ({r['label']:6}) "
-            f"gap={r['gap']:+.1f}pp lens={r['lens']:8} P/E={r['pe']}"
+            f"gap={gap} lens={r['lens']:8} P/E={r['pe']}"
         )
