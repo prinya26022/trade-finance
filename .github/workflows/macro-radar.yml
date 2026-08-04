@@ -57,6 +57,8 @@ jobs:
             echo "[macro] data/macro.db ไม่ถูกสร้างรอบนี้ (ดึง FRED ไม่สำเร็จ ดู log ด้านบน) — ข้าม commit"
             exit 0
           fi
+          # runner ล้างสดทุกครั้ง -> ตั้ง merge driver ใหม่ ไม่งั้น pull ด้านล่างชนที่ macro.db
+          python scripts/merge_db.py install
           git add -f data/macro.db
           if ! git diff --cached --quiet; then
             git commit -m "chore: macro radar state $(date -u +%Y-%m-%dT%H:%M)"

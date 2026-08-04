@@ -1107,6 +1107,54 @@ until it is unfrozen -- that is the owner's call, not a code change.
   unsupported chains return nothing, short series produce no fake trend, API failure degrades
   quietly, zero baseline yields a level without a fabricated trend. Suite 377/377.
 
+## Phase 33.6 -- the DB stopped being mergeable the day the UI started writing to it
+
+Pushing Phase 33 took three attempts, and none of the failures were about the code. `data/watchlist.db`
+is tracked in git and written by two parties who never see each other: CI commits a daily analysis
+round every day, and I edit watchlist/thesis/decisions through the web UI. SQLite is binary, so git's
+only options are "take ours" or "take theirs" -- both of which mean deleting someone's work. I got
+through it by hand-verifying that local was a strict subset of CI's rows and then rebuilding the file
+programmatically. **That worked on luck**: the moment the UI deletes a ticker or edits a thesis, local
+stops being a subset and the manual trick silently drops whichever side loses.
+
+`src/db/merge.py` + `scripts/merge_db.py` -- a **three-way merge that works on rows, not files**,
+installed as a git merge driver so `git pull` / `rebase` / `merge` handle DB conflicts with no
+intervention at all.
+- Edited on one side -> take that side. **Deleted on one side and untouched on the other -> actually
+  delete**; a delete button whose effect gets overwritten by tomorrow's CI commit is a broken feature,
+  not a merge policy.
+- Rows added on both sides -> keep both. Their ids collide (each side allocates from its own
+  AUTOINCREMENT) so the newcomer is renumbered -- and **`claude_analyses.analysis_id` is rewritten to
+  follow it**. A remap that doesn't chase its foreign keys is worse than a failed merge: the link
+  still resolves, just to the wrong row.
+- **An id freed by a delete is never recycled.** Handing a deleted row's number to a new row turns any
+  surviving reference into a silent mis-point instead of a detectable dangling link (which gets
+  cleared and reported).
+- Identity is a natural key, not the id: `(ticker, run_at)` for `analyses`, `(ticker, period, model)`
+  for `claude_analyses`. When CI and I both record the same daily run it is deduped, not duplicated.
+- **Schema branches too.** The output schema is the *union* of all three sides, because my file had
+  the `framework_version` migration applied and CI's did not -- picking either side's schema drops a
+  whole column with no diff to show for it. (My hand merge did exactly that; replaying it through the
+  script recovered the column.)
+- Genuine conflicts -- both sides edited the same row differently, or one deleted what the other
+  edited -- are resolved by newest-timestamp (keeping the row in the delete-vs-edit case, since
+  removing something unwanted is easier than recovering something gone) and **always printed**.
+  Deciding on the owner's behalf without saying so is indistinguishable from losing the data.
+- No common ancestor -> union mode, and it refuses to delete anything: without a base, "deleted" and
+  "never existed" are the same observation, and guessing between them is how data disappears.
+
+Verified by replaying the two real conflicts from 2026-08-04 (296 and 307 rows) and by driving actual
+`git merge` / `git rebase` in a scratch clone, including a UI-delete-vs-CI-commit case. CI now runs
+`install` in both workflows and `daily-report.yml` gained the `git pull --rebase` it never had -- its
+bare `git push` would simply fail and take that day's round down with the runner.
+
+- 16 new offline tests (no network, temp SQLite only): both-sides-added survive with unique ids, FK
+  follows a remapped id, same daily run deduped, one-sided edit taken, UI delete honoured,
+  delete-vs-edit keeps and reports, newest wins on a double edit, dangling link cleared, freed id not
+  reused, one-sided migration column preserved, one-sided table carried over, unique indexes rebuilt,
+  identical files unchanged, no-base refuses to delete, AUTOINCREMENT still usable afterwards, and the
+  project's real stores can read *and write* the merged file. Suite 394/394.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

@@ -58,6 +58,12 @@ jobs:
         run: |
           git config user.name "trade-finance-bot"
           git config user.email "actions@users.noreply.github.com"
+          # runner ถูกล้างสดทุกครั้ง -> merge driver ต้องตั้งใหม่ทุกรอบ ไม่งั้น pull ด้านล่าง
+          # จะชนที่ไฟล์ DB (binary) แล้วรอบวันนั้นหายทั้งรอบ
+          python scripts/merge_db.py install
           git add -f data/watchlist.db
           git diff --cached --quiet || git commit -m "chore: daily analysis $(date -u +%Y-%m-%d)"
+          # เดิมเป็น push เปล่าๆ: ถ้ามีใคร push ระหว่าง checkout กับตรงนี้ push จะถูกปฏิเสธ
+          # และผลรอบนั้นหายไปกับ runner เลย
+          git pull --rebase --autostash origin main
           git push

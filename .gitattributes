@@ -1,0 +1,3 @@
+# DB เป็น binary -> git รวมเองไม่ได้ ต้องใช้ driver ที่รวมทีละแถว
+# (ตั้ง driver ต่อเครื่องด้วย: python scripts/merge_db.py install)
+data/*.db -diff merge=sqlitedb
