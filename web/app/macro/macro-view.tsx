@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { getMacro } from "../../lib/api";
-import type { MacroResponse, MacroRelease, MacroReaction, AltSeason } from "../../lib/types";
+import type {
+  MacroResponse, MacroRelease, MacroReaction, AltSeason, MacroStatus,
+} from "../../lib/types";
 
 const DIR: Record<string, { icon: string; cls: string }> = {
   up: { icon: "▲", cls: "macro-up" },
@@ -93,6 +95,72 @@ function ReleaseCard({ rel }: { rel: MacroRelease }) {
   );
 }
 
+// เรดาร์ที่ทำงานถูกต้องจะ "เงียบ" เป็นส่วนใหญ่ ซึ่งแยกไม่ออกจากเรดาร์ที่พัง — แถบนี้มีไว้
+// ตอบคำถามเดียว: ตอนนี้เงียบเพราะยังไม่ถึงคิวประกาศ หรือเงียบเพราะดึงข้อมูลไม่ได้
+const STATE_TEXT: Record<MacroStatus["state"], { label: string; cls: string }> = {
+  ok: { label: "ปกติ", cls: "ok" },
+  unreported: { label: "มีของใหม่ รอแจ้ง", cls: "ok" },
+  overdue: { label: "เลยกำหนดแล้ว", cls: "warn" },
+  fetch_failed: { label: "ดึงข้อมูลไม่ได้", cls: "bad" },
+};
+
+function daysUntil(iso: string): number {
+  const d = new Date(`${iso}T00:00:00`);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - now.getTime()) / 86_400_000);
+}
+
+function StatusStrip({ rows }: { rows: MacroStatus[] }) {
+  if (!rows?.length) return null;
+  const trouble = rows.some((r) => r.state === "overdue" || r.state === "fetch_failed");
+  return (
+    <section className={`macro-card macro-status ${trouble ? "macro-status-bad" : ""}`}>
+      <div className="macro-head">
+        <h2>สถานะเรดาร์</h2>
+        <span className="macro-ref">
+          {trouble ? "มีบางอย่างไม่ปกติ" : "ทำงานปกติ — เงียบเพราะยังไม่ถึงคิวประกาศ"}
+        </span>
+      </div>
+      <table className="macro-table">
+        <thead>
+          <tr>
+            <th>ตัวเลข</th>
+            <th>ล่าสุดที่มี</th>
+            <th>รอบถัดไป (ประมาณ)</th>
+            <th>สถานะ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const st = STATE_TEXT[r.state];
+            const left = r.due_on ? daysUntil(r.due_on) : null;
+            return (
+              <tr key={r.key}>
+                <td>{r.label}</td>
+                <td>{r.latest_ref ? r.latest_ref.slice(0, 7) : "—"}</td>
+                <td>
+                  {r.due_on ?? "—"}
+                  {left !== null && (
+                    <span className="macro-note">
+                      {" "}
+                      {left > 0 ? `(อีก ${left} วัน)` : left === 0 ? "(วันนี้)" : `(เลยมา ${-left} วัน)`}
+                    </span>
+                  )}
+                </td>
+                <td className={`macro-state ${st.cls}`}>{st.label}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="macro-note">
+        วันประกาศเป็นค่าประมาณจากเดือนอ้างอิง + lag — เลื่อนได้ 2-3 วันเป็นปกติ
+      </p>
+    </section>
+  );
+}
+
 function AltSeasonCard({ a }: { a: AltSeason }) {
   return (
     <section className={`macro-card macro-alt macro-alt-${a.state}`}>
@@ -138,6 +206,7 @@ export default function MacroView() {
 
   return (
     <div className="macro-wrap">
+      <StatusStrip rows={data.status} />
       {data.altseason && <AltSeasonCard a={data.altseason} />}
 
       {data.releases.map((rel) => (

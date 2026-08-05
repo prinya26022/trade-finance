@@ -315,10 +315,23 @@ export type AltSeason = {
   label: string;
 };
 
+// สถานะของเรดาร์เอง — "ยังไม่มีข่าว" กับ "ดึงข้อมูลไม่ได้" หน้าตาเหมือนกันหมดถ้าไม่มีอันนี้
+export type MacroStatus = {
+  key: string;
+  label: string;
+  state: "ok" | "unreported" | "overdue" | "fetch_failed";
+  fetched: boolean;
+  latest_ref: string | null;
+  seen_ref: string | null;
+  due_on: string | null;
+  overdue_days: number;
+};
+
 export type MacroResponse = {
   releases: MacroRelease[];
   geopolitical: GeoNews[];
   altseason: AltSeason | null;
+  status: MacroStatus[];
 };
 
 // Phase 27: thesis + invalidation — เดิมเขียนไว้ตั้งแต่ Phase 5 แต่ไม่เคยมี endpoint ให้ frontend

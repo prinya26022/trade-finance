@@ -15,6 +15,21 @@ from src.macro import altseason, baserate, fred, geonews, notify, radar, store
 from src.macro.fred import Observation
 
 
+@pytest.fixture(autouse=True)
+def _isolate_fred(monkeypatch):
+    """กันสองอย่างที่ทำให้เทสต์ 'ผ่านเพราะไปดึงของจริง' แทนที่จะทดสอบโค้ด.
+
+    1) cache ในโปรเซส: ไม่ล้าง = ผลของเคสก่อนไหลข้ามมาตอบแทน stub
+    2) FRED_API_KEY: notify.py เรียก load_dotenv() ตอน import ทำให้คีย์จริงใน .env หลุดเข้า
+       os.environ ทั้ง session -> fetch_series จะวิ่ง path official API ยิงเน็ตจริง
+       (เทสต์เดิมรอดเพราะ patch urlopen ไว้ ซึ่งครอบทั้งสอง path พอดี)
+    """
+    fred.clear_cache()
+    monkeypatch.delenv("FRED_API_KEY", raising=False)
+    yield
+    fred.clear_cache()
+
+
 # ---------- fred: parse CSV ----------
 
 class _FakeResp:
@@ -292,3 +307,150 @@ def test_send_macro_alert_appends_geo_only_on_event(monkeypatch):
     notify.send_macro_alert(webhook_url="http://x")
     assert len(posted) == 2                       # สรุป + ธงข่าวภูมิรัฐศาสตร์
     assert "จับตา" in posted[1]
+
+
+# ---------- สถานะของเรดาร์เอง (Phase 26.1) ----------
+# เหตุผลที่ต้องมีชุดนี้: ผลลัพธ์ปกติของ radar คือ "เงียบ" และผลลัพธ์ตอนพังก็ "เงียบ" เหมือนกันเป๊ะ
+# เคยเกิดจริงตอน FRED บล็อก IP ของ runner — ระบบดูเหมือนทำงานอยู่ทุกวัน ทั้งที่ไม่ได้ตรวจอะไรเลย
+
+def _seed_seen(tmp_path, monkeypatch, **seen):
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "macro.db")
+    for k, v in seen.items():
+        store.mark_seen(k, v)
+
+
+def _fred_at(month: str):
+    """ทำให้ทุก series ของ FRED ล่าสุดอยู่ที่เดือนนั้น."""
+    def fake(key):
+        ref = date.fromisoformat(month)
+        prev = date(ref.year - (ref.month == 1), (ref.month - 2) % 12 + 1, 1)
+        return Observation(prev, 1.0), Observation(ref, 2.0)
+    return fake
+
+
+def test_status_says_ok_when_the_next_release_simply_has_not_come_yet(tmp_path, monkeypatch):
+    """สถานการณ์จริงของ 2026-08-05: ตัวเลข ก.ค. ยังไม่ออก — เงียบแบบนี้คือถูกต้อง."""
+    _seed_seen(tmp_path, monkeypatch, CPI="2026-06-01", PPI="2026-06-01",
+               UNRATE="2026-06-01", NFP="2026-06-01")
+    monkeypatch.setattr(fred, "latest_two", _fred_at("2026-06-01"))
+
+    rows = {r.key: r for r in radar.status(today=date(2026, 8, 5))}
+    assert all(r.state == "ok" for r in rows.values())
+    assert rows["NFP"].due_on == "2026-08-05"        # 1 ก.ค. + 35 วัน
+    assert rows["CPI"].due_on == "2026-08-13"        # CPI ออกช้ากว่า -> ยังไม่ถึงคิว
+
+
+def test_status_flags_a_series_that_is_overdue(tmp_path, monkeypatch):
+    _seed_seen(tmp_path, monkeypatch, CPI="2026-06-01", PPI="2026-06-01",
+               UNRATE="2026-06-01", NFP="2026-06-01")
+    monkeypatch.setattr(fred, "latest_two", _fred_at("2026-06-01"))
+
+    rows = {r.key: r for r in radar.status(today=date(2026, 9, 1))}
+    assert rows["NFP"].state == "overdue"
+    assert rows["NFP"].overdue_days == 20            # เลย 2026-08-05 มา 27 วัน หักผ่อนผัน 7
+
+
+def test_status_does_not_cry_wolf_during_the_grace_window(tmp_path, monkeypatch):
+    """วันประกาศเป็นค่าประมาณ เลื่อน 2-3 วันเป็นเรื่องปกติ — เตือนทุกเดือนแล้วจะไม่มีใครเชื่อ."""
+    _seed_seen(tmp_path, monkeypatch, NFP="2026-06-01")
+    monkeypatch.setattr(fred, "latest_two", _fred_at("2026-06-01"))
+
+    rows = {r.key: r for r in radar.status(today=date(2026, 8, 11))}   # เลยมา 6 วัน
+    assert rows["NFP"].state == "ok"
+
+
+def test_status_reports_a_fetch_failure_instead_of_looking_calm(tmp_path, monkeypatch):
+    """หัวใจของทั้งชุด: ดึงข้อมูลไม่ได้ ต้องไม่หน้าตาเหมือน 'ไม่มีข่าว'."""
+    _seed_seen(tmp_path, monkeypatch, CPI="2026-06-01")
+    monkeypatch.setattr(fred, "latest_two", lambda key: None)
+
+    rows = radar.status(today=date(2026, 8, 5))
+    assert all(r.state == "fetch_failed" for r in rows)
+    assert all(r.latest_ref is None for r in rows)
+
+
+def test_status_shows_new_data_that_has_not_been_announced_yet(tmp_path, monkeypatch):
+    _seed_seen(tmp_path, monkeypatch, CPI="2026-06-01", PPI="2026-06-01",
+               UNRATE="2026-06-01", NFP="2026-06-01")
+    monkeypatch.setattr(fred, "latest_two", _fred_at("2026-07-01"))
+
+    rows = {r.key: r for r in radar.status(today=date(2026, 8, 20))}
+    assert rows["CPI"].state == "unreported"
+
+
+def test_status_never_marks_anything_as_seen(tmp_path, monkeypatch):
+    """ต้องอ่านอย่างเดียว — ถ้า status() เผลอ mark หน้าเว็บที่เปิดดูจะกลืนแจ้งเตือนไปเงียบๆ."""
+    _seed_seen(tmp_path, monkeypatch, CPI="2026-06-01")
+    monkeypatch.setattr(fred, "latest_two", _fred_at("2026-07-01"))
+
+    radar.status(today=date(2026, 8, 20))
+    assert store.get_seen("CPI") == "2026-06-01"
+
+
+def test_render_status_is_readable_and_names_the_problem(tmp_path, monkeypatch):
+    _seed_seen(tmp_path, monkeypatch, CPI="2026-06-01")
+    monkeypatch.setattr(fred, "latest_two", lambda key: None)
+    text = radar.render_status(radar.status(today=date(2026, 8, 5)), today=date(2026, 8, 5))
+    assert "ดึง FRED ไม่ได้" in text
+
+
+# ---------- แจ้งเตือน 'ระบบมีปัญหา' (คนละเรื่องกับ 'ตลาดมีข่าว') ----------
+
+def test_health_warning_fires_when_fred_cannot_be_reached(tmp_path, monkeypatch):
+    posted = _capture_posts(monkeypatch)
+    _seed_seen(tmp_path, monkeypatch, CPI="2026-06-01")
+    monkeypatch.setattr(fred, "latest_two", lambda key: None)
+
+    assert notify.send_health_warning(webhook_url="http://x", today=date(2026, 8, 5)) is True
+    assert "ดึงข้อมูลจาก FRED ไม่ได้" in posted[0]
+
+
+def test_health_warning_stays_quiet_when_everything_is_fine(tmp_path, monkeypatch):
+    posted = _capture_posts(monkeypatch)
+    _seed_seen(tmp_path, monkeypatch, CPI="2026-06-01", PPI="2026-06-01",
+               UNRATE="2026-06-01", NFP="2026-06-01")
+    monkeypatch.setattr(fred, "latest_two", _fred_at("2026-06-01"))
+
+    assert notify.send_health_warning(webhook_url="http://x", today=date(2026, 8, 5)) is False
+    assert posted == []
+
+
+def test_health_warning_is_sent_at_most_once_a_day(tmp_path, monkeypatch):
+    """workflow รันชั่วโมงละรอบ — เตือนทุกรอบคือการสอนตัวเองให้เมินการแจ้งเตือน."""
+    posted = _capture_posts(monkeypatch)
+    _seed_seen(tmp_path, monkeypatch, CPI="2026-06-01")
+    monkeypatch.setattr(fred, "latest_two", lambda key: None)
+
+    assert notify.send_health_warning(webhook_url="http://x", today=date(2026, 8, 5)) is True
+    assert notify.send_health_warning(webhook_url="http://x", today=date(2026, 8, 5)) is False
+    assert notify.send_health_warning(webhook_url="http://x", today=date(2026, 8, 6)) is True
+    assert len(posted) == 2
+
+
+def test_health_key_is_not_mistaken_for_a_real_series(tmp_path, monkeypatch):
+    """__health อยู่ในตารางเดียวกับ series จริง — ต้องไม่หลุดเข้าไปในรอบสแกน."""
+    _seed_seen(tmp_path, monkeypatch)
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "macro.db")
+    store.mark_seen(notify._HEALTH_KEY, "2026-08-05")
+    monkeypatch.setattr(fred, "latest_two", _fred_at("2026-07-01"))
+
+    alerts = radar.scan_for_alerts(mark=False)
+    assert notify._HEALTH_KEY not in {a.key for a in alerts}
+
+
+# ---------- cache ของ fred ----------
+
+def test_fred_cache_avoids_refetching_the_same_series(monkeypatch):
+    calls = []
+    monkeypatch.setattr(fred, "_fetch_series_csv", lambda sid: calls.append(sid) or _obs([1.0, 2.0]))
+    fred.fetch_series("CPI")
+    fred.fetch_series("CPI")
+    assert len(calls) == 1
+
+
+def test_fred_cache_does_not_remember_a_failure(monkeypatch):
+    """จำความล้มเหลวไว้ = รอบถัดไปในชั่วโมงเดียวกันจะ 'พัง' ต่อ ทั้งที่ FRED กลับมาแล้ว."""
+    results = [[], _obs([1.0, 2.0])]
+    monkeypatch.setattr(fred, "_fetch_series_csv", lambda sid: results.pop(0))
+    assert fred.fetch_series("CPI") == []
+    assert len(fred.fetch_series("CPI")) == 2

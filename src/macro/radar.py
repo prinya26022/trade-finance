@@ -8,8 +8,13 @@
 ปรัชญาเดิม: บอก 'ข้อเท็จจริง + การกระจายย้อนหลัง' ไม่ 'ฟันธงว่าจะขึ้น/ลง'.
 """
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 
 from src.macro import baserate, fred, store
+
+# ตัวเลขจริงเลื่อนได้ไม่กี่วัน และ approx_lag_days เองก็เป็นค่าประมาณ — ให้เวลาผ่อนก่อนจะบอกว่า
+# 'เกินกำหนด' ไม่งั้นจะเตือนหมาป่ามาทุกเดือนจนไม่มีใครเชื่อตอนที่พังจริง
+OVERDUE_GRACE_DAYS = 7
 
 
 @dataclass
@@ -112,6 +117,85 @@ def scan_for_alerts(mark: bool = True) -> list[ReleaseView]:
         if mark:
             store.mark_seen(key, latest_ref, latest.value)
     return alerts
+
+
+@dataclass
+class SeriesStatus:
+    """สถานะของ series หนึ่งตัว — มีไว้ตอบคำถามเดียว: 'ที่มันเงียบอยู่ ปกติหรือพัง'."""
+    key: str
+    label: str
+    fetched: bool              # ดึงจาก FRED สำเร็จไหม (ล้มเหลว = เงียบเพราะพัง)
+    latest_ref: str | None     # เดือนอ้างอิงล่าสุดที่ FRED มี
+    seen_ref: str | None       # เดือนที่เราแจ้งไปแล้ว
+    due_on: str | None         # วันที่คาดว่าเดือนถัดไปจะประกาศ
+    overdue_days: int          # เลยกำหนด(+ผ่อนผัน)มากี่วัน — 0 คือยังไม่ถึงคิว
+
+    @property
+    def state(self) -> str:
+        if not self.fetched:
+            return "fetch_failed"    # พัง: ดึงข้อมูลไม่ได้เลย
+        if self.overdue_days > 0:
+            return "overdue"         # น่าสงสัย: เลยกำหนดประกาศแล้วยังไม่มีของใหม่
+        if self.seen_ref != self.latest_ref:
+            return "unreported"      # มีของใหม่ที่ยังไม่ได้แจ้ง (รอบถัดไปจะยิง)
+        return "ok"                  # ปกติ: ตามทันแล้ว รอรอบหน้า
+
+    def as_dict(self) -> dict:
+        return {"key": self.key, "label": self.label, "state": self.state,
+                "fetched": self.fetched, "latest_ref": self.latest_ref,
+                "seen_ref": self.seen_ref, "due_on": self.due_on,
+                "overdue_days": self.overdue_days}
+
+
+def _next_month(d: date) -> date:
+    return date(d.year + (d.month == 12), d.month % 12 + 1, 1)
+
+
+def status(today: date | None = None) -> list[SeriesStatus]:
+    """สถานะทุก series — ไม่แตะ store.mark_seen (อ่านอย่างเดียว เรียกกี่ครั้งก็ได้).
+
+    ทำไมต้องมี: ผลลัพธ์ปกติของ radar คือ 'เงียบ' และผลลัพธ์ตอนพังก็คือ 'เงียบ' เหมือนกันเป๊ะ
+    (FRED เคยบล็อก IP ของ runner มาแล้วรอบหนึ่ง — ตอนนั้นไม่มีอะไรบอกเลย). ตัวนี้ทำให้ความเงียบ
+    สองแบบแยกออกจากกันได้ โดยไม่ต้องรอให้ตัวเลขออกจริงเพื่อจะรู้ว่าระบบยังทำงานอยู่ไหม
+    """
+    today = today or date.today()
+    out: list[SeriesStatus] = []
+    for key, meta in fred.SERIES.items():
+        seen = store.get_seen(key)
+        pair = fred.latest_two(key)
+        if pair is None:
+            out.append(SeriesStatus(key, meta.label_th, False, None, seen, None, 0))
+            continue
+        latest = pair[1].ref_date
+        due = _next_month(latest) + timedelta(days=meta.approx_lag_days)
+        out.append(SeriesStatus(
+            key, meta.label_th, True, latest.isoformat(), seen, due.isoformat(),
+            max(0, (today - due).days - OVERDUE_GRACE_DAYS),
+        ))
+    return out
+
+
+_STATE_TH = {
+    "ok": "ปกติ",
+    "unreported": "มีของใหม่ ยังไม่ได้แจ้ง",
+    "overdue": "เลยกำหนดแล้วยังไม่มีของใหม่",
+    "fetch_failed": "ดึง FRED ไม่ได้",
+}
+
+
+def render_status(rows: list[SeriesStatus], today: date | None = None) -> str:
+    today = today or date.today()
+    lines = [f'{"series":8} {"FRED ล่าสุด":>12} {"แจ้งไปแล้ว":>12} {"คาดว่าออก":>12}  สถานะ']
+    for r in rows:
+        due = r.due_on or "-"
+        if r.due_on and r.overdue_days == 0:
+            days = (date.fromisoformat(r.due_on) - today).days
+            due += f" (อีก {days} วัน)" if days > 0 else " (ถึงคิวแล้ว)"
+        elif r.overdue_days:
+            due += f" (เลยมา {r.overdue_days} วัน)"
+        lines.append(f'{r.key:8} {r.latest_ref or "-":>12} {r.seen_ref or "-":>12} '
+                     f'{due:>12}  {_STATE_TH[r.state]}')
+    return "\n".join(lines)
 
 
 def format_alert(view: ReleaseView) -> str:

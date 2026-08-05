@@ -584,6 +584,13 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
 .macro-note { color: var(--muted); font-style: italic; }
 .macro-approx { color: var(--muted); font-size: 11.5px; margin: 6px 0 0; }
 
+/* แถบสถานะเรดาร์ — ปกติต้องจืด ไม่แย่งสายตาจากตัวเลขจริง แล้วค่อยเด่นตอนมีปัญหา */
+.macro-status .macro-table { margin-top: 2px; }
+.macro-status-bad { border-color: var(--red); }
+.macro-state.ok   { color: var(--muted); }
+.macro-state.warn { color: var(--amber); }
+.macro-state.bad  { color: var(--red); font-weight: 600; }
+
 .macro-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .macro-table th {
   text-align: left; color: var(--muted); font-weight: 500;

@@ -1155,6 +1155,51 @@ bare `git push` would simply fail and take that day's round down with the runner
   identical files unchanged, no-base refuses to delete, AUTOINCREMENT still usable afterwards, and the
   project's real stores can read *and write* the merged file. Suite 394/394.
 
+## Phase 26.1 (revisited) -- a radar whose normal output and whose failure look identical
+
+Owner's observation: "macro doesn't seem to do much." Investigation says the radar is fine -- it runs
+~5 times a day, reaches FRED, and is silent because **FRED itself has nothing newer than June**. July
+payrolls land 2026-08-07, July CPI around 08-13. Every part of that is correct behaviour.
+
+The complaint is still valid, and it points at a real defect: **a working radar and a dead radar
+produce the same observable output -- nothing.** This isn't hypothetical. The workflow already
+carries a comment about the July 2026 incident where FRED (behind Cloudflare) silently throttled the
+runner's IP and every series failed to fetch; `scan_for_alerts` swallowed it with `if pair is None:
+continue`, so the job stayed green and quiet for days. `data/macro.db` has exactly one commit in its
+entire history, which is what that period looks like from the outside: nothing to see.
+
+- `radar.status()` -- read-only, no `mark_seen`, per series: did the fetch succeed, what does FRED
+  have, what have we alerted, when is the next release expected (`ref month + approx_lag_days`), how
+  far past due. Four states: `ok`, `unreported`, `overdue`, `fetch_failed`. The point is that
+  "quiet" now splits into "quiet because nothing is due" and "quiet because we can't see".
+- **`OVERDUE_GRACE_DAYS = 7`.** Release dates here are estimates (`approx_lag_days`) and real releases
+  slip a couple of days. A tripwire that fires every month teaches you to ignore it, and then it is
+  worth nothing on the month that matters.
+- Every CI run now prints the status table, so the workflow log is *evidence* rather than an
+  unfalsifiable "ไม่มีตัวเลขใหม่ — เงียบ".
+- `notify.send_health_warning()` posts to Discord when the radar **cannot do its job** -- explicitly
+  not when the market is quiet. At most once a day (state under a `__health` key in `macro_seen`,
+  which `scan_for_alerts` never sees because it iterates `fred.SERIES`); hourly warnings would train
+  the owner to mute the channel.
+- The macro page gained a status strip up top, deliberately drab when healthy: the page previously
+  showed only "latest numbers", which reads exactly the same whether the data is current or three
+  months stale.
+- `fred.fetch_series` gained a 10-minute in-process cache -- `dashboard()`, `status()` and `baserate`
+  all pull the same monthly series within one request. **Failures are not cached**: remembering a
+  failure means staying broken for the rest of the TTL after FRED recovers.
+
+Found while writing the tests: `notify.py` calls `load_dotenv()` at import, so importing it in the
+suite leaked the real `FRED_API_KEY` into `os.environ` for the whole session and `fetch_series` would
+take the live-API path. Existing tests survived only because they patch `urlopen`, which happens to
+cover both paths. The macro fixture now deletes the key -- the no-network rule shouldn't depend on a
+coincidence.
+
+- 13 new offline tests: correct-and-quiet is `ok`, overdue is flagged with the right day count, the
+  grace window doesn't cry wolf, a fetch failure never looks calm, unreported data is visible,
+  `status()` never marks anything seen, health warning fires on fetch failure, stays quiet when
+  healthy, sends at most once a day, `__health` never leaks into a scan, cache avoids refetching, and
+  cache does not remember a failure. Suite 407/407.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

@@ -13,6 +13,7 @@ import csv
 import io
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,6 +23,14 @@ from datetime import date, datetime
 _UA = {"User-Agent": "trade-finance-agent/1.0 (+local research tool)"}
 _CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}"
 _API_URL = "https://api.stlouisfed.org/fred"
+
+_CACHE_TTL_SEC = 600                                   # ตัวเลข macro เป็นรายเดือน 10 นาทีถือว่าสด
+_CACHE: dict[str, tuple[float, list["Observation"]]] = {}
+
+
+def clear_cache() -> None:
+    """ล้าง cache — ใช้ในเทสต์ ไม่ให้ผลของเคสก่อนหน้าไหลข้ามมา."""
+    _CACHE.clear()
 
 
 @dataclass(frozen=True)
@@ -66,13 +75,24 @@ def fetch_series(key_or_id: str) -> list[Observation]:
     _fetch_series_api) ไม่มีคีย์ หรือ API พังเฉยๆ -> fallback ไปหน้า CSV สาธารณะ (ไม่ต้องมีคีย์
     แต่เจอจริงว่า timeout ทุก series พร้อมกันเวลารันจาก GitHub Actions — สงสัยว่า FRED (อยู่หลัง
     Cloudflare) throttle/บล็อก IP ของ cloud runner แบบเงียบๆ แทนที่จะ reject ตรงๆ).
+
+    cache ในโปรเซส TTL สั้น: หน้า radar/รอบสแกนเรียกซ้ำ series เดิมหลายทาง (dashboard + status
+    + baserate) — ข้อมูลเป็นรายเดือน การยิงซ้ำในไม่กี่นาทีจึงได้คำตอบเดิมเสมอ. cache เฉพาะผลที่
+    ได้ข้อมูลจริง: ถ้าดึงพลาดต้องลองใหม่รอบหน้า ไม่ใช่จำความล้มเหลวไว้ทั้ง TTL
     """
     sid = SERIES[key_or_id].fred_id if key_or_id in SERIES else key_or_id
+    hit = _CACHE.get(sid)
+    if hit and time.time() - hit[0] < _CACHE_TTL_SEC:
+        return hit[1]
+
+    obs: list[Observation] = []
     if _api_key():
         obs = _fetch_series_api(sid)
-        if obs:
-            return obs
-    return _fetch_series_csv(sid)
+    if not obs:
+        obs = _fetch_series_csv(sid)
+    if obs:
+        _CACHE[sid] = (time.time(), obs)
+    return obs
 
 
 def _fetch_series_api(sid: str) -> list[Observation]:

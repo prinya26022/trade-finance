@@ -33,7 +33,7 @@ from src.agent.invalidation import check_invalidation, check_expectations
 from src.agent.correlation import portfolio_correlation
 from src.agent.claims import extract_claims_with_context
 from src.agent.scorecard import scorecard
-from src.macro.radar import dashboard as macro_dashboard
+from src.macro.radar import dashboard as macro_dashboard, status as macro_status
 from src.macro.geonews import fetch_geopolitical
 from src.macro.altseason import eth_btc_momentum
 from src.thesis.store import get_thesis, set_thesis, delete_thesis
@@ -344,6 +344,9 @@ def get_macro(horizon_days: int = 1):
         "releases": [v.as_dict() for v in macro_dashboard(horizon_days=horizon_days)],
         "geopolitical": [it.as_dict() for it in fetch_geopolitical()],
         "altseason": alt.as_dict() if alt else None,
+        # สถานะเรดาร์เอง: หน้าเว็บนี้แสดงแต่ 'ตัวเลขล่าสุด' ซึ่งหน้าตาเหมือนกันทั้งตอนที่ยัง
+        # ไม่มีข่าวจริงๆ และตอนที่ระบบดึงข้อมูลไม่ได้มาหลายวัน — แถบนี้แยกสองอย่างนั้นออกจากกัน
+        "status": [s.as_dict() for s in macro_status()],
     }
 
 
