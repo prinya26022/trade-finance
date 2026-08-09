@@ -1240,6 +1240,63 @@ Phase 29 made this argument once already for SPCX; the screener path just never 
   shown not hidden, full rows unchanged, data-gate failures still dropped, and screener/health agree
   numerically on the same partial stock. Suite 412/412.
 
+## Phase 35 -- the trend was measured from a peak, and nothing said so
+
+Chasing "cyclical-industry normalization" (CVX sits at 3.2/11) produced a better diagnosis than the
+one on the roadmap. It is **not** that cyclicals need their own /8 framework. It is that the growth
+anchor is computed over whatever window yfinance happens to return -- always about 4 years -- and for
+CVX that window begins at FY2022, the top of the oil spike:
+
+```
+what the system sees:                    FY2022 236 -> 197 -> 193 -> FY2025 184    CAGR -7.85%
+what SEC XBRL has:  FY2018 159 -> 140 -> 94 -> 156 -> 236 -> 197 -> 193 -> 184     CAGR +2.15%
+                                          ^covid   ^war spike
+```
+
+Revenue today is *above* 2018. That is a cycle, not a decline -- but every year after the first is
+mechanically "down", so FCF CAGR lands around -24%/yr, realistic growth -11.09%, valuation 0/3.
+
+The bias is not oil-specific and not one-directional. Measured across the watchlist: **NVDA's 4-year
+window says +100%/yr while the full 10-year history says +46.6%**, and **AAPL's says +1.8% while 9
+years say +7.7%** -- AAPL's "low revenue CAGR" noted back in 20.2 turns out to be a window artifact.
+Any company whose first window year is unusual is distorted; only the direction changes.
+
+**Deliberately did not change any score.** Re-anchoring would move NVDA and AAPL as much as CVX and
+needs a backfill dry-run behind it; that is the owner's call, made on numbers. This phase only makes
+the window visible:
+- `valuation._anchor_window()` -- pure, no network, no effect on scoring: which series fed the
+  anchor, how many years, first/last period, and whether the window starts at its own max or min.
+  Rides along in `reverse_dcf()`'s result, so it lands in the stored `valuation_json` with no schema
+  change. Verified after the change: CVX still 0.0/3, realistic growth still -11.09.
+- `src/evals/check_anchor_window.py` -- the conclusive comparison, using the SEC XBRL history already
+  fetched and disk-cached for the Phase 12 accuracy eval. Flags a sign flip, a materially different
+  trend (>=10pp), or a window starting in the top/bottom quartile of the full history.
+- The ticker page's reverse-DCF box now states the anchor window inline, with the peak/trough warning.
+
+**The eval's own first version was wrong, which is the part worth remembering.** It compared the
+XBRL CAGR against the provider CAGR directly -- but XBRL *ends* where yfinance *begins* (NVDA: XBRL
+through FY2022, yfinance from FY2023). So it reported "4yr +100% vs 6yr +31%" as though that were one
+trend measured over a longer window, when the two numbers describe different eras entirely, and it
+flagged NVDA as "starts at a cycle high" merely because FY2023 exceeded every year in the older set.
+Fixed by merging the two into one history before measuring anything, plus a contiguity guard that
+refuses to compute across a hole (CAGR divides by point count, so a gap silently inflates it). A tool
+that compares two different things and looks authoritative doing it is the exact failure this
+project keeps finding elsewhere -- worth noting that it appeared in the detector itself.
+
+Also surfaced: **XOM returns zero years from XBRL** despite being an ordinary US 10-K filer -- a
+concept-name coverage gap of the same kind 33.5 closed for ADRs, and it means XOM has no ground-truth
+cross-check at all today.
+
+`SHORT_WINDOW` is reported but deliberately does **not** count as concerning: yfinance gives everyone
+4 years, so a flag that fires on every ticker every day carries no information -- the same reasoning
+as the macro radar's grace window in 26.1.
+
+- 12 new offline tests: window metadata reported, peak-start and trough-start both flagged, series
+  ordering irrelevant, thin series report nothing rather than guessing, the CVX case end-to-end,
+  gapped histories refused, adjoining histories still compared, newer years merged in not dropped,
+  an agreeing longer window stays quiet, missing long history says so, and the opposite (understated)
+  bias is caught too. Suite 424/424.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

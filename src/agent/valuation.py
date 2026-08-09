@@ -290,6 +290,46 @@ def _gap_to_score(gap_pp: float) -> float:
     )
 
 
+# หน้าต่างข้อมูลที่สั้นกว่านี้ = ยังไม่ครอบรอบวัฏจักรใดๆ (yfinance คืนมา 4 ปีเป็นปกติ)
+SHORT_WINDOW_YEARS = 6
+
+
+def _anchor_window(series: list[tuple[str, float]] | None, source: str) -> dict:
+    """เมตาดาต้าของ 'หน้าต่างข้อมูล' ที่ anchor ถูกคำนวณมา — ไม่กระทบคะแนนใดๆ ทั้งสิ้น.
+
+    ทำไมต้องมี (เจอจริงกับ CVX 2026-08): yfinance คืน series มา 4 ปี และบังเอิญปีแรกคือ
+    FY2022 = ยอดพีคราคาน้ำมันรอบสิบปี ทุกปีหลังจากนั้นจึงเป็น 'ขาลง' โดยอัตโนมัติ -> FCF CAGR
+    −23%/ปี -> realistic growth −11.09% -> ขาราคา 0/3. แต่ประวัติจริงจาก SEC XBRL 8 ปี
+    (159/140/94/156/236/197/193/184) บอกว่านั่นคือ *รอบ* ไม่ใช่ธุรกิจถดถอย — รายได้วันนี้ยัง
+    สูงกว่าปี 2018 ด้วยซ้ำ.
+
+    ไม่ใช่ปัญหาของหุ้นน้ำมันโดยเฉพาะ: บริษัทไหนที่ปีแรกของหน้าต่างเป็นปีผิดปกติก็เพี้ยนทั้งคู่
+    แค่คนละทิศ (เริ่มที่ก้นเหว = โตเกินจริง). ตัวนี้แค่ 'บอกให้รู้' ว่าเลขมาจากหน้าต่างแบบไหน —
+    จะไม่เดาแทนว่าควรใช้กี่ปี เพราะการเปลี่ยน anchor เป็นการขยับคะแนนทั้งกระดาน ซึ่งเป็นคนละงาน
+    """
+    pts = sorted(series or [], key=lambda p: p[0])
+    if len(pts) < 2:
+        return {"source": source, "years": len(pts), "start": None, "end": None,
+                "starts_at_max": False, "starts_at_min": False, "flags": []}
+
+    values = [v for _, v in pts]
+    first = values[0]
+    starts_at_max = first == max(values)
+    starts_at_min = first == min(values)
+
+    flags = []
+    if len(pts) < SHORT_WINDOW_YEARS:
+        flags.append("SHORT_WINDOW")
+    # ปีแรกเป็นจุดสูงสุด/ต่ำสุดของหน้าต่าง = เทรนด์ที่วัดได้เท่ากับ 'ระยะห่างจากปีนั้น' ไม่ใช่เทรนด์
+    if starts_at_max:
+        flags.append("STARTS_AT_WINDOW_HIGH")
+    elif starts_at_min:
+        flags.append("STARTS_AT_WINDOW_LOW")
+
+    return {"source": source, "years": len(pts), "start": pts[0][0], "end": pts[-1][0],
+            "starts_at_max": starts_at_max, "starts_at_min": starts_at_min, "flags": flags}
+
+
 @dataclass
 class ReverseDcfResult:
     implied_growth: float | None      # % ต่อปีที่ตลาด 'price ไว้' — None ถ้าคำนวณไม่ได้/นอกขอบเขต
@@ -307,6 +347,8 @@ class ReverseDcfResult:
     ev: float | None                  # Market Cap + Net Debt ที่ใช้เป็นเป้าหมายแก้สมการ
     fcf_base: float | None            # ค่าเฉลี่ย FCF 3 ปีที่ใช้เป็นฐานโมเดล
     note: str | None = None           # เหตุผลเวลาคำนวณไม่ได้ (fcf ติดลบ/นอกขอบเขต/ข้อมูลขาด)
+    # หน้าต่างข้อมูลที่ anchor มาจาก — metadata ล้วน ไม่เข้าคะแนน (ดู _anchor_window)
+    anchor_window: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -325,6 +367,7 @@ class ReverseDcfResult:
             "ev": self.ev,
             "fcf_base": self.fcf_base,
             "note": self.note,
+            "anchor_window": self.anchor_window,
         }
 
 
@@ -394,24 +437,36 @@ def reverse_dcf(
         if rev_growth_recent is not None and fcf_margin is not None else None
     )
 
+    fcf_series = getattr(fundamentals, "fcf_series", None)
+    revenue_series = getattr(fundamentals, "revenue_series", None)
+
     if route == "growth":
         lens = "growth"
         # audit fix 19.4: anchor บน FCF growth ก่อนเสมอถ้าคำนวณได้ (unit เดียวกับ implied_growth
         # ตรงๆ — ดู docstring _fcf_growth_multiyear) revenue growth เป็นแค่ fallback ตอน FCF
         # history สั้นเกินไป/สลับเครื่องหมาย
-        fcf_growth = _fcf_growth_multiyear(getattr(fundamentals, "fcf_series", None))
-        anchor_growth = fcf_growth if fcf_growth is not None else (
-            rev_growth_recent if rev_growth_recent is not None else historical_cagr)
+        fcf_growth = _fcf_growth_multiyear(fcf_series)
+        if fcf_growth is not None:
+            anchor_growth, window = fcf_growth, _anchor_window(fcf_series, "fcf")
+        elif rev_growth_recent is not None:
+            anchor_growth, window = rev_growth_recent, _anchor_window(revenue_series, "revenue")
+        else:
+            anchor_growth, window = historical_cagr, _anchor_window(revenue_series, "revenue_cagr")
         realistic_growth = (
             growth_lens_realistic(anchor_growth, terminal_growth, years)
             if anchor_growth is not None else historical_cagr
         )
     else:
         lens = "standard"
-        realistic_growth = (
-            round(max(-100.0, min(SUSTAINABLE_GROWTH_CAP * 100, sustainable)), 2)
-            if sustainable is not None else historical_cagr
-        )
+        # sustainable growth คิดจากค่า ณ จุดเดียว (reinvestment × ROIC) ไม่ใช่หน้าต่างย้อนหลัง
+        # -> ไม่มีประเด็นเรื่องหน้าต่าง ยกเว้นตอนตกไปใช้ historical_cagr เป็น fallback
+        if sustainable is not None:
+            realistic_growth = round(max(-100.0, min(SUSTAINABLE_GROWTH_CAP * 100, sustainable)), 2)
+            window = {"source": "sustainable", "years": None, "start": None, "end": None,
+                      "starts_at_max": False, "starts_at_min": False, "flags": []}
+        else:
+            realistic_growth = historical_cagr
+            window = _anchor_window(revenue_series, "revenue_cagr")
 
     implied = implied_growth_rate(ev, fcf_base, wacc, terminal_growth, years)
     note = None
@@ -431,7 +486,7 @@ def reverse_dcf(
 
     return ReverseDcfResult(
         implied_growth=implied, realistic_growth=realistic_growth, gap=gap, score=score,
-        lens=lens, rule_of_40=r40, note=note, **base_result,
+        lens=lens, rule_of_40=r40, note=note, anchor_window=window, **base_result,
     ).to_dict()
 
 

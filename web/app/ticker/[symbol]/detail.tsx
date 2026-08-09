@@ -221,6 +221,24 @@ export default function TickerDetail({
                   ⚠ ใช้ growth lens แทน sustainable growth เพราะ: {a.valuation.flags.join(", ")}
                 </p>
               )}
+              {/* Phase 35: realistic growth มาจากหน้าต่างกี่ปี เริ่มปีไหน — ตัวเลขเดียวกันเป๊ะ
+                  แต่ความหมายต่างกันมากถ้าหน้าต่างเริ่มที่ปีผิดปกติ (ดู check_anchor_window) */}
+              {a.valuation.anchor_window?.years != null && a.valuation.anchor_window.years > 0 && (
+                <p className="muted valuation-assump">
+                  <Tip def="realistic growth ถูกคำนวณจากหน้าต่างข้อมูลเท่านี้ (yfinance คืนมาประมาณ 4 ปี) — ถ้าปีแรกของหน้าต่างเป็นปีที่ผิดปกติ เช่นยอดพีคของรอบวัฏจักร สิ่งที่วัดได้จะเป็น 'ระยะห่างจากปีนั้น' มากกว่าเทรนด์จริง เทียบประวัติเต็มได้ด้วย python -m src.evals.check_anchor_window">
+                    <span>
+                      anchor: {a.valuation.anchor_window.source} {a.valuation.anchor_window.years} ปี
+                      {a.valuation.anchor_window.start && ` (${a.valuation.anchor_window.start}→${a.valuation.anchor_window.end})`}
+                    </span>
+                  </Tip>
+                  {a.valuation.anchor_window.starts_at_max && (
+                    <span className="valuation-flag"> — เริ่มที่ปีสูงสุดของหน้าต่าง ทุกปีหลังจากนั้นจึงเป็นขาลงโดยอัตโนมัติ</span>
+                  )}
+                  {a.valuation.anchor_window.starts_at_min && (
+                    <span className="valuation-flag"> — เริ่มที่ปีต่ำสุดของหน้าต่าง การเติบโตที่วัดได้จึงถูกขยาย</span>
+                  )}
+                </p>
+              )}
               {a.valuation.lens === "growth" && a.valuation.rule_of_40 != null && (
                 <p className="muted valuation-assump">
                   Rule of 40: {a.valuation.rule_of_40.toFixed(1)} (growth% + FCF margin%)

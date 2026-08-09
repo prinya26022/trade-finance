@@ -101,6 +101,18 @@ export type Valuation = {
   ev: number | null; // Market Cap + Net Debt ที่ใช้เป็นเป้าหมายแก้สมการ
   fcf_base: number | null; // ค่าเฉลี่ย FCF 3 ปีที่ใช้เป็นฐานโมเดล
   note: string | null;
+  // Phase 35: หน้าต่างข้อมูลที่ realistic_growth ถูกคำนวณมา — metadata ล้วน ไม่เข้าคะแนน.
+  // มีเพราะ yfinance คืนมา 4 ปีเสมอ และถ้าปีแรกบังเอิญเป็นปีผิดปกติ (CVX เริ่มที่พีคน้ำมัน 2022)
+  // "เทรนด์" ที่วัดได้จะกลายเป็น "ระยะห่างจากปีนั้น" แทน โดยไม่มีอะไรบนหน้าจอบอกเลย
+  anchor_window?: {
+    source: string; // fcf | revenue | revenue_cagr | sustainable
+    years: number | null;
+    start: string | null;
+    end: string | null;
+    starts_at_max: boolean;
+    starts_at_min: boolean;
+    flags: string[];
+  } | null;
 };
 
 // Phase 13: agentic investigation transcript — ทุกสเต็ปที่ agent ตัดสินใจ+เรียก tool เอง
