@@ -153,7 +153,11 @@ export type ScreenerResult = {
   tier: "strong" | "ok" | "weak";
   label: string;
   fundamental_score: number;
-  valuation_score: number;
+  // Phase 34: ประเมินราคาไม่ได้ -> คะแนน 'พื้นฐานล้วน' max=8 (partial) แทนการหายไปทั้งตัว
+  // ห้ามเอา score ของ partial ไปเทียบกับตัวที่ได้เต็ม /11 ตรงๆ — คนละมาตรวัด
+  partial: boolean;
+  partial_reason: string | null;
+  valuation_score: number | null;
   implied_growth: number | null;
   realistic_growth: number | null;
   gap: number | null;

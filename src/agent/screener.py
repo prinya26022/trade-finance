@@ -24,7 +24,8 @@ import time
 from pathlib import Path
 
 from src.agent.health import (
-    _bank_valuation_score, _fundamental_score, _is_bank, _normalize_facts, tier_from_score,
+    PARTIAL_MAX, _bank_valuation_score, _fundamental_score, _is_bank, _normalize_facts,
+    tier_from_score,
 )
 from src.agent.valuation import reverse_dcf
 from src.providers.stock.fundamentals import StockFundamentalsProvider
@@ -58,9 +59,21 @@ def _fact_value(facts: list[dict], label: str) -> float | None:
     return next((f["value"] for f in facts if f["label"] == label), None)
 
 
+def _partial_reason(dcf: dict | None, obj) -> str:
+    """บอกว่า 'ทำไมไม่มีขาราคา' ด้วยคำที่อ่านแล้วรู้ว่าต้องคิดต่อยังไง — ไม่ใช่แค่ 'ไม่มีข้อมูล'."""
+    if dcf is None:
+        return ("งบกับราคาคนละสกุลเงิน — คำนวณ EV/reverse-DCF ไม่ได้"
+                if getattr(obj, "currency_mismatch", False)
+                else "ไม่มี Market Cap/FCF พอคำนวณ reverse-DCF")
+    return dcf.get("note") or "reverse-DCF คำนวณไม่ได้"
+
+
 def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
-    """สแกนหุ้นตัวเดียว -> dict (score/max/tier + เมตริกอ้างอิง) หรือ None ถ้าข้อมูลไม่พอ/
-    ดึงไม่ได้/reverse-DCF คำนวณไม่ได้ — ข้ามเงียบๆ เหมือน loop.py (1 ตัวพังไม่ควรทำทั้ง scan ตาย)."""
+    """สแกนหุ้นตัวเดียว -> dict (score/max/tier + เมตริกอ้างอิง) หรือ None ถ้าดึงข้อมูลไม่ได้/
+    ฝั่งพื้นฐานคำนวณไม่ได้ — ข้ามเงียบๆ เหมือน loop.py (1 ตัวพังไม่ควรทำทั้ง scan ตาย).
+
+    ขาราคาคำนวณไม่ได้แต่ขาพื้นฐานได้ -> คืนแถว 'พื้นฐานล้วน' (max=8, partial=True) ตามกติกา
+    เดียวกับ Phase 29 ใน health.py ไม่ใช่ทิ้งทั้งตัว."""
     try:
         obj = StockFundamentalsProvider().get_fundamentals(ticker)
     except Exception as e:
@@ -80,8 +93,34 @@ def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
         dcf = _bank_valuation_score(facts, risk_free_pct)
     else:
         dcf = reverse_dcf(obj, risk_free_pct=risk_free_pct)
+    # Phase 34: ขาราคาคำนวณไม่ได้ != วิเคราะห์อะไรไม่ได้เลย. เดิมเคสนี้ถูกทิ้งทั้งตัวเงียบๆ ขณะที่
+    # health.py คืนคะแนน 'พื้นฐานล้วน /8' ให้ตั้งแต่ Phase 29 — สองพาธที่อ้างว่าใช้เอนจิ้นเดียวกัน
+    # ตอบคนละอย่างกับหุ้นตัวเดียวกันอีกครั้ง (ทรงเดียวกับที่แบงก์เจอใน 33.3 แต่กลับด้าน).
+    # เจอจริง: ORCL — FCF เฉลี่ย 3 ปีติดลบจากรอบ capex ดาต้าเซ็นเตอร์ AI -> reverse-DCF ใช้ไม่ได้
+    # -> หายจาก screener ทั้งที่ health ให้ 4.8/8. และนี่คือ bias ที่ผิดทิศที่สุดสำหรับ 'เครื่องมือ
+    # ค้นหาตัวใหม่': บริษัทที่กำลังลงทุนหนักจนกระแสเงินสดติดลบชั่วคราว คือกลุ่มที่ควรถูกเห็นแล้ว
+    # ตัดสินเอง ไม่ใช่กลุ่มที่ถูกซ่อนโดยที่ไม่มีใครรู้ว่าถูกซ่อน
     if dcf is None or dcf.get("score") is None:
-        return None
+        score = round(fundamental["score"], 2)
+        tier, label = tier_from_score(score, PARTIAL_MAX)
+        return {
+            "ticker": ticker,
+            "score": score,
+            "max": PARTIAL_MAX,
+            "tier": tier,
+            "label": label,
+            "partial": True,
+            "partial_reason": _partial_reason(dcf, obj),
+            "fundamental_score": fundamental["score"],
+            "valuation_score": None,
+            "implied_growth": None,
+            "realistic_growth": None,
+            "gap": None,
+            "lens": (dcf or {}).get("lens", "NA"),
+            "pe": _fact_value(facts, "P/E"),
+            "roic": _fact_value(facts, "ROIC"),
+            "market_cap": _fact_value(facts, "Market Cap"),
+        }
 
     score = round(fundamental["score"] + dcf["score"], 2)
     tier, label = tier_from_score(score)
@@ -92,6 +131,8 @@ def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
         "max": 11.0,
         "tier": tier,
         "label": label,
+        "partial": False,
+        "partial_reason": None,
         "fundamental_score": fundamental["score"],
         "valuation_score": dcf["score"],
         # แบงก์ไม่มี implied/realistic growth (คนละเลนส์) -> None ไม่ใช่ 0 ที่ชวนให้อ่านผิด
@@ -106,10 +147,14 @@ def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
 
 
 def run_screen(tickers: list[str] = UNIVERSE) -> list[dict]:
-    """สแกนทั้ง universe (deterministic, ไม่เรียก LLM) -> list เรียงคะแนนมาก->น้อย."""
+    """สแกนทั้ง universe (deterministic, ไม่เรียก LLM) -> list เรียงคะแนนมาก->น้อย.
+
+    แถว partial (/8) ต่อท้ายเป็นก้อนแยก ไม่ปนเข้าอันดับหลัก — 8/8 ไม่ได้แปลว่าดีกว่า 10/11
+    (คนละมาตรวัด) การเรียงปนกันจะทำให้ 'อันดับ' โกหกทั้งที่ตัวเลขแต่ละตัวถูกต้อง
+    (กติกาเดียวกับ comparable_score() ที่กัน partial ออกจากการเทียบข้ามตัว)"""
     rf = get_risk_free_rate_pct()
     results = [r for r in (screen_one(t, rf) for t in tickers) if r is not None]
-    results.sort(key=lambda r: r["score"], reverse=True)
+    results.sort(key=lambda r: (r.get("partial", False), -r["score"]))
     return results
 
 

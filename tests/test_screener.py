@@ -115,15 +115,27 @@ def test_screen_one_skips_when_data_gate_fails(monkeypatch):
     assert screener.screen_one("BAD", RF) is None
 
 
-def test_screen_one_skips_when_reverse_dcf_none(monkeypatch):
-    # market_cap ไม่มีเลย -> reverse_dcf() คืน None ตั้งแต่ต้น -> screen_one ต้องข้าม ไม่ crash
+def test_screen_one_returns_a_partial_row_when_reverse_dcf_cannot_run(monkeypatch):
+    """Phase 34 (เปลี่ยนพฤติกรรมจากเดิมที่คืน None): ประเมินราคาไม่ได้ != วิเคราะห์ไม่ได้เลย.
+
+    เดิมทิ้งทั้งตัวเงียบๆ ขณะที่ health.py คืน 'พื้นฐานล้วน /8' ให้ตั้งแต่ Phase 29 — เอนจิ้น
+    เดียวกันแต่ตอบคนละอย่างกับหุ้นตัวเดียวกัน. เจอจริงกับ ORCL (FCF เฉลี่ย 3 ปีติดลบจากรอบ capex)
+    """
     stock = _strong_cheap_stock(target_growth=0.0)
-    stock.market_cap = None
+    stock.market_cap = None                       # -> reverse_dcf() คืน None ตั้งแต่ต้น
     monkeypatch.setattr(
         "src.agent.screener.StockFundamentalsProvider",
         lambda: type("P", (), {"get_fundamentals": staticmethod(lambda t: stock)})(),
     )
-    assert screener.screen_one("NOCAP", RF) is None
+    result = screener.screen_one("NOCAP", RF)
+
+    assert result is not None
+    assert result["partial"] is True
+    assert result["max"] == 8.0                   # ห้าม normalize ขึ้น /11 = เสกคะแนนราคาที่ไม่มีอยู่
+    assert result["score"] == result["fundamental_score"]
+    assert result["valuation_score"] is None      # None ไม่ใช่ 0 ที่อ่านว่า 'ขาราคาสอบตก'
+    assert result["gap"] is None
+    assert result["partial_reason"]               # ต้องบอกเหตุผล ไม่ใช่หายไปเฉยๆ
 
 
 def test_screen_one_skips_on_fetch_error(monkeypatch):
@@ -251,3 +263,90 @@ def test_screener_scores_a_bank_instead_of_dropping_it(monkeypatch):
     assert result["valuation_score"] > 0
     # เลนส์ธนาคารไม่มี growth gap -> ต้องเป็น None ไม่ใช่ 0 ที่อ่านว่า 'ราคาตรงมูลค่าพอดี'
     assert result["gap"] is None and result["implied_growth"] is None
+
+
+# ---------- Phase 34: partial rows ต้องเห็นได้ แต่ห้ามปนอันดับ ----------
+
+def _fcf_negative_stock() -> FakeStock:
+    """ทรง ORCL จริง: พื้นฐานคำนวณได้ปกติ แต่ FCF ฐานติดลบ -> reverse-DCF ใช้ไม่ได้."""
+    stock = _strong_cheap_stock(target_growth=0.0)
+    stock.fcf_series = [("FY2023", -1_000.0), ("FY2024", -2_000.0), ("FY2025", -3_000.0)]
+    stock.free_cash_flow = -3_000.0
+    return stock
+
+
+def test_partial_rows_are_listed_after_every_full_row(monkeypatch):
+    """8/8 ไม่ได้แปลว่าดีกว่า 10/11 — เรียงปนกันเมื่อไหร่ 'อันดับ' ก็โกหกทั้งที่ตัวเลขถูกทุกตัว."""
+    full = _strong_cheap_stock(target_growth=0.0)
+    partial = _fcf_negative_stock()
+    monkeypatch.setattr(
+        "src.agent.screener.StockFundamentalsProvider",
+        lambda: type("P", (), {"get_fundamentals": staticmethod(
+            lambda t: partial if t == "BURN" else full)})(),
+    )
+    monkeypatch.setattr(screener, "get_risk_free_rate_pct", lambda: RF)
+
+    rows = screener.run_screen(["BURN", "GOOD", "ALSO"])
+    assert [r["partial"] for r in rows] == [False, False, True]
+    assert rows[-1]["ticker"] == "BURN"
+
+
+def test_a_cash_burning_company_is_shown_not_hidden(monkeypatch):
+    """bias ที่ผิดทิศที่สุดสำหรับเครื่องมือ 'ค้นหาตัวใหม่' คือซ่อนบริษัทที่กำลังลงทุนหนัก
+    โดยที่ไม่มีใครรู้ว่าถูกซ่อน — ให้เห็นแล้วตัดสินเอง"""
+    stock = _fcf_negative_stock()
+    monkeypatch.setattr(
+        "src.agent.screener.StockFundamentalsProvider",
+        lambda: type("P", (), {"get_fundamentals": staticmethod(lambda t: stock)})(),
+    )
+    result = screener.screen_one("BURN", RF)
+
+    assert result is not None and result["partial"] is True
+    assert "FCF" in result["partial_reason"]
+
+
+def test_a_full_row_still_reports_both_legs(monkeypatch):
+    """กันการแก้ครั้งนี้ไปทำให้เคสปกติเปลี่ยนรูป — แถวเต็มต้องเหมือนเดิมทุกช่อง."""
+    stock = _strong_cheap_stock(target_growth=0.0)
+    monkeypatch.setattr(
+        "src.agent.screener.StockFundamentalsProvider",
+        lambda: type("P", (), {"get_fundamentals": staticmethod(lambda t: stock)})(),
+    )
+    result = screener.screen_one("GOOD", RF)
+
+    assert result["partial"] is False
+    assert result["max"] == 11.0
+    assert result["partial_reason"] is None
+    assert result["score"] == round(result["fundamental_score"] + result["valuation_score"], 2)
+
+
+def test_a_stock_that_fails_the_data_gate_is_still_dropped(monkeypatch):
+    """partial คือ 'ขาราคาไม่ได้' เท่านั้น — พื้นฐานคำนวณไม่ได้ยังต้องหายไปเหมือนเดิม
+    ไม่งั้นจะกลายเป็นคะแนนที่เสกจากข้อมูลที่ไม่มี"""
+    stock = _data_gate_fail_stock()
+    monkeypatch.setattr(
+        "src.agent.screener.StockFundamentalsProvider",
+        lambda: type("P", (), {"get_fundamentals": staticmethod(lambda t: stock)})(),
+    )
+    assert screener.screen_one("BAD", RF) is None
+
+
+def test_screener_and_health_agree_on_the_same_partial_stock(monkeypatch):
+    """หัวใจของงานนี้: สองพาธที่อ้างว่าใช้เอนจิ้นเดียวกัน ต้องให้ตัวเลขเดียวกันจริงๆ."""
+    from types import SimpleNamespace
+
+    from src.agent.health import compute_health
+
+    stock = _fcf_negative_stock()
+    monkeypatch.setattr(
+        "src.agent.screener.StockFundamentalsProvider",
+        lambda: type("P", (), {"get_fundamentals": staticmethod(lambda t: stock)})(),
+    )
+    from_screener = screener.screen_one("BURN", RF)
+    summary = SimpleNamespace(sentiment="neutral", fundamental_strength="strong",
+                              valuation_view="fair", price=1.0)
+    from_health = compute_health(summary, facts=stock.to_facts(), risk_free_pct=RF)
+
+    assert from_screener["partial"] == from_health["partial"] is True
+    assert from_screener["max"] == from_health["max"]
+    assert round(from_screener["score"], 1) == from_health["score"]

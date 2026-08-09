@@ -400,6 +400,12 @@ ul.list li { font-size: 13px; line-height: 1.4; }
 .pf-table td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .pf-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pf-table th.num { text-align: right; }
+/* หัวข้อคั่นกลางตาราง: บอกว่าแถวต่อจากนี้เป็นคนละมาตรวัด (พื้นฐานล้วน /8) ไม่ใช่อันดับต่อกัน */
+.pf-table .pf-group td {
+  background: var(--panel-2, rgba(127, 127, 127, 0.08));
+  color: var(--muted); font-size: 12px; padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
 .row-breach { background: rgba(248,81,73,.06); }
 .breach-flag { margin-left: 6px; color: var(--red); cursor: help; }
 .muted-sm { font-size: 11px; color: var(--muted); margin-top: 2px; }

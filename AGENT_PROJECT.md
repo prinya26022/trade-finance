@@ -310,15 +310,15 @@ The 18d audit found more than the one face-invalid bug it fixed. Remaining, prio
   band are inert *for this watchlist* (caveat: adding a levered/weak/cyclical name could make them
   bind). GOOGL is the swing name -- 1.8% under the strong line, so most tier flips are GOOGL's.
   Direct implication: the natural next fragility-reducer is making valuation graded like the
-  fundamental leg, not tuning individual valuation constants.
+  fundamental leg, not tuning individual valuation constants. **-> CLOSED by 20.1 below.**
 
-Remaining (beyond the audit roadmap): deeper crypto on-chain metrics (active addresses, fees, TVL),
-macro/rates valuation context beyond CAPM WACC, triggering investigation/narration from the UI,
-cyclical-industry normalization. (Bank/insurance alt framework and the predictive backtest are now
-folded into Phase 20 below.)
+Remaining (beyond the audit roadmap): macro/rates valuation context beyond CAPM WACC, triggering
+investigation/narration from the UI, cyclical-industry normalization. (Crypto on-chain metrics were
+done in 33.5. Bank/insurance alt framework -> done in 33.3. The predictive backtest is folded into
+Phase 20 below and remains blocked on universe breadth.)
 
-## Phase 20 -- planning (fit the tool to how I actually use it)
-NOT STARTED -- planning only, nothing here implemented.
+## Phase 20 -- fit the tool to how I actually use it
+20.1/20.2/20.3 DONE (below); the rest of this section is planning notes, not implemented.
 
 Who this is really for (established in planning, do not lose it): I am NOT a finance expert and have no
 adviser. Today I mostly read the single `health` number and ignore the rest because I can't interpret
@@ -1199,6 +1199,46 @@ coincidence.
   `status()` never marks anything seen, health warning fires on fetch failure, stays quiet when
   healthy, sends at most once a day, `__health` never leaks into a scan, cache avoids refetching, and
   cache does not remember a failure. Suite 407/407.
+
+## Phase 34 -- the screener was hiding companies, and nobody could tell
+
+Started as "what's left to do", which is itself worth recording: the answer I first gave was wrong.
+The 19.5 section still ends with "the natural next fragility-reducer is making valuation graded like
+the fundamental leg" -- prose written *before* 20.1 did exactly that. Reading a roadmap without
+checking the code produced a confident recommendation for work already finished. Both stale markers
+(that line, and the "Phase 20 NOT STARTED" header above three DONE sub-phases) are now corrected;
+a plan that lies about its own state is worse than no plan.
+
+What the check-before-building did surface, by running the real engine over the real universe:
+
+- AXP / GS / JPM were absent from the screener cache purely because that cache predates 33.3. Live,
+  they now score 6.00, 5.96 and 9.51 -- **33.3 confirmed end-to-end on live data**, not just in
+  tests. LLY had recovered on its own.
+- **ORCL is genuinely dropped, and shouldn't be.** Its 3-year average FCF is negative (the AI
+  datacenter capex cycle), so reverse-DCF can't run, so `screen_one` returned `None` and the name
+  vanished -- while `health.py` scores it 4.8/8 via the Phase 29 partial path. The same "two paths,
+  one engine, different answers for one stock" shape as the bank bug in 33.3, mirrored.
+
+`screen_one` now returns a partial row (`max=8`, `partial=True`, `valuation_score=None`,
+`partial_reason`) instead of dropping the name, matching health.py exactly -- verified live: ORCL
+4.81/8, ASML 7.9/8, TSM 7.5/8, all equal to what compute_health() returns for the same inputs.
+- **Partial rows sort into their own block after every full row, never interleaved.** 8/8 is not
+  better than 10/11; they are different rulers. Ranking them together would make the *ordering* lie
+  while every individual number stayed correct -- the same reason `comparable_score()` excludes
+  partials from cross-name comparison.
+- The screener page shows them under a divider that says so, with the reason on hover, and the
+  "passed" KPI counts full rows with the partial count called out separately rather than folded in.
+- A stock that fails the *data gate* is still dropped. Partial means "the price leg is unavailable",
+  not "score it anyway" -- otherwise the number would be conjured from data that isn't there.
+
+Why this matters more for the screener than anywhere else: this is the **discovery** tool. Silently
+hiding companies that are investing heavily enough to run FCF negative is the worst possible
+direction for that bias to point -- exactly the names worth looking at and deciding on yourself.
+Phase 29 made this argument once already for SPCX; the screener path just never got the fix.
+
+- 5 new offline tests: partial row returned instead of None, partial rows sort last, a cash-burner is
+  shown not hidden, full rows unchanged, data-gate failures still dropped, and screener/health agree
+  numerically on the same partial stock. Suite 412/412.
 
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls

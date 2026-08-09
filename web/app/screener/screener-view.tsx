@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { ScreenerResponse, ScreenerResult, HealthTrends } from "@/lib/types";
@@ -72,7 +72,12 @@ export default function ScreenerView({ initial, healthTrends }: { initial: Scree
         </div>
         <div className="kpi">
           <span className="kpi-label">ผ่านเกณฑ์ข้อมูลพอ</span>
-          <span className="kpi-val">{data.results.length}</span>
+          <span className="kpi-val">{data.results.filter((r) => !r.partial).length}</span>
+          {data.results.some((r) => r.partial) && (
+            <span className="muted-sm">
+              + อีก {data.results.filter((r) => r.partial).length} ตัวที่ประเมินราคาไม่ได้
+            </span>
+          )}
         </div>
         <div className="kpi" style={{ display: "flex", alignItems: "center" }}>
           <button className="btn" disabled={refreshing} onClick={refresh}>
@@ -106,8 +111,16 @@ export default function ScreenerView({ initial, healthTrends }: { initial: Scree
               </tr>
             </thead>
             <tbody>
-              {data.results.map((r: ScreenerResult) => (
-                <tr key={r.ticker}>
+              {data.results.map((r: ScreenerResult, i: number) => (
+                <Fragment key={r.ticker}>
+                {r.partial && !data.results[i - 1]?.partial && (
+                  <tr className="pf-group">
+                    <td colSpan={6}>
+                      ประเมินราคาไม่ได้ — คะแนนด้านล่างเป็น<b>พื้นฐานล้วน /8</b> เอาไปเทียบกับ /11 ข้างบนตรงๆ ไม่ได้
+                    </td>
+                  </tr>
+                )}
+                <tr>
                   <td>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <Link href={`/ticker/${r.ticker}`} className="ticker-link">{r.ticker}</Link>
@@ -120,13 +133,26 @@ export default function ScreenerView({ initial, healthTrends }: { initial: Scree
                   </td>
                   <td className={`num ${tierClass(r.tier)}`}>
                     {num(r.score)}/{r.max}
-                    <div className="muted-sm">{r.label} ({num(r.fundamental_score)}/8 + {num(r.valuation_score)}/3)</div>
+                    <div className="muted-sm">
+                      {r.label}{" "}
+                      {r.partial
+                        ? "(พื้นฐานล้วน — ไม่มีขาราคา)"
+                        : `(${num(r.fundamental_score)}/8 + ${num(r.valuation_score)}/3)`}
+                    </div>
                   </td>
                   <td className="num">{r.pe != null ? r.pe.toFixed(1) : "—"}</td>
                   <td className="num">{r.roic != null ? `${r.roic.toFixed(1)}%` : "—"}</td>
                   <td className={`num ${r.gap != null && r.gap < 0 ? "ok" : ""}`}>
-                    {pct(r.gap)}
-                    <div className="muted-sm">{r.lens} lens</div>
+                    {r.partial ? (
+                      <Tip def={r.partial_reason ?? "ประเมินราคาด้วย reverse-DCF ไม่ได้"}>
+                        <span className="muted-sm">ประเมินราคาไม่ได้</span>
+                      </Tip>
+                    ) : (
+                      <>
+                        {pct(r.gap)}
+                        <div className="muted-sm">{r.lens} lens</div>
+                      </>
+                    )}
                   </td>
                   <td className="actions">
                     <button
@@ -138,6 +164,7 @@ export default function ScreenerView({ initial, healthTrends }: { initial: Scree
                     </button>
                   </td>
                 </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>
