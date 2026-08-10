@@ -18,6 +18,7 @@ eval นี้ไม่แก้คะแนนอะไรทั้งนั้
 
     python -m src.evals.check_anchor_window CVX XOM MSFT
 """
+from src.domain.series import cagr_pct, missing_years
 from src.providers.stock.xbrl import get_annual_series
 
 # ต่ำกว่านี้ถือว่ายังไม่ครอบรอบ (yfinance คืน 4 ปีเป็นปกติ)
@@ -27,16 +28,6 @@ EXTREME_PERCENTILE = 0.25
 # ส่วนต่าง CAGR สั้น-vs-ยาวที่ถือว่า "หน้าต่างเปลี่ยนคำตอบจริง" — ต่ำกว่านี้คือรายละเอียด
 # (ถ้าตั้งธงกับทุกตัวที่หน้าต่างสั้น ธงจะติดทั้งกระดานทุกวันแล้วไม่มีความหมาย)
 MATERIAL_GAP_PP = 10.0
-
-
-def _cagr(pts: list[tuple[str, float]]) -> float | None:
-    """CAGR ตลอดช่วง — None ถ้าปลายทางฝั่งใดฝั่งหนึ่งไม่เป็นบวก (CAGR ไร้ความหมายทางคณิตศาสตร์)."""
-    if len(pts) < 2:
-        return None
-    first, last = pts[0][1], pts[-1][1]
-    if first <= 0 or last <= 0:
-        return None
-    return round(((last / first) ** (1 / (len(pts) - 1)) - 1) * 100, 2)
 
 
 def _percentile_of(value: float, values: list[float]) -> float:
@@ -56,39 +47,38 @@ def _merge(long: list[tuple[str, float]],
     return sorted(merged.items(), key=lambda p: p[0])
 
 
-def _missing_years(pts: list[tuple[str, float]]) -> list[str]:
-    """ปีที่หายไปกลางเส้น (งวดชื่อ 'FY2018'). อ่านปีไม่ออก -> ไม่เดา คืนว่าง."""
-    years = []
-    for period, _ in pts:
-        digits = "".join(ch for ch in period if ch.isdigit())
-        if len(digits) != 4:
-            return []
-        years.append(int(digits))
-    return [f"FY{y}" for y in range(min(years), max(years) + 1) if y not in set(years)]
-
-
 def check_one(ticker: str, short_series: list[tuple[str, float]] | None = None,
               long_series: list[tuple[str, float]] | None = None,
-              concept: str = "Revenues") -> dict:
-    """เทียบหน้าต่างสั้น (ที่ระบบใช้จริง) กับประวัติยาวที่รวมแล้ว. คืน dict เสมอ ไม่ raise."""
+              concept: str = "FCF") -> dict:
+    """เทียบหน้าต่างสั้น (ที่ระบบใช้จริง) กับประวัติยาวที่รวมแล้ว. คืน dict เสมอ ไม่ raise.
+
+    ปริยายเป็น **FCF** เพราะนั่นคือสิ่งที่ growth lens ใช้เป็น anchor จริง (ตั้งแต่ 19.4) —
+    เครื่องมือที่วัดคนละตัวกับที่ระบบใช้ตัดสิน ก็ตอบคำถามที่ไม่มีใครถาม. `concept="Revenues"`
+    ยังเรียกได้ไว้ดูฝั่งรายได้ประกอบ
+    """
     out = {"ticker": ticker, "concept": concept, "short": None, "long": None,
            "cagr_gap_pp": None, "flags": [], "note": None}
 
     if short_series is None:
         try:
             from src.providers.stock.fundamentals import StockFundamentalsProvider
-            short_series = StockFundamentalsProvider().get_fundamentals(ticker).revenue_series
+            obj = StockFundamentalsProvider().get_fundamentals(ticker)
+            short_series = obj.fcf_series if concept == "FCF" else obj.revenue_series
         except Exception as e:                          # noqa: BLE001
             out["note"] = f"ดึงข้อมูลฝั่ง provider ไม่ได้: {e}"
             return out
 
     short = sorted(short_series or [], key=lambda p: p[0])
     if long_series is None:
-        long_series = (get_annual_series(ticker) or {}).get(concept) or []
+        if concept == "FCF":
+            from src.providers.stock.xbrl import annual_fcf_series
+            long_series = annual_fcf_series(ticker)
+        else:
+            long_series = (get_annual_series(ticker) or {}).get(concept) or []
     long = sorted(long_series, key=lambda p: p[0])
 
     out["short"] = {"years": len(short), "start": short[0][0] if short else None,
-                    "end": short[-1][0] if short else None, "cagr": _cagr(short)}
+                    "end": short[-1][0] if short else None, "cagr": cagr_pct(short)}
 
     if not long:
         # XOM เจอเคสนี้จริง ทั้งที่เป็นผู้ยื่น 10-K อเมริกันปกติ = ช่องโหว่ชื่อ concept ไม่ใช่ข้อสรุป
@@ -107,19 +97,26 @@ def check_one(ticker: str, short_series: list[tuple[str, float]] | None = None,
                        "ไม่ทับกัน เทียบเป็นเทรนด์เดียวกันไม่ได้")
         return out
 
+    # ...และต้องมีปีที่ **ทับกัน** อย่างน้อยหนึ่งปี ไม่งั้นพิสูจน์ไม่ได้เลยว่าสองแหล่งพูดถึง
+    # อนุกรมเดียวกัน (NVDA: XBRL ถึง FY2022, provider เริ่ม FY2023 — ต่อกันพอดีแต่ไม่เคยทับ).
+    # กติกาเดียวกับที่ฝั่ง anchor ใช้ก่อนยอมเปลี่ยนแหล่งข้อมูล (fundamentals._long_fcf_growth)
+    if not (set(dict(long)) & set(dict(short))):
+        out["flags"].append("NO_OVERLAP_TO_VERIFY")
+        out["note"] = (f"ไม่มีปีที่ทับกันเลย (XBRL {long[0][0]}-{long[-1][0]} vs "
+                       f"{short[0][0]}-{short[-1][0]}) — ยืนยันไม่ได้ว่าเป็นอนุกรมเดียวกัน")
+        return out
+
     merged = _merge(long, short)
 
-    # ...และต้อง 'ต่อกันจริง' ไม่ใช่แค่มีปีเก่ากว่า. NVDA เจอเคสนี้: XBRL ถึง FY2022, provider
-    # เริ่ม FY2023 -> ยังผ่านเงื่อนไขข้างบนได้ทั้งที่ FY2020-22 หายไปทั้งช่วง. CAGR นับปีจาก
-    # จำนวนจุด ถ้ามีรู = หารด้วยจำนวนปีที่น้อยกว่าความจริง = CAGR พองขึ้นเงียบๆ
-    missing = _missing_years(merged)
+    # ปีที่ขาดกลางไม่ทำให้ CAGR ผิด (cagr_pct คิดจากช่วงปีจริง ไม่ใช่จำนวนจุด — ดู
+    # domain/series.py) แต่ยังต้องรายงาน เพราะมันแปลว่าแท็กบัญชีเปลี่ยนกลางทาง = สัญญาณว่า
+    # นิยามอาจไม่ต่อเนื่องตลอดเส้น
+    missing = missing_years(merged)
     if missing:
         out["flags"].append("HISTORY_HAS_GAP")
-        out["note"] = (f"ประวัติขาดช่วง {', '.join(missing)} — รวมเป็นเส้นเดียวแล้วคิด CAGR "
-                       "จะได้เลขที่ดูน่าเชื่อแต่ไม่มีความหมาย")
-        return out
+        out["note"] = f"ประวัติขาดช่วง {', '.join(missing)} (แท็กบัญชีน่าจะเปลี่ยนปีนั้น)"
     out["long"] = {"years": len(merged), "start": merged[0][0], "end": merged[-1][0],
-                   "cagr": _cagr(merged)}
+                   "cagr": cagr_pct(merged)}
 
     pct = _percentile_of(short[0][1], [v for _, v in merged])
     out["short"]["start_percentile"] = pct
@@ -165,6 +162,8 @@ _FLAG_TH = {
     "TREND_DIFFERS_MATERIALLY": "มองยาวแล้วเทรนด์ต่างมาก",
     "NO_LONG_HISTORY": "ไม่มีประวัติยาวให้เทียบ",
     "LONG_HISTORY_TOO_OLD": "ประวัติยาวไม่ทับหน้าต่างที่ใช้",
+    "NO_OVERLAP_TO_VERIFY": "ไม่มีปีทับกันให้ยืนยัน",
+    "HISTORY_HAS_GAP": "ประวัติขาดบางปี",
 }
 
 

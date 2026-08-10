@@ -445,8 +445,20 @@ def reverse_dcf(
         # audit fix 19.4: anchor บน FCF growth ก่อนเสมอถ้าคำนวณได้ (unit เดียวกับ implied_growth
         # ตรงๆ — ดู docstring _fcf_growth_multiyear) revenue growth เป็นแค่ fallback ตอน FCF
         # history สั้นเกินไป/สลับเครื่องหมาย
+        # Phase 36: ถ้ามีประวัติ FCF จากงบที่ยื่นจริง (ยาวกว่า 4 ปีของ yfinance มาก) ใช้ตัวนั้นก่อน
+        # — หน้าต่าง 4 ปีที่บังเอิญเริ่มปีผิดปกติทำให้ 'เทรนด์' กลายเป็น 'ระยะห่างจากปีนั้น'
+        # (CVX เริ่มที่ยอดพีคน้ำมัน FY2022). provider ตรวจแล้วว่าปีที่ทับกันตรงกับ yfinance
+        # ถึงจะยอมส่งค่ามา ไม่งั้นส่ง None แล้วตรงนี้ทำงานเหมือนเดิมทุกประการ
+        long_cagr = getattr(fundamentals, "fcf_cagr_long", None)
+        long_window = getattr(fundamentals, "fcf_long_window", None)
         fcf_growth = _fcf_growth_multiyear(fcf_series)
-        if fcf_growth is not None:
+        if long_cagr is not None:
+            anchor_growth = long_cagr
+            window = {"source": "fcf_long", "years": getattr(fundamentals, "fcf_long_years", None),
+                      "start": (long_window or "-").split("-")[0],
+                      "end": (long_window or "-").split("-")[-1],
+                      "starts_at_max": False, "starts_at_min": False, "flags": []}
+        elif fcf_growth is not None:
             anchor_growth, window = fcf_growth, _anchor_window(fcf_series, "fcf")
         elif rev_growth_recent is not None:
             anchor_growth, window = rev_growth_recent, _anchor_window(revenue_series, "revenue")

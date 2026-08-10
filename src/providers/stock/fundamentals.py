@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 from dataclasses import dataclass, field
 from src.domain.interfaces import Fundamentals, FundamentalsProvider, Fact
+from src.domain.series import cagr_pct
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -81,6 +82,12 @@ class StockFundamentals(Fundamentals):
     net_margin_series: list[tuple[str, float]] = field(default_factory=list)
     share_count_series: list[tuple[str, float]] = field(default_factory=list)
     fcf_series: list[tuple[str, float]] = field(default_factory=list)          # FCF trend หลายปี
+    # Phase 36: CAGR ของ FCF ตลอดประวัติที่ยื่น ก.ล.ต. จริง (ยาวกว่า 4 ปีที่ yfinance ให้มาก) —
+    # ส่งเป็น "ค่าเดียวที่คำนวณแล้ว" ไม่ใช่ series ยาว เพราะทุก Fact ถูกแปะเข้า prompt ตรงๆ
+    # (data_block) การเพิ่ม 15 บรรทัดต่อหุ้นต่อวันคือการเปลี่ยนโจทย์ที่โมเดลอ่านโดยไม่ตั้งใจ
+    fcf_cagr_long: float | None = None            # %/ปี
+    fcf_long_window: str | None = None            # "FY2007-FY2025"
+    fcf_long_years: int | None = None
     dso_series: list[tuple[str, float]] = field(default_factory=list)          # วันเก็บหนี้ (พุ่ง = red flag)
     inventory_pct_series: list[tuple[str, float]] = field(default_factory=list)  # inventory เทียบยอดขาย (บวม = red flag)
 
@@ -185,6 +192,13 @@ class StockFundamentals(Fundamentals):
             for period_label, value in points:
                 facts.append(Fact(label, value, unit, period_label))
 
+        # Phase 36: หนึ่งบรรทัด ไม่ใช่ทั้ง series — เพราะ Fact ทุกตัวถูกแปะเข้า prompt ตรงๆ.
+        # เก็บเป็น Fact (ไม่ใช่แค่ attribute) เพื่อให้พาธที่ประกอบ duck object จาก facts ที่เก็บใน DB
+        # (health.py::_build_duck_fundamentals) เห็นค่าเดียวกันเป๊ะกับพาธที่มี object จริง —
+        # สองพาธให้คำตอบต่างกันคือบั๊กที่โปรเจกต์นี้เจอซ้ำแล้วซ้ำอีก (33.3, 34)
+        if self.fcf_cagr_long is not None and self.fcf_long_window:
+            facts.append(Fact("FCF CAGR (long-run)", self.fcf_cagr_long, "%", self.fcf_long_window))
+
         # (3) เมตริกของธนาคาร — ใส่เฉพาะเมื่อเป็นธนาคารจริง ไม่งั้นหุ้นทั่วไปจะมีบรรทัดที่ไม่มี
         #     ความหมายโผล่มา และการมีอยู่ของ 'Net Interest Income' คือสัญญาณที่ health ใช้เลือกกรอบ
         if self.is_bank:
@@ -244,6 +258,50 @@ class StockFundamentals(Fundamentals):
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS — ดึงค่าจาก DataFrame ของ yfinance (คอลัมน์ = งวด, ล่าสุดอยู่ซ้ายสุด)
 # ─────────────────────────────────────────────────────────────────────────────
+# ปีที่ทับกันระหว่าง XBRL กับ yfinance ต้องตรงกันภายใน 2% ถึงจะยอมใช้ประวัติยาว
+_LONG_FCF_TOLERANCE = 0.02
+
+
+def _long_fcf_growth(ticker: str, short_series: list[tuple[str, float]]) -> tuple:
+    """CAGR ของ FCF จากประวัติที่ยื่น ก.ล.ต. -> (cagr%, "FY2007-FY2025", จำนวนปี) หรือ (None,)*3.
+
+    ทำไมต้องมี (Phase 36): anchor ของ reverse-DCF คิดจากหน้าต่างที่ yfinance บังเอิญคืนมา ~4 ปี
+    เสมอ ถ้าปีแรกของหน้าต่างเป็นปีผิดปกติ 'เทรนด์' ที่วัดได้จะกลายเป็น 'ระยะห่างจากปีนั้น' —
+    CVX เริ่มที่ FY2022 ซึ่งเป็นยอดพีคราคาน้ำมัน เลยได้ FCF CAGR ~-24%/ปี ทั้งที่ประวัติ 19 ปี
+    บอกคนละเรื่อง (ดู src/evals/check_anchor_window.py)
+
+    เงื่อนไขที่ต้องผ่านครบก่อนยอมใช้ — ผิดข้อไหนก็คืน None แล้วใช้ของเดิม ไม่ใช่ใช้แบบมีเงื่อนไข:
+      1) ยาวกว่าหน้าต่างเดิมจริง (ไม่งั้นเปลี่ยนไปก็ไม่ได้อะไร)
+      2) ปลายทางทั้งสองฝั่งเป็นบวก (CAGR ไม่มีความหมายถ้าข้ามศูนย์)
+      3) **ปีที่ทับกันต้องตรงกับ yfinance** — กันเอาตัวเลขคนละนิยามมาต่อเป็นเทรนด์เดียว
+         (ฝั่งรายได้พังข้อนี้จริง: XBRL เลือก 'Revenues' ซึ่งรวมรายได้อื่น ต่างจาก yfinance 3-4%)
+    """
+    from src.providers.stock.xbrl import MIN_LONG_FCF_YEARS, annual_fcf_series
+
+    try:
+        long = annual_fcf_series(ticker)
+    except Exception:
+        return None, None, None
+    if len(long) < MIN_LONG_FCF_YEARS or len(long) <= len(short_series or []):
+        return None, None, None
+
+    short = dict(short_series or [])
+    overlap = [(p, v) for p, v in long if p in short]
+    for period, value in overlap:
+        base = abs(short[period])
+        if base > 0 and abs(value - short[period]) / base > _LONG_FCF_TOLERANCE:
+            return None, None, None          # คนละนิยาม -> ไม่ใช่ประวัติของเส้นเดียวกัน
+    if not overlap:
+        return None, None, None              # ไม่ทับกันเลย = พิสูจน์ไม่ได้ว่าเป็นชุดเดียวกัน
+
+    # ต้องคิดจาก 'ช่วงปีจริง' ไม่ใช่จำนวนจุด — ประวัติ SEC ขาดปีกลางได้จริง (AAPL ไม่มี FY2014,
+    # MSFT ไม่มี FY2014-15) แล้วการหารด้วยจำนวนจุดจะทำให้ CAGR พองขึ้นเงียบๆ (ดู domain/series.py)
+    cagr = cagr_pct(long)
+    if cagr is None:
+        return None, None, None
+    return cagr, f"{long[0][0]}-{long[-1][0]}", len(long)
+
+
 def _period_label(col) -> str:
     """คอลัมน์ (Timestamp) -> 'FY2025'."""
     try:
@@ -561,6 +619,10 @@ class StockFundamentalsProvider(FundamentalsProvider):
         goodwill, goodwill_pct = _compute_goodwill(bs)
         bank = _compute_bank_metrics(fin, bs, revenue)
         roic, nopat, invested_capital = _compute_roic(fin, bs)
+        # Phase 36: ประวัติ FCF ยาวจาก SEC (cache ดิสก์ 7 วัน — ไม่ใช่ request ใหม่ทุกรอบ)
+        # ดึงไม่ได้/ไม่ผ่านเงื่อนไข -> (None, None, None) แล้วทุกอย่างทำงานเหมือนเดิมทุกประการ
+        fcf_series = _series(["Free Cash Flow"], cf)
+        long_cagr, long_window, long_years = _long_fcf_growth(ticker, fcf_series)
 
         return StockFundamentals(
             period=_period_label(fin.columns[0]) if fin is not None and not fin.empty else "N/A",
@@ -607,7 +669,10 @@ class StockFundamentalsProvider(FundamentalsProvider):
             operating_margin_series=_ratio_series(["Operating Income", "EBIT"], ["Total Revenue"], fin),
             net_margin_series=_ratio_series(["Net Income", "Net Income Common Stockholders"], ["Total Revenue"], fin),
             share_count_series=_series(["Diluted Average Shares", "Basic Average Shares"], fin),
-            fcf_series=_series(["Free Cash Flow"], cf),
+            fcf_series=fcf_series,
+            fcf_cagr_long=long_cagr,
+            fcf_long_window=long_window,
+            fcf_long_years=long_years,
             dso_series=_cross_ratio_series(["Receivables", "Accounts Receivable"], bs, ["Total Revenue", "Operating Revenue"], fin, 365),
             inventory_pct_series=_cross_ratio_series(["Inventory"], bs, ["Total Revenue", "Operating Revenue"], fin, 100),
             roe_series=_cross_ratio_series(["Net Income", "Net Income Common Stockholders"], fin, ["Stockholders Equity", "Total Stockholder Equity"], bs, 100),

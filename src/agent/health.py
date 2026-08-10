@@ -400,6 +400,22 @@ def _fundamental_score(facts: list[dict], risk_free_pct: float) -> dict:
 # PART B — Valuation reverse-DCF (/3) — ใช้ score จาก reverse_dcf() ตรงๆ (step-function
 # gap bands อยู่ในนั้นแล้ว, ดู src/agent/valuation.py::_gap_to_score)
 # ─────────────────────────────────────────────────────────────────────────────
+def _period_of(facts: list[dict], label: str) -> str | None:
+    """ป้ายงวดของ Fact นั้น — สำหรับ 'FCF CAGR (long-run)' งวดคือช่วงที่วัด ('FY2007-FY2025')."""
+    return next((f.get("period") for f in facts if f.get("label") == label), None)
+
+
+def _window_years(window: str | None) -> int | None:
+    """จำนวนปีในช่วง 'FY2007-FY2025' — อ่านไม่ออกก็คืน None ไม่เดา."""
+    if not window or "-" not in window:
+        return None
+    try:
+        start, end = (int("".join(ch for ch in part if ch.isdigit())) for part in window.split("-", 1))
+    except ValueError:
+        return None
+    return end - start + 1 if end >= start else None
+
+
 def _build_duck_fundamentals(facts: list[dict]) -> SimpleNamespace:
     """ประกอบ duck-object จาก facts ให้ reverse_dcf() ใช้ — path เดียวกันทั้งตอนวิเคราะห์สด
     (facts จาก fundamentals_obj.to_facts()) และตอน backfill ย้อนหลัง (facts จาก DB/JSON)."""
@@ -425,6 +441,12 @@ def _build_duck_fundamentals(facts: list[dict]) -> SimpleNamespace:
         nwc_change=_scalar(facts, "NWC Change"),
         nopat=_scalar(facts, "NOPAT"),
         roic=_scalar(facts, "ROIC"),
+        # Phase 36: anchor จากประวัติ FCF ที่ยื่น ก.ล.ต. — เก็บเป็น Fact ไว้ (ไม่ใช่แค่ attribute
+        # บน object) ก็เพื่อให้พาธนี้อ่านค่าเดียวกันได้ แถวเก่าที่ไม่มี Fact นี้ -> None -> ใช้
+        # หน้าต่างเดิม = ประวัติที่บันทึกไว้แล้วไม่ถูกเขียนใหม่ย้อนหลัง
+        fcf_cagr_long=_scalar(facts, "FCF CAGR (long-run)"),
+        fcf_long_window=_period_of(facts, "FCF CAGR (long-run)"),
+        fcf_long_years=_window_years(_period_of(facts, "FCF CAGR (long-run)")),
     )
 
 

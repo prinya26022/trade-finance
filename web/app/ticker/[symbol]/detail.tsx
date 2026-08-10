@@ -15,6 +15,15 @@ import ClaimParser from "./claim-parser";
 
 const C = { blue: "#58a6ff", green: "#3fb950", amber: "#d29922", red: "#f85149" };
 
+// Phase 36: realistic growth มาจากไหน — ชื่อภายในอ่านไม่รู้เรื่องสำหรับคนใช้
+const ANCHOR_SOURCE: Record<string, string> = {
+  fcf_long: "FCF จากงบที่ยื่น ก.ล.ต.",
+  fcf: "FCF จากข้อมูลราคา",
+  revenue: "รายได้ปีล่าสุด",
+  revenue_cagr: "CAGR รายได้",
+  sustainable: "sustainable growth (reinvest × ROIC)",
+};
+
 function signed(x: number) {
   return `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`;
 }
@@ -225,9 +234,10 @@ export default function TickerDetail({
                   แต่ความหมายต่างกันมากถ้าหน้าต่างเริ่มที่ปีผิดปกติ (ดู check_anchor_window) */}
               {a.valuation.anchor_window?.years != null && a.valuation.anchor_window.years > 0 && (
                 <p className="muted valuation-assump">
-                  <Tip def="realistic growth ถูกคำนวณจากหน้าต่างข้อมูลเท่านี้ (yfinance คืนมาประมาณ 4 ปี) — ถ้าปีแรกของหน้าต่างเป็นปีที่ผิดปกติ เช่นยอดพีคของรอบวัฏจักร สิ่งที่วัดได้จะเป็น 'ระยะห่างจากปีนั้น' มากกว่าเทรนด์จริง เทียบประวัติเต็มได้ด้วย python -m src.evals.check_anchor_window">
+                  <Tip def="realistic growth ถูกคำนวณจากหน้าต่างข้อมูลเท่านี้ — ถ้าปีแรกของหน้าต่างเป็นปีที่ผิดปกติ เช่นยอดพีคของรอบวัฏจักร สิ่งที่วัดได้จะเป็น 'ระยะห่างจากปีนั้น' มากกว่าเทรนด์จริง. 'งบที่ยื่น ก.ล.ต.' = ประวัติยาวจาก SEC (ตรวจแล้วว่าปีที่ทับกันตรงกับข้อมูลปกติ), 'ข้อมูลราคา' = หน้าต่าง ~4 ปีที่ผู้ให้บริการคืนมา">
                     <span>
-                      anchor: {a.valuation.anchor_window.source} {a.valuation.anchor_window.years} ปี
+                      anchor: {ANCHOR_SOURCE[a.valuation.anchor_window.source] ?? a.valuation.anchor_window.source}
+                      {a.valuation.anchor_window.years != null && ` ${a.valuation.anchor_window.years} ปี`}
                       {a.valuation.anchor_window.start && ` (${a.valuation.anchor_window.start}→${a.valuation.anchor_window.end})`}
                     </span>
                   </Tip>

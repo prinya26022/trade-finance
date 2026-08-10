@@ -57,16 +57,29 @@ def test_the_cvx_case_end_to_end():
     assert concerning(r)
 
 
-def test_disjoint_histories_are_refused_not_compared():
-    """บั๊กที่ eval นี้เคยมีเอง: NVDA มี XBRL ถึง FY2022 แต่ yfinance เริ่ม FY2023 = ไม่ทับกันเลย
-    แล้วมันรายงานว่า '4 ปี +100% เทียบ 6 ปี +31%' ราวกับเป็นเทรนด์เดียวกันวัดยาวขึ้น"""
+def test_histories_that_never_overlap_are_refused_not_compared():
+    """บั๊กที่ eval นี้เคยมีเอง: NVDA มี XBRL ถึง FY2022 แต่ yfinance เริ่ม FY2023 = ไม่เคยทับกัน
+    แล้วมันรายงานว่า '4 ปี +100% เทียบ 6 ปี +31%' ราวกับเป็นเทรนด์เดียวกันวัดยาวขึ้น.
+    ไม่มีปีทับกัน = ยืนยันไม่ได้ว่าสองแหล่งพูดถึงอนุกรมเดียวกัน (กติกาเดียวกับฝั่ง anchor)"""
     old = [("FY2017", 6.9), ("FY2018", 9.7), ("FY2019", 11.7)]
     new = [("FY2023", 27.0), ("FY2024", 60.9), ("FY2025", 130.5)]
     r = check_one("NVDA", short_series=new, long_series=old)
 
-    assert "HISTORY_HAS_GAP" in r["flags"]      # FY2020-22 หายไปทั้งช่วง
+    assert "NO_OVERLAP_TO_VERIFY" in r["flags"]
     assert r["long"] is None                            # ไม่คำนวณ CAGR ที่เทียบไม่ได้ออกมาเลย
     assert r["cagr_gap_pp"] is None
+
+
+def test_a_missing_year_in_the_middle_is_reported_but_still_compared():
+    """AAPL ไม่มี FY2014 (แท็กบัญชีเปลี่ยนปีนั้น) — CAGR คิดจากช่วงปีจริงจึงยังถูก ไม่ต้องทิ้งทั้งชุด."""
+    long = [("FY2012", 40.0), ("FY2013", 45.0), ("FY2015", 70.0), ("FY2016", 53.0),
+            ("FY2017", 51.0), ("FY2018", 64.0), ("FY2019", 59.0)]
+    short = [("FY2017", 51.0), ("FY2018", 64.0), ("FY2019", 59.0)]
+    r = check_one("AAPL", short_series=short, long_series=long)
+
+    assert "HISTORY_HAS_GAP" in r["flags"]
+    assert r["long"]["cagr"] is not None                # ยังเทียบได้ ไม่ปฏิเสธทิ้ง
+    assert r["long"]["years"] == 7
 
 
 def test_newer_years_missing_from_xbrl_are_merged_in_not_dropped():
@@ -101,10 +114,19 @@ def test_the_check_detects_the_opposite_bias_too():
     assert concerning(r)
 
 
-def test_a_history_that_truly_adjoins_is_still_compared():
-    """กัน guard ใหม่ไปปฏิเสธเคสปกติ: XBRL จบ FY2022 แล้ว provider เริ่ม FY2023 พอดี = ต่อกันสนิท."""
+def test_adjoining_but_never_overlapping_is_still_refused():
+    """ต่อกันสนิทไม่พอ — ถ้าไม่เคยมีปีที่ทับกันเลย ก็ยังยืนยันไม่ได้ว่าสองแหล่งวัดของสิ่งเดียวกัน
+    (ตัวเลขอาจคนละนิยาม แล้วรอยต่อจะกลายเป็น 'การเติบโต' ที่ไม่มีจริง)"""
     old = [("FY2019", 60.0), ("FY2020", 70.0), ("FY2021", 85.0), ("FY2022", 100.0)]
     new = [("FY2023", 110.0), ("FY2024", 125.0), ("FY2025", 140.0)]
     r = check_one("OK", short_series=new, long_series=old)
-    assert "HISTORY_HAS_GAP" not in r["flags"]
+    assert "NO_OVERLAP_TO_VERIFY" in r["flags"]
+
+
+def test_one_overlapping_year_is_enough_to_verify_and_compare():
+    """ทับกันปีเดียวก็พิสูจน์ได้ว่าเป็นอนุกรมเดียวกัน — ไม่ต้องเข้มเกินจนใช้งานไม่ได้."""
+    old = [("FY2019", 60.0), ("FY2020", 70.0), ("FY2021", 85.0), ("FY2022", 100.0)]
+    new = [("FY2022", 100.0), ("FY2023", 110.0), ("FY2024", 125.0), ("FY2025", 140.0)]
+    r = check_one("OK", short_series=new, long_series=old)
+    assert "NO_OVERLAP_TO_VERIFY" not in r["flags"]
     assert r["long"]["years"] == 7 and r["long"]["cagr"] is not None

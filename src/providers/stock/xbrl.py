@@ -83,22 +83,70 @@ def _cache_path(ticker: str) -> Path:
     return _CACHE_DIR / f"{ticker.upper()}.json"
 
 
+# ── Phase 36: ticker ที่ชี้ไปนิติบุคคลใหม่ซึ่งยังไม่มีงบประจำปี (holdco reorg / ย้ายถิ่นจดทะเบียน
+# / ควบรวม) — ประวัติการดำเนินงานจริงอยู่ใต้ CIK เดิม.
+#
+# เจอจริง 2026-08 กับ XOM: SEC map ticker ไปที่ **ExxonMobil Holdings Corp** (CIK 2115436) ซึ่ง
+# ตั้งขึ้นเดือน ก.ค. 2026 และมีแต่ 10-Q — งบประจำปี 17 ปี (FY2009-FY2025) อยู่ใต้ **EXXON MOBIL
+# CORP** (CIK 34088). ผลคือบริษัทน้ำมันที่ใหญ่ที่สุดในโลกได้ `xbrl=N/A` มาโดยไม่มีอะไรบอกเลยว่า
+# ทำไม — และตอนแรกเกือบสรุปผิดว่าเป็น 'ช่องโหว่ชื่อ concept' ทั้งที่ concept ถูกอยู่แล้ว
+#
+# ทำเป็น map ที่คัดมือพร้อมหลักฐาน ไม่ใช่การเดาอัตโนมัติ: การจับคู่ 'บริษัทเดียวกัน' ข้าม
+# นิติบุคคลด้วยชื่อเป็นเรื่องที่พลาดแล้วเสียหายหนัก (ชื่อคล้ายกันคนละบริษัทมีจริง) — ตรวจทีละ
+# รายการดีกว่าอัตโนมัติที่ผิดเงียบๆ
+PREDECESSOR_CIK: dict[str, str] = {
+    "XOM": "0000034088",   # EXXON MOBIL CORP (ticker ชี้ไป ExxonMobil Holdings Corp ตั้งแต่ 2026-07)
+}
+
+
+def _fetch_facts(cik: str) -> dict | None:
+    try:
+        return _get_json(_COMPANYFACTS.format(cik=cik))
+    except Exception:
+        return None
+
+
+def has_annual_data(facts: dict | None) -> bool:
+    """มีงบ 'ประจำปี' อยู่จริงไหม — ไม่ใช่แค่มีข้อมูล.
+
+    นิติบุคคลที่เพิ่งตั้ง (successor shell) จะมี fact เต็มไปหมดจาก 10-Q แต่ไม่มี 10-K สักฉบับ
+    ซึ่งเดิมออกมาหน้าตาเหมือน 'บริษัทนี้ไม่มีข้อมูล' ทุกประการ
+    """
+    for taxonomy in (facts or {}).get("facts", {}).values():
+        for concept in taxonomy.values():
+            for rows in (concept.get("units") or {}).values():
+                if any(r.get("form") in ANNUAL_FORMS for r in rows):
+                    return True
+    return False
+
+
 def get_company_facts(ticker: str) -> dict | None:
     """ดึง companyfacts ทั้งก้อนของ ticker (cache ลงดิสก์ — ไฟล์ใหญ่ ~MB ไม่อยากยิงถี่).
-    คืน None เงียบๆ ถ้าไม่พบ CIK หรือ EDGAR ล่ม -> eval ข้ามไปเฉยๆ ไม่ทำ pipeline พัง."""
+    คืน None เงียบๆ ถ้าไม่พบ CIK หรือ EDGAR ล่ม -> eval ข้ามไปเฉยๆ ไม่ทำ pipeline พัง.
+
+    ถ้า CIK ที่ ticker ชี้ไปไม่มีงบประจำปีเลย และมี CIK เดิมจดไว้ใน PREDECESSOR_CIK -> ใช้ตัวนั้นแทน
+    """
     path = _cache_path(ticker)
     if path.exists() and (time.time() - path.stat().st_mtime) < _CACHE_TTL:
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            cached = json.loads(path.read_text(encoding="utf-8"))
+            # cache ที่เก็บไว้ก่อนรู้เรื่อง successor อาจเป็นก้อนที่ไม่มีงบรายปี -> ให้โอกาสแก้ตัว
+            if has_annual_data(cached) or ticker.upper() not in PREDECESSOR_CIK:
+                return cached
         except Exception:
             pass   # cache เสีย -> ดึงใหม่
 
     cik = ticker_to_cik(ticker)
     if cik is None:
         return None
-    try:
-        data = _get_json(_COMPANYFACTS.format(cik=cik))
-    except Exception:
+    data = _fetch_facts(cik)
+
+    predecessor = PREDECESSOR_CIK.get(ticker.upper())
+    if predecessor and not has_annual_data(data):
+        older = _fetch_facts(predecessor)
+        if has_annual_data(older):
+            data = older
+    if data is None:
         return None
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -148,11 +196,27 @@ def reporting_currency(facts: dict) -> str | None:
 
 def _annual_values(facts: dict, key: str, concept_names: list[str], kind: str,
                    currency: str) -> list[tuple[str, float]]:
-    """ค่ารายปีจากงบประจำปี (10-K หรือ 20-F) ของ concept แรกที่เจอ -> [(FY{year}, value), ...] ใหม่ก่อน.
+    """ค่ารายปีจากงบประจำปี (10-K หรือ 20-F) -> [(FY{year}, value), ...] ใหม่ก่อน.
     duration: กรองเฉพาะช่วง >= _MIN_ANNUAL_DAYS (ตัด quarter ที่ปนอยู่ในงบเดียวกันออก).
     instant: เอาทุกแถวของฟอร์มรายปีตรงๆ (มีแค่ end, ไม่มี duration ให้กรอง).
-    ลอง us-gaap ก่อนแล้วค่อย ifrs-full — บริษัทหนึ่งใช้ taxonomy เดียว ไม่ปนกัน."""
+    ลอง us-gaap ก่อนแล้วค่อย ifrs-full — บริษัทหนึ่งใช้ taxonomy เดียว ไม่ปนกัน.
+
+    **เลือก concept เดียวที่ 'ทันสมัยที่สุดก่อน แล้วค่อยดูจำนวนปี' ไม่ใช่ชื่อแรกที่มีข้อมูล**
+    (Phase 36) — เจอจริงกับ XOM: `RevenueFromContractWithCustomerExcludingAssessedTax` มี 5 ปี
+    (FY2017-21) ส่วน `Revenues` มี 17 ปี (FY2009-25) แต่ชื่อแรกอยู่ต้นลิสต์ ผลคือได้ประวัติ 5 ปี
+    ทั้งที่ของจริงมี 17 — บั๊กพันธุ์เดียวกับ `_first()` ใน fundamentals.py ที่แก้ไปแล้วใน 33.3
+
+    ทำไมต้องเรียง 'ปีล่าสุด' มาก่อน 'จำนวนปี': ตอนลองใช้จำนวนปีอย่างเดียว AAPL/ASML ถอยไปจบที่
+    FY2017 ทันที เพราะแท็กเก่า `Revenues` (FY2007-17) มีปีเยอะกว่าแท็กปัจจุบันที่ใช้หลัง ASC 606
+    — ประวัติยาวที่จบเมื่อ 8 ปีก่อนไม่ใช่ประวัติของบริษัทวันนี้
+
+    **และห้ามรวมหลาย concept เข้าเป็นเส้นเดียว** ถึงจะเติมช่องว่างได้ก็ตาม: ของ XOM สองตัวนี้
+    ต่างกัน 3-4% ทุกปีที่ทับกัน (Revenues = รายได้รวม+รายได้อื่น, RevenueFromContract... = ขาย
+    ลูกค้าอย่างเดียว) ต่อกันจะได้รอยต่อที่อ่านเป็น 'การเติบโต' ทั้งที่เป็นการเปลี่ยนนิยาม
+    """
     candidates = [("us-gaap", concept_names), ("ifrs-full", IFRS_CONCEPTS.get(key, []))]
+    best: list[tuple[str, float]] = []
+    best_rank: tuple[str, int] = ("", 0)
     for taxonomy, names in candidates:
         concepts = facts.get("facts", {}).get(taxonomy, {})
         for name in names:
@@ -168,9 +232,16 @@ def _annual_values(facts: dict, key: str, concept_names: list[str], kind: str,
                     and (date.fromisoformat(r["end"]) - date.fromisoformat(r["start"])).days >= _MIN_ANNUAL_DAYS
                 ]
             by_year = _dedup_latest_filed(annual)
-            if by_year:
-                return sorted(((f"FY{y}", v) for y, v in by_year.items()), reverse=True)
-    return []
+            if not by_year:
+                continue
+            series = sorted(((f"FY{y}", v) for y, v in by_year.items()), reverse=True)
+            # (ปีล่าสุด, จำนวนปี) — เสมอกันทั้งคู่ = ชื่อที่มาก่อนในลิสต์ชนะ (เรียงจากที่เจาะจงกว่า)
+            rank = (series[0][0], len(series))
+            if rank > best_rank:
+                best, best_rank = series, rank
+        if best:
+            return best        # เจอใน taxonomy นี้แล้ว ไม่ต้องข้ามไปอีก taxonomy
+    return best
 
 
 def get_annual_series(ticker: str) -> dict[str, list[tuple[str, float]]]:
@@ -202,3 +273,23 @@ if __name__ == "__main__":
         print(f"{concept}:")
         for period, val in points:
             print(f"  {period}: {val:,.0f}")
+
+# ── Phase 36: ประวัติ FCF ยาวสำหรับใช้เป็น anchor ของ reverse-DCF ─────────────────────────
+# ทำไมเป็น FCF ไม่ใช่รายได้: FCF = CFO − Capex เป็นนิยามเดียวที่ไม่กำกวม และตรวจแล้วตรงกับ
+# ตัวเลขฝั่ง yfinance ทุกปีที่ทับกัน (CVX 37.6/19.8/15.0/16.6 เท่ากันเป๊ะ) ขณะที่ฝั่งรายได้
+# XBRL เลือก concept 'Revenues' (รายได้รวม+รายได้อื่น) ซึ่งต่างจาก yfinance 3-4% ทุกปี —
+# ต่างนิยามกันจึงเอามาต่อกันเป็นเทรนด์เดียวไม่ได้ (ดู _annual_values)
+MIN_LONG_FCF_YEARS = 6      # สั้นกว่านี้ไม่ได้กว้างกว่าที่ yfinance ให้อยู่แล้ว ไม่ต้องเปลี่ยน anchor
+
+
+def annual_fcf_series(ticker: str) -> list[tuple[str, float]]:
+    """FCF รายปีจากงบที่ยื่นจริง = CFO − Capex, เรียงเก่า -> ใหม่. คืน [] ถ้าประกอบไม่ได้.
+
+    ใช้เฉพาะปีที่ **มีทั้งสองขา** — ขาดขาใดขาหนึ่งแล้วเดาแทนจะได้ปีที่ FCF สูงเกินจริง
+    (ไม่หัก capex) ปนอยู่ในเส้นเดียวกันโดยไม่มีใครเห็น
+    """
+    series = get_annual_series(ticker) or {}
+    cfo = dict(series.get("OperatingCashFlow") or [])
+    capex = dict(series.get("Capex") or [])
+    years = sorted(set(cfo) & set(capex))
+    return [(y, cfo[y] - capex[y]) for y in years]

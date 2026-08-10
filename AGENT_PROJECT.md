@@ -1297,6 +1297,66 @@ as the macro radar's grace window in 26.1.
   an agreeing longer window stays quiet, missing long history says so, and the opposite (understated)
   bias is caught too. Suite 424/424.
 
+## Phase 36 -- anchoring on the filed history, and the four bugs found on the way there
+
+Phase 35 measured the problem and deliberately left scores alone. This phase moves the anchor to the
+history companies actually file with the SEC. Only **2 of 12** scores move: **CVX 0.0 -> 1.0/3**
+(health 3.2 -> 4.2/11, the case that started this) and ADBE 2.66 -> 2.89. Everything else is
+untouched, because most names route through the `sustainable` lens where no window is involved.
+
+**Design: one computed number, not a longer series.** The long FCF history is condensed to a single
+`FCF CAGR (long-run)` fact rather than 19 extra series rows, because `data_block()` pastes every Fact
+into the prompt verbatim -- adding 15 lines per stock per day silently changes the question the model
+is asked, which is also the instrument the whole two-model comparison rests on. Storing it as a
+**Fact** (not just an attribute) is what keeps `health.py`'s facts-rebuilt duck object and the live
+provider object producing identical anchors -- verified live on CVX/ADBE/AAPL. That divergence is the
+bug shape this project has now hit three times (33.3, 34).
+
+**Four guards, each earned from a real failure, all of which must pass before the anchor changes:**
+1. the SEC history must be genuinely longer than what we already have;
+2. endpoints must be positive (CAGR is meaningless across zero);
+3. the two sources must **overlap** in at least one year -- adjoining is not enough;
+4. **every overlapping year must agree within 2%.** Revenue fails this: XBRL's best-covered concept
+   for XOM is `Revenues` (total revenues *and other income*), which sits 3-4% above yfinance's every
+   year. Splicing those would read as growth where the only thing that changed is the definition.
+   FCF (CFO − capex) passes exactly -- CVX's 37.6/19.8/15.0/16.6 match to the cent -- which is why
+   only the FCF anchor moved and revenue was left alone.
+
+**What went wrong on the way, in order:**
+- **XOM had no XBRL history at all, and the Phase 35 writeup blamed the wrong thing.** It is not a
+  concept-name gap: `XOM` now resolves to **ExxonMobil Holdings Corp** (CIK 2115436), a holdco
+  created in July 2026 with nothing but 10-Qs. The 17 years of annual filings live under **EXXON
+  MOBIL CORP** (CIK 34088). A reorganisation silently erased the largest oil company's ground truth
+  and the eval just went quiet. Fixed with a curated `PREDECESSOR_CIK` map (hand-checked with
+  evidence -- matching "the same company" across legal entities by name is a mistake that is
+  expensive when wrong) plus `has_annual_data()`, which distinguishes a successor shell from a
+  company that genuinely has no data.
+- **`_annual_values` stopped at the first concept that had any rows** -- the same defect as
+  `_first()` in 33.3. XOM's `RevenueFromContractWithCustomerExcludingAssessedTax` covers 5 years and
+  sits first in the alias list; `Revenues` covers 17.
+- **"Most years wins" was then wrong too.** It sent AAPL and ASML back to ending at FY2017, because
+  their pre-ASC-606 tag has more years than the one they use today. A long history that stopped eight
+  years ago is not this company's history. Correct rule: **most recent first, then longest** -- and
+  never merge two concepts into one line.
+- **The eval caught a bug in the anchor code I had just written.** CAGR was computed as
+  `(last/first)^(1/(len(points)-1))`, which is only right when no year is missing. AAPL is missing
+  FY2014, MSFT FY2014-15, XOM FY2013-14 (the tag changed those years) -- so 12 points spanning 13
+  years were divided by 11, **inflating the CAGR silently**. Fixed properly in a shared
+  `src/domain/series.py` (span between endpoints, not sample count) rather than by refusing gapped
+  histories, and the eval's gap check downgraded from a refusal to a report. AAPL's anchor moved
+  4.89 -> 4.58 on that fix alone.
+
+`check_anchor_window` now defaults to **FCF**, not revenue, because FCF is what the growth lens
+actually anchors on -- a tool that measures something other than what the system decides on answers a
+question nobody asked.
+
+- 17 new offline tests: each of the four guards refused in isolation, SEC failure degrading to the
+  old behaviour, the long anchor replacing the short window, unchanged behaviour without it, the
+  facts path and object path agreeing, window-years parsed not guessed, recency-beats-length,
+  length-breaks-the-tie, concepts never merged, successor shell told apart from no-data, overlap
+  required, one overlapping year sufficient, and a mid-series gap reported but still compared.
+  Suite 441/441.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice
