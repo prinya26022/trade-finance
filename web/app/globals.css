@@ -668,6 +668,14 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
   background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
 }
 
+.sc-chip-method { border-color: #6e7f95; color: #8fa3b8; }
+
+/* บอกว่าเราแก้กติกาเอง — ใช้โทนเดียวกับแถบ method ไม่ใช่โทนเตือน (ไม่ใช่ความผิดปกติของคะแนน) */
+.sc-method-note {
+  margin: 8px 0 0; padding: 8px 10px; border-radius: 6px; font-size: 12.5px;
+  background: rgba(110, 127, 149, 0.1); border: 1px solid rgba(110, 127, 149, 0.35); color: var(--fg);
+}
+
 /* แถบสัดส่วนที่มาของการขยับ — ยาวตามสัดส่วน |การขยับ| สะสม ไม่ใช่ค่าสุทธิ */
 .sc-bars { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--panel-2); }
 .sc-bar { height: 100%; }
@@ -675,6 +683,9 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
 .sc-bar-price { background: var(--blue); }
 .sc-bar-data { background: var(--amber); }
 .sc-bar-estimate { background: #a371f7; }
+/* เทาอมฟ้า: ตั้งใจให้ไม่ใช่สีเตือน — การแก้กติกาไม่ใช่ความผิดปกติของคะแนน แต่ก็ต้องแยกออกจาก
+   'อื่นๆ' ที่เป็นเศษปัดให้ได้ ไม่งั้นการขยับที่เราทำเองจะกลืนไปกับเศษ */
+.sc-bar-method { background: #6e7f95; }
 .sc-bar-other { background: var(--border); }
 
 .sc-detail td { background: var(--panel-2); cursor: default; }

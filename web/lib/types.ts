@@ -486,6 +486,7 @@ export type ScoreBuckets = {
   data: number;
   estimate: number;
   price: number;
+  method: number;           // Phase 37: โค้ดให้คะแนนคนละเวอร์ชัน / anchor เปลี่ยนแหล่ง
   other: number;
 };
 
@@ -505,6 +506,7 @@ export type StabilityRow = {
   unexplained: number;      // จุดที่ขยับโดยไม่ได้มาจากธุรกิจหรือราคา
   trustworthy: boolean;
   basis_changes: number;    // จำนวนครั้งที่พลิกฐาน /8 <-> /11 (เทียบตรงๆ ไม่ได้)
+  method_changes: number;   // จำนวนครั้งที่กติกาให้คะแนนเปลี่ยน — ไม่นับเป็นความไม่นิ่ง แต่ต้องเห็น
   notes: string[];
 };
 
@@ -517,7 +519,14 @@ export type ScorecardHorizon = {
 };
 
 export type Scorecard = {
-  stability: { headline: string; flagged: number; total: number; rows: StabilityRow[] };
+  stability: {
+    headline: string;
+    flagged: number;
+    total: number;
+    rows: StabilityRow[];
+    method_note: string | null;   // null = ไม่มีการแก้กติกาในช่วงที่มีข้อมูล
+    engine_version: string;
+  };
   prediction: {
     oldest: string | null;
     history_days: number;

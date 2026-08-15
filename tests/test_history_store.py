@@ -77,3 +77,34 @@ def test_health_trends_dedupe_respects_per_ticker_limit_after_collapsing_days(tm
     _insert("AAPL", "2026-07-02T09:00:00", 2.0)
     trends = health_trends(limit_per_ticker=2)
     assert [p["value"] for p in trends["AAPL"]] == [1.5, 2.0]
+
+# ---- Phase 37: ป้ายเวอร์ชันของโค้ดให้คะแนน ต้องติดไปกับทุกแถว ----
+
+def test_every_saved_row_carries_the_engine_version(tmp_db):
+    """ป้ายที่ไม่ได้ถูกเขียนลงไปคือป้ายที่ไม่มีอยู่ — scorecard/changes ทั้งคู่ตัดสินจากคอลัมน์นี้."""
+    from src.agent.engine_version import engine_version
+    from src.history.store import save_analysis, latest_per_ticker
+    from tests.conftest import FakeSummary
+
+    save_analysis(FakeSummary(ticker="AAPL"), {"price_ok": True, "facts": {}})
+
+    assert latest_per_ticker()[0]["engine_version"] == engine_version()
+
+
+def test_a_db_created_before_the_column_existed_gets_migrated(tmp_db):
+    """DB ที่ CI commit ไว้ตามหลัง schema เสมอ (บทเรียนเดิมของโปรเจกต์) — init_db ต้องเติมคอลัมน์
+    ให้เอง ไม่ใช่ระเบิดเป็น 'no such column'."""
+    from src.history.store import _connect, init_db, all_rows
+
+    with _connect() as conn:
+        # โครงยุคแรก (Phase 1) — ก่อนมีทั้ง framework_version และ engine_version
+        conn.execute("CREATE TABLE analyses (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                     "ticker TEXT NOT NULL, run_at TEXT NOT NULL, price_ok INTEGER, "
+                     "summary_json TEXT NOT NULL)")
+        conn.execute("INSERT INTO analyses (ticker, run_at, summary_json) "
+                     "VALUES ('OLD', '2026-01-01T10:00:00', '{}')")
+
+    init_db()
+
+    rows = all_rows()
+    assert rows[0]["engine_version"] is None      # แถวเก่า = ไม่รู้ ไม่ใช่ 'เหมือนกัน'

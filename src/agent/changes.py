@@ -165,13 +165,27 @@ def _diff(cur: dict, prev: dict) -> list[dict]:
         delta = ch["score"] - ph["score"]
         if abs(delta) >= HEALTH_JUMP_THRESHOLD:
             direction = "พุ่งขึ้น" if delta > 0 else "ร่วงลง"
-            driver = _health_jump_driver(ch, ph, cs, ps)
-            changes.append({
-                "type": "health_jump",
-                "detail": f"คะแนนสุขภาพ{direction} {ph['score']:.1f} → {ch['score']:.1f} "
-                          f"({delta:+.1f}) — หลักๆจาก{driver}",
-                "severity": "warn",
-            })
+            # Phase 37: ถ้าโค้ดให้คะแนนคนละเวอร์ชันระหว่างสองรอบ การไล่หา 'ตัวขับ' จาก component
+            # จะชี้ไปที่บริษัทเสมอ ทั้งที่คนแก้คือเรา — วันหลังเฟส 36 (anchor ใหม่) CVX จะเด้ง
+            # ทั้งกระดานพร้อมกันแล้วขึ้นเป็น warn ราวกับมีอะไรเกิดกับธุรกิจ. บอกตรงๆ ว่าเป็นฝีมือเรา
+            # และลดเป็น info เพราะไม่ใช่สัญญาณเกี่ยวกับตัวบริษัท (แต่ยังต้องเห็น เพราะเลขที่ผู้ใช้
+            # จำไว้เมื่อวานเปลี่ยนไปจริงๆ)
+            ce, pe = cur.get("engine_version"), prev.get("engine_version")
+            if ce and pe and ce != pe:
+                changes.append({
+                    "type": "engine_change",
+                    "detail": f"คะแนนสุขภาพ{direction} {ph['score']:.1f} → {ch['score']:.1f} "
+                              f"({delta:+.1f}) — มาจากการแก้เกณฑ์ให้คะแนนของเราเอง ไม่ใช่ตัวบริษัท",
+                    "severity": "info",
+                })
+            else:
+                driver = _health_jump_driver(ch, ph, cs, ps)
+                changes.append({
+                    "type": "health_jump",
+                    "detail": f"คะแนนสุขภาพ{direction} {ph['score']:.1f} → {ch['score']:.1f} "
+                              f"({delta:+.1f}) — หลักๆจาก{driver}",
+                    "severity": "warn",
+                })
 
     return changes
 

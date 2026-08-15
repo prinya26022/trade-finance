@@ -20,7 +20,8 @@ from src.agent.valuation import _gap_to_score
 FULL = [["ROIC>WACC", 1.0], ["Net Margin", 1.0], ["FCF+คุณภาพกำไร", 1.0]]
 
 
-def _health(criteria, implied=None, realistic=None, lens="standard", max_=11.0, penalty=0.0):
+def _health(criteria, implied=None, realistic=None, lens="standard", max_=11.0, penalty=0.0,
+            anchor=None):
     """health dict รูปแบบเดียวกับที่ health.py เขียนลง health_reasons_json จริง."""
     f = sum(v for _, v in criteria if v is not None)
     val = None
@@ -29,6 +30,8 @@ def _health(criteria, implied=None, realistic=None, lens="standard", max_=11.0, 
         vs = _gap_to_score(implied - realistic)
         val = {"score": vs, "excluded": False, "implied_growth": implied,
                "realistic_growth": realistic, "lens": lens}
+        if anchor:      # Phase 36: แหล่งของ anchor ('fcf' สั้น / 'fcf_long' จากงบที่ยื่น ก.ล.ต.)
+            val["anchor_window"] = {"source": anchor}
     return {
         "score": round(f + vs - penalty, 2),
         "max": max_,
@@ -38,10 +41,10 @@ def _health(criteria, implied=None, realistic=None, lens="standard", max_=11.0, 
     }
 
 
-def _snap(ticker, day, health, price=100.0):
+def _snap(ticker, day, health, price=100.0, engine=None):
     """snapshot รูปแบบหลัง snapshots() แปลงแล้ว (ที่ stability/readiness รับเข้าไป)."""
     return {"ticker": ticker, "date": day, "run_at": f"{day}T10:00:00", "price": price,
-            "score": health["score"], "max": health["max"], "health": health}
+            "score": health["score"], "max": health["max"], "engine": engine, "health": health}
 
 
 # ---------------------------------------------------------------- การแยกที่มา
@@ -296,3 +299,141 @@ def test_noise_threshold_is_the_documented_one():
         _snap("X", "2026-07-02", _health([["FCF", NOISE_POINTS]])),
     ]
     assert stability(snaps)["trustworthy"] is False
+
+# ------------------------------------------------- Phase 37: เราแก้กติกาเอง vs บริษัทเปลี่ยน
+
+def test_an_engine_version_change_is_not_called_an_estimate_revision():
+    """เคสจริงที่จุดชนวน: Phase 36 ย้าย anchor ไปใช้ประวัติที่ยื่น ก.ล.ต. แล้ว CVX realistic growth
+    เด้ง -11.09% -> +3.21% ในวันเดียว. ถ้าไม่มีป้ายเวอร์ชัน สมุดพกจะบอกว่า 'ประมาณการของเรา
+    เปลี่ยน' ซึ่งถูกตามตัวอักษรแต่แยกไม่ออกเลยว่าข้อมูลทำให้ขยับ หรือเราแก้วิธีคิดเมื่อวาน."""
+    prev = _health(FULL, implied=14.0, realistic=-11.09)
+    cur = _health(FULL, implied=14.0, realistic=3.21)
+
+    same = attribute(prev, cur, "aaaaaaaaaaaa", "aaaaaaaaaaaa")
+    changed = attribute(prev, cur, "aaaaaaaaaaaa", "bbbbbbbbbbbb")
+
+    assert same["buckets"]["estimate"] != 0 and same["buckets"]["method"] == 0.0
+    assert changed["buckets"]["method"] == changed["total"] != 0
+    assert changed["buckets"]["estimate"] == 0.0
+    assert changed["method_changed"] is True
+    assert "aaaaaaaaaaaa -> bbbbbbbbbbbb" in changed["notes"][0]
+
+
+def test_rows_without_an_engine_stamp_behave_exactly_as_before():
+    """ประวัติก่อน Phase 37 ไม่มีป้าย — None แปลว่า 'ไม่รู้' ไม่ใช่ 'เปลี่ยน' และไม่ใช่ 'เหมือน'
+    (หลักเดียวกับ compare._same_framework) การตั้งธงย้อนหลังทั้งประวัติแย่กว่าไม่ตั้ง."""
+    prev = _health(FULL, implied=14.0, realistic=8.0)
+    cur = _health(FULL, implied=14.0, realistic=13.0)
+
+    for pe, ce in [(None, None), (None, "bbbbbbbbbbbb"), ("aaaaaaaaaaaa", None)]:
+        a = attribute(prev, cur, pe, ce)
+        assert a["method_changed"] is False
+        assert a["buckets"]["estimate"] > 0
+
+
+def test_a_basis_change_still_wins_over_an_engine_change():
+    """พลิก /8 <-> /11 = เทียบไม่ได้เลย ซึ่งแรงกว่า 'เทียบได้แต่คนละกติกา' — ต้องรายงานอันที่แรงกว่า."""
+    prev = _health(FULL, implied=9.0, realistic=8.0)
+    cur = _health(FULL, max_=8.0)
+
+    a = attribute(prev, cur, "aaaaaaaaaaaa", "bbbbbbbbbbbb")
+
+    assert a["basis_changed"] is True and a["method_changed"] is False
+
+
+def test_the_anchor_switching_source_is_method_not_estimate():
+    """เวอร์ชันเอนจิ้นจับไม่ได้ทุกเคส: วันที่ประวัติ XBRL ของ NVDA ยาวครบ 6 ปี anchor จะเปลี่ยนจาก
+    หน้าต่างสั้นเป็นประวัติยาวทีละตัว โดยโค้ดไม่ได้ถูกแก้เลย — ต้องดักที่ตัวข้อมูลด้วย."""
+    prev = _health(FULL, implied=14.0, realistic=-11.09, anchor="fcf")
+    cur = _health(FULL, implied=14.0, realistic=3.21, anchor="fcf_long")
+
+    a = attribute(prev, cur, "aaaaaaaaaaaa", "aaaaaaaaaaaa")
+
+    assert a["buckets"]["method"] == a["total"] != 0
+    assert a["buckets"]["estimate"] == 0.0
+    assert any("anchor" in n for n in a["notes"])
+
+
+def test_the_same_anchor_source_still_separates_price_from_estimate():
+    """ต้องไม่เหมาว่าอะไรที่มี anchor_window คือการเปลี่ยนวิธี — ไม่งั้นทุกแถวหลัง Phase 36
+    จะตกถัง method หมดแล้วการแยกราคา/ประมาณการที่ Phase 32 ทำไว้จะตายทั้งดุ้น."""
+    prev = _health(FULL, implied=14.0, realistic=8.0, anchor="fcf_long")
+    cur = _health(FULL, implied=9.0, realistic=8.0, anchor="fcf_long")
+
+    a = attribute(prev, cur)
+
+    assert a["buckets"]["price"] > 0 and a["buckets"]["method"] == 0.0
+
+
+def test_a_method_change_does_not_make_a_stock_untrustworthy():
+    """วันที่แก้เกณฑ์ หุ้นทุกตัวเปลี่ยนเวอร์ชันพร้อมกัน — ถ้านับเป็นความไม่นิ่ง ธงจะขึ้นทั้งกระดาน
+    พร้อมกันซึ่งไม่ได้แยกอะไรออกจากอะไรเลย (บทเรียนเดียวกับ macro grace window)."""
+    snaps = [
+        _snap("CVX", "2026-08-10", _health(FULL, implied=14.0, realistic=-11.09), engine="aaaaaaaaaaaa"),
+        _snap("CVX", "2026-08-11", _health(FULL, implied=14.0, realistic=3.21), engine="bbbbbbbbbbbb"),
+    ]
+    s = stability(snaps)
+
+    assert s["method_changes"] == 1
+    assert s["unexplained"] == 0.0
+    assert s["trustworthy"] is True
+    assert s["gross"]["method"] > 0
+
+
+def test_the_report_says_how_many_stocks_the_rule_change_touched():
+    """ไม่กลืนหาย: ถึงจะไม่ตั้งธง ก็ต้องบอกออกไปตรงๆ ว่าช่วงก่อน/หลังเทียบกันตรงๆ ไม่ได้."""
+    touched = [
+        _snap("A", "2026-08-10", _health(FULL, implied=14.0, realistic=8.0), engine="aaaaaaaaaaaa"),
+        _snap("A", "2026-08-11", _health(FULL, implied=14.0, realistic=3.0), engine="bbbbbbbbbbbb"),
+    ]
+    untouched = [
+        _snap("B", "2026-08-10", _health([["ROIC>WACC", 1.0]]), engine="aaaaaaaaaaaa"),
+        _snap("B", "2026-08-11", _health([["ROIC>WACC", 1.0]]), engine="aaaaaaaaaaaa"),
+    ]
+
+    rep = stability_report({"A": touched, "B": untouched})
+
+    assert "1 จาก 2" in rep["method_note"]
+    assert len(rep["engine_version"]) == 12
+
+
+def test_the_report_stays_silent_when_no_rule_changed():
+    """ข้อความที่ขึ้นทุกวันไม่ต่างจากไม่มีข้อความ — ไม่มีการแก้กติกา = ไม่ต้องพูดถึง."""
+    calm = [_snap("C", f"2026-08-1{i}", _health([["ROIC>WACC", 1.0]]), engine="aaaaaaaaaaaa")
+            for i in (0, 1)]
+
+    assert stability_report({"C": calm})["method_note"] is None
+
+
+def test_buckets_still_sum_to_total_when_the_method_changed():
+    """invariant เดิมต้องไม่พังเพราะถังใหม่."""
+    prev = _health(FULL, implied=14.0, realistic=8.0)
+    cur = _health([["ROIC>WACC", 1.0]], implied=9.0, realistic=13.0, penalty=0.5)
+
+    a = attribute(prev, cur, "aaaaaaaaaaaa", "bbbbbbbbbbbb")
+
+    assert round(sum(a["buckets"].values()), 2) == a["total"]
+
+
+def test_a_rule_change_that_did_not_move_this_stock_is_not_counted_as_touching_it():
+    """ประวัติจริงมี 18 คอมมิตแตะไฟล์ให้คะแนนใน 5 สัปดาห์ — ถ้านับทุกครั้ง MSFT จะขึ้นว่า
+    'แก้กติกา 9x' ทั้งที่ 3 ครั้งขยับ 0.00 จุด แล้วโน้ตของเหตุการณ์จริงจะถูกเบียดตกจอ.
+    'กระทบตัวนี้' ต้องแปลว่าเลขขยับจริง ไม่ใช่แปลว่ามีคอมมิต."""
+    same = _health(FULL, implied=14.0, realistic=8.0)
+
+    a = attribute(same, same, "aaaaaaaaaaaa", "bbbbbbbbbbbb")
+
+    assert a["method_changed"] is False
+    assert a["notes"] == []
+
+
+def test_a_zero_net_move_across_engines_is_still_not_split_into_buckets():
+    """กับดักของการกรองตามขนาด: ขาพื้นฐาน +1 กับขาราคา -1 หักกลบเหลือ 0 — ถ้าปล่อยให้ไหลไป
+    แยก bucket ตามปกติ จะได้รายงานว่า 'ธุรกิจดีขึ้น 1 จุด' ข้ามกติกาคนละชุด ซึ่งไม่เคยเกิดขึ้น."""
+    prev = _health([["ROIC>WACC", 0.0]], implied=9.0, realistic=8.0)
+    cur = _health([["ROIC>WACC", 1.0]], implied=14.0, realistic=8.0)
+    assert cur["score"] == prev["score"]      # หักกลบพอดี
+
+    a = attribute(prev, cur, "aaaaaaaaaaaa", "bbbbbbbbbbbb")
+
+    assert a["buckets"]["business"] == 0.0 and a["buckets"]["price"] == 0.0

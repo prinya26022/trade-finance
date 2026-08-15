@@ -54,8 +54,9 @@ def test_metric_changes_ignores_nonmaterial_metric():
 
 
 def _row(strength="strong", valuation="fair", sentiment="bullish", confidence=0.9,
-         news=None, facts_ratio=1.0, facts=None, health=None):
+         news=None, facts_ratio=1.0, facts=None, health=None, engine=None):
     return {
+        "engine_version": engine,
         "summary": {
             "fundamental_strength": strength,
             "valuation_view": valuation,
@@ -168,3 +169,43 @@ def test_health_jump_driver_never_blames_sentiment():
     driver = _health_jump_driver(ch, ph, cs, ps)
     assert "มุมมองข่าว" not in driver
     assert "พื้นฐาน" in driver or "มุมมองราคา" in driver
+
+
+# ---- Phase 37: คะแนนเด้งเพราะเราแก้เกณฑ์ ไม่ใช่เพราะบริษัท ----
+
+def _jump_pair(engine_prev=None, engine_cur=None):
+    prev = _row(engine=engine_prev, health=_health(7.4, {
+        "strength": 4.0, "valuation": 0.5, "sentiment": 2.0, "confidence": 0.9, "breach_penalty": 0.0}))
+    cur = _row(engine=engine_cur, health=_health(9.9, {
+        "strength": 4.0, "valuation": 3.0, "sentiment": 2.0, "confidence": 0.9, "breach_penalty": 0.0}))
+    return cur, prev
+
+
+def test_a_jump_caused_by_our_own_rule_change_is_not_reported_as_a_business_signal():
+    """รอบแรกหลังเฟส 36 (ย้าย anchor ไปใช้ประวัติที่ยื่น ก.ล.ต.) หุ้นน้ำมันจะเด้งพร้อมกันทั้งกลุ่ม
+    แล้ว _health_jump_driver จะชี้ไปที่ 'มุมมองราคา' ทุกตัว ราวกับตลาดเพิ่งตีมูลค่าใหม่ — ทั้งที่
+    คนแก้คือเรา. ต้องบอกตรงๆ และลดเป็น info เพราะไม่ใช่สัญญาณเกี่ยวกับบริษัท."""
+    changes = _diff(*_jump_pair("aaaaaaaaaaaa", "bbbbbbbbbbbb"))
+
+    assert not any(c["type"] == "health_jump" for c in changes)
+    ec = [c for c in changes if c["type"] == "engine_change"]
+    assert len(ec) == 1
+    assert ec[0]["severity"] == "info"
+    assert "7.4 → 9.9" in ec[0]["detail"]          # เลขที่ผู้ใช้จำไว้เปลี่ยนจริง ต้องยังเห็น
+    assert "ไม่ใช่ตัวบริษัท" in ec[0]["detail"]
+
+
+def test_the_same_engine_still_reports_a_real_jump_as_before():
+    """ต้องไม่กลายเป็นทางลัดให้ทุกอย่างเงียบ — เวอร์ชันเดียวกัน = พฤติกรรมเดิมเป๊ะ."""
+    changes = _diff(*_jump_pair("aaaaaaaaaaaa", "aaaaaaaaaaaa"))
+
+    jumps = [c for c in changes if c["type"] == "health_jump"]
+    assert len(jumps) == 1 and jumps[0]["severity"] == "warn"
+    assert not any(c["type"] == "engine_change" for c in changes)
+
+
+def test_rows_from_before_the_stamp_existed_report_a_jump_as_before():
+    """ประวัติเก่าไม่มีป้าย — None ต้องไม่ถูกอ่านว่า 'เปลี่ยน' ไม่งั้นการเตือนจริงจะเงียบย้อนหลังหมด."""
+    for pe, ce in [(None, None), (None, "bbbbbbbbbbbb"), ("aaaaaaaaaaaa", None)]:
+        changes = _diff(*_jump_pair(pe, ce))
+        assert any(c["type"] == "health_jump" for c in changes)

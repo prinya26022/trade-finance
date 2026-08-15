@@ -1357,6 +1357,76 @@ question nobody asked.
   required, one overlapping year sufficient, and a mid-series gap reported but still compared.
   Suite 441/441.
 
+## Phase 37 -- the scorer had no version, so every rule change looked like news
+
+Phase 33.2 stamped the **prompt** with `framework_version` on the argument that a comparison across
+periods is unreadable unless the basis travels with the data. The number the user actually reads
+every day does not come from the prompt -- it comes from `health.py` and `valuation.py`, which had no
+stamp at all. Phases 33.1, 33.2, 33.3 and 36 each changed how the score is computed, and nothing in
+the stored data recorded it. The next daily run would have shown CVX's realistic growth jumping
+-11.09% -> +3.21% and the scorecard would have filed it under `estimate` -- literally true, and
+useless, because "new data moved our estimate" and "we changed the method yesterday" land in the same
+bucket.
+
+**A hash of the code, not a number anyone maintains.** Same reasoning as `framework_version`: a
+number you have to remember to bump is a number you forget to bump, and the day you forget is exactly
+the day the stamp mattered. `engine_version()` normalises `health.py` / `valuation.py` / `grading.py`
+through `ast` -- **comments and docstrings stripped** -- and hashes the result. Stripping is not
+cosmetic: these files carry more Thai prose than code and are edited nearly every phase, so hashing
+raw source would flag a rule change every time a typo was fixed, and a flag that fires every day
+carries no information (the same lesson as the macro grace window).
+
+**Deliberately over-detects rather than under-detects.** The alternative considered was running the
+engine against a fixed fixture and hashing the output -- semantically tighter, but it would have
+stayed silent when the bank framework was added, because the fixture is not a bank, while JPM moved
+from excluded to 9.5/11. This stamp exists to catch *silent* rule changes; missing one is worse than
+an occasional unnecessary bump.
+
+**Two detectors, because one is not enough.** The hash is a system-wide label and cannot know that a
+single stock changed method. So `_valuation_delta` also watches `anchor_window.source` -- the day
+NVDA's XBRL history reaches six years, its anchor switches from the 4-year window to the filed
+history with no code change at all. Both route to a new `method` bucket.
+
+**`method` does not count as instability.** On the day a rule changes, *every* stock changes version
+at once; folding that into `unexplained` would flag the whole board simultaneously, which separates
+nothing. But it is not swallowed either -- it is counted, noted with the date, and reported beside
+the headline. A rule change is the *best*-explained kind of movement, not an unexplained one.
+It also only counts as "touched this stock" when the score actually moved (`METHOD_NOISE = 0.05`):
+18 commits hit these files in five weeks, and without the gate MSFT read "rules changed 9x" with
+three of those moving 0.00 points, crowding the real events out of the notes.
+
+**Backfilled from git, and it changed the verdict.** A stamp that starts today cannot read the
+history that already exists -- and that history *is* the churn: 18 commits to the scoring files
+between 2026-07-06 and 2026-08-10, the same window in which all 357 `analyses` rows were written.
+`scripts/backfill_engine_version.py` walks those commits, computes each one's version through the
+**production functions** (`parts_from`/`version_from`, not a copy), and stamps 320 rows by run time.
+It uses committer date, not author date -- Phase 33's commit was rebased and its author date sits 21
+hours early, which would have stamped rows with code that was not on `main` yet. Rows older than the
+first commit stay NULL, because NULL means "unknown" and guessing would make the remaining NULLs
+unreadable. The error mode is one-directional: CI runs always use committed code, so they are exact;
+a manual run against uncommitted code inherits the previous commit's stamp, i.e. a *missed* change,
+never an invented one.
+
+Result: the flagged count fell **7 of 16 -> 5 of 16**. MSFT's unexplained movement 3.3 -> 1.7, GOOGL
+4.9 -> 2.3, and AAPL/NVDA/DUOL cleared entirely -- their 1-point step on 2026-07-11 sat on top of
+Phase 17/18, the rewrite of the health score from LLM labels to real numbers. The scorecard had been
+reading our own rewrite as flaky data.
+
+`changes.py` gets the same treatment: a jump across engine versions is reported as `engine_change` at
+**info** severity ("this came from us changing the scoring rules, not the company") instead of
+`health_jump` at warn, whose driver attribution would have pointed at the business every time.
+
+- 36 new offline tests: threshold/logic/deletion changes bump the version; comments, docstrings,
+  reformatting and inserted lines do not; docstring-only functions survive stripping; the version is
+  stable, short, sensitive to every module and indifferent to their order; the module list is checked
+  against what the scoring code actually imports (so a future dependency cannot slip out of scope
+  silently) with the `__main__` demo block excluded; backfill and production agree on the formula; a
+  module that did not exist yet is a different ruleset; the timeline boundary picks pre-change code
+  for a run earlier the same day; an engine change is not called an estimate revision; unstamped rows
+  behave exactly as before; a basis change still outranks a method change; a zero-net move across
+  versions is still not split into buckets; and the migration fills the column on an old DB.
+  Suite 477/477.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

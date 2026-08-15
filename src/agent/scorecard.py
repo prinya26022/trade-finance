@@ -22,11 +22,18 @@ analyses (health_reasons_json ทุกแถวมี fundamental.criteria + va
   data      = เกณฑ์ที่พลิก null <-> ตัวเลข หรือ valuation เปลี่ยน lens -> ข้อมูล/วิธีคิดฝั่งเราเปลี่ยน
   estimate  = realistic_growth ที่เราประมาณเอง ถูกแก้             -> ความเห็นเราเปลี่ยน ไม่ใช่บริษัท
   price     = implied_growth ขยับเพราะราคา/EV                    -> ควรขยับ นี่คือหน้าที่ของขา valuation
+  method    = โค้ดให้คะแนนคนละเวอร์ชัน หรือ anchor เปลี่ยนแหล่ง    -> เราแก้กติกาเอง (Phase 37)
   other     = ส่วนที่เหลือ (breach penalty, ปัดเศษ)               -> ไม่ยัดเข้า bucket อื่นให้ตัวเลขสวย
 
 "น่ากังวล" = data + estimate เท่านั้น. business กับ price ขยับได้เป็นเรื่องปกติ — business คือสิ่งที่
 เราตั้งใจวัด ส่วน price คือสิ่งที่ขา valuation ออกแบบมาให้ตอบสนอง. ปนสองอันนี้เข้าไปด้วยจะได้
 ข้อสรุปว่า "คะแนนไม่นิ่ง" ทุกตัวจนตัวเลขไม่มีความหมาย.
+
+method ก็ไม่นับเป็น "น่ากังวล" เหมือนกัน แต่ด้วยเหตุผลคนละแบบ: มันไม่ใช่การขยับที่อธิบายไม่ได้ —
+มันอธิบายได้ชัดที่สุดในบรรดาทั้งหมด คือเราเป็นคนแก้เอง และตอนนี้มีบันทึกไว้แล้วว่าแก้วันไหน. ถ้า
+ปล่อยให้มันไปนับรวมกับ unexplained หุ้นทั้งกระดานจะติดธงพร้อมกันทุกครั้งที่แก้เกณฑ์ ซึ่งธงที่ขึ้น
+พร้อมกันทั้งกระดานไม่ได้บอกอะไรเลย. แต่ก็ไม่กลืนหาย — นับเป็น method_changes แยกและรายงานตรงๆ
+เพราะถ้าเราแก้กติกาทุกสัปดาห์ คะแนนก็ทำนายอะไรไม่ได้อยู่ดี แค่เป็นความผิดของเราไม่ใช่ของข้อมูล.
 """
 from __future__ import annotations
 
@@ -35,26 +42,36 @@ from datetime import date, datetime, timedelta
 # ใช้ฟังก์ชันแปลง gap -> คะแนนตัวเดียวกับที่ valuation.py ใช้ตอนให้คะแนนจริง (แม้ชื่อขึ้นต้นด้วย _)
 # เพราะการแยก 'ราคาขยับ' ออกจาก 'ประมาณการขยับ' ต้องคำนวณคะแนนของ gap สมมติ ถ้าลอกสูตรมาไว้
 # ที่นี่แล้ววันหลัง valuation.py ปรับ threshold การแบ่ง bucket จะเพี้ยนเงียบๆ โดยไม่มีเทสต์ไหนจับได้.
+from src.agent.engine_version import engine_version
 from src.agent.valuation import _gap_to_score
 from src.history.store import all_rows
 
 # ขยับเกินเท่านี้ (จุด, สะสมตลอดช่วง) โดยไม่ได้มาจากธุรกิจหรือราคา = ตั้งธงว่าคะแนนตัวนี้ยังไม่นิ่ง
 NOISE_POINTS = 1.0
 
+# การแก้กติกาต้องขยับคะแนนของหุ้นตัวนั้นอย่างน้อยเท่านี้ ถึงจะนับว่า "กระทบตัวนี้" (Phase 37).
+# ถ้าไม่มีเส้นนี้ ทุกตัวจะถูกนับทุกครั้งที่มีคอมมิตแตะ health.py/valuation.py — ประวัติจริงมีคอมมิต
+# แบบนั้น 18 ครั้งใน 5 สัปดาห์ แล้ว MSFT จะขึ้นว่า 'แก้กติกา 9x' โดยที่ 3 ครั้งขยับ 0.00 จุด
+# พร้อมกินโควตา notes จนเหตุการณ์จริง (เกณฑ์พลิก null, realistic growth แกว่ง) หลุดจอไปหมด
+METHOD_NOISE = 0.05
+
 # ช่วงเวลาที่จะวัดผลล่วงหน้า (วันปฏิทิน) — 90 วันคือช่วงสั้นสุดที่พอมีความหมายกับ thesis ระยะยาว
 HORIZONS = (90, 180, 365)
 
-BUCKETS = ("business", "data", "estimate", "price", "other")
+BUCKETS = ("business", "data", "estimate", "price", "method", "other")
 
 BUCKET_LABELS = {
     "business": "ธุรกิจเปลี่ยนจริง",
     "data": "ข้อมูล/วิธีคิดฝั่งเราเปลี่ยน",
     "estimate": "ประมาณการของเราเปลี่ยน",
     "price": "ราคาขยับ",
+    "method": "เราแก้กติกาให้คะแนนเอง",
     "other": "อื่นๆ (ปรับ/ปัดเศษ)",
 }
 
-EXPECTED_BUCKETS = ("business", "price")      # ขยับได้ ไม่ถือว่าผิดปกติ
+# ขยับแล้วไม่ถือว่า "คะแนนไม่นิ่ง": business/price คือสิ่งที่ออกแบบมาให้ตอบสนอง ส่วน method คือ
+# การขยับที่มีบันทึกกำกับว่าเราแก้เองเมื่อไหร่ — ไม่ใช่การขยับที่อธิบายไม่ได้ (แต่ยังนับแยกไว้รายงาน)
+EXPECTED_BUCKETS = ("business", "price", "method")
 
 
 def _zero() -> dict[str, float]:
@@ -85,6 +102,7 @@ def snapshots(rows: list[dict] | None = None) -> dict[str, list[dict]]:
             "score": float(health["score"]),
             "max": float(health.get("max") or 11.0),
             "price": r.get("price"),
+            "engine": r.get("engine_version"),   # None = แถวก่อน Phase 37 (ไม่รู้ ไม่ใช่ไม่เปลี่ยน)
             "health": health,
         })
 
@@ -125,8 +143,14 @@ def _fundamental_delta(prev: dict, cur: dict) -> tuple[float, float, list[str]]:
     return business, data, notes
 
 
-def _valuation_delta(prev: dict | None, cur: dict | None) -> tuple[float, float, float, list[str]]:
-    """(price, estimate, data, notes) จากขา valuation.
+def _anchor_source(v: dict | None) -> str | None:
+    """แหล่งที่ reverse-DCF ใช้เป็น anchor รอบนั้น ('fcf' = หน้าต่างสั้นจาก yfinance,
+    'fcf_long' = ประวัติที่ยื่น ก.ล.ต., 'revenue' = ไม่มี FCF ให้ใช้). None = แถวก่อน Phase 36."""
+    return ((v or {}).get("anchor_window") or {}).get("source")
+
+
+def _valuation_delta(prev: dict | None, cur: dict | None) -> tuple[float, float, float, float, list[str]]:
+    """(price, estimate, data, method, notes) จากขา valuation.
 
     gap = implied − realistic. แยกสองสาเหตุด้วย gap สมมติตรงกลาง (ราคาขยับก่อน ประมาณการยังเดิม)
     แล้วให้คะแนนด้วยฟังก์ชันจริง — ได้ตัวเลขที่บวกกลับได้พอดี ไม่ใช่เฉลี่ยตามสัดส่วนแบบมั่วๆ:
@@ -135,24 +159,35 @@ def _valuation_delta(prev: dict | None, cur: dict | None) -> tuple[float, float,
 
     ถ้า lens เปลี่ยน (standard <-> growth <-> NA) จะไม่แยก เพราะคนละวิธีคิด — เทียบ gap ข้าม lens
     เหมือนเทียบคะแนนสอบคนละข้อสอบ ยัดทั้งก้อนเข้า data พร้อมบอกเหตุผลตรงๆ ดีกว่าแกล้งแยก.
+
+    เหตุผลเดียวกันใช้กับ anchor ที่เปลี่ยนแหล่ง (Phase 37): realistic_growth ที่คิดจากหน้าต่าง 4 ปี
+    ของ yfinance กับที่คิดจากประวัติ 19 ปีที่ยื่น ก.ล.ต. ไม่ใช่ "ประมาณการเดิมที่ถูกแก้" แต่เป็นคนละ
+    วิธีวัดกันคนละอัน — CVX เด้ง -11.09% -> +3.21% ในวันเดียวโดยที่ตัวบริษัทไม่ได้ทำอะไรเลย. ต่างจาก
+    lens ตรงที่อันนี้เปลี่ยนได้ทีละตัวโดยเวอร์ชันเอนจิ้นไม่ขยับ (เช่นวันที่ประวัติ XBRL ของ NVDA
+    ยาวครบ 6 ปี) จึงต้องดักที่ตัวข้อมูลเอง ป้ายเวอร์ชันระดับระบบมองไม่เห็นเคสนี้.
     """
     ps = (prev or {}).get("score")
     cs = (cur or {}).get("score")
     total = (cs or 0.0) - (ps or 0.0)
     if not total:
-        return 0.0, 0.0, 0.0, []
+        return 0.0, 0.0, 0.0, 0.0, []
 
     notes: list[str] = []
     p_lens, c_lens = (prev or {}).get("lens"), (cur or {}).get("lens")
     if p_lens != c_lens:
         notes.append(f"วิธีตีมูลค่าเปลี่ยน lens '{p_lens}' -> '{c_lens}' ({total:+.2f} จุด)")
-        return 0.0, 0.0, total, notes
+        return 0.0, 0.0, total, 0.0, notes
+
+    p_src, c_src = _anchor_source(prev), _anchor_source(cur)
+    if p_src and c_src and p_src != c_src:
+        notes.append(f"anchor ของ reverse-DCF เปลี่ยนแหล่ง '{p_src}' -> '{c_src}' ({total:+.2f} จุด)")
+        return 0.0, 0.0, 0.0, total, notes
 
     pi, pr = (prev or {}).get("implied_growth"), (prev or {}).get("realistic_growth")
     ci, cr = (cur or {}).get("implied_growth"), (cur or {}).get("realistic_growth")
     if None in (pi, pr, ci, cr):
         notes.append(f"ตีมูลค่าได้/ไม่ได้ไม่เหมือนกันสองรอบ ({total:+.2f} จุด)")
-        return 0.0, 0.0, total, notes
+        return 0.0, 0.0, total, 0.0, notes
 
     base = _gap_to_score(pi - pr)
     mid = _gap_to_score(ci - pr)
@@ -163,14 +198,21 @@ def _valuation_delta(prev: dict | None, cur: dict | None) -> tuple[float, float,
 
     if abs(cr - pr) >= 1.0:
         notes.append(f"realistic growth ที่เราประมาณเอง {pr:.1f}% -> {cr:.1f}% ({estimate:+.2f} จุด)")
-    return price, estimate, data, notes
+    return price, estimate, data, 0.0, notes
 
 
-def attribute(prev: dict, cur: dict) -> dict:
+def attribute(prev: dict, cur: dict,
+              prev_engine: str | None = None, cur_engine: str | None = None) -> dict:
     """แยกที่มาของการขยับคะแนนระหว่าง health dict สองรอบติดกัน.
 
     ผลรวมทุก bucket ต้องเท่ากับ delta จริงเสมอ — ส่วนที่อธิบายไม่ได้ไปอยู่ 'other' อย่างเปิดเผย
     (breach penalty, การ clamp, ปัดเศษ) ไม่กลืนหายเพื่อให้ตัวเลขดูลงตัว.
+
+    prev_engine/cur_engine = engine_version ของสองแถวนั้น (Phase 37). ต่างกัน = โค้ดให้คะแนน
+    คนละชุด แยก bucket ต่อไม่มีความหมาย เพราะสูตรที่ใช้แยกก็เปลี่ยนไปพร้อมกัน — เทียบได้แค่ว่า
+    "ตัวเลขที่เห็นต่างกันเท่าไหร่" ไม่ใช่ "ต่างเพราะอะไรในตัวบริษัท". None ข้างใดข้างหนึ่ง = แถวก่อน
+    Phase 37 ที่ไม่มีป้าย -> ไม่ยืนยันว่าเปลี่ยน และไม่ยืนยันว่าเหมือน (แบบเดียวกับ compare.
+    _same_framework) ทำงานต่อตามเดิม ดีกว่าตั้งธงเท็จย้อนหลังทั้งประวัติ.
     """
     total = float(cur["score"]) - float(prev["score"])
     buckets = _zero()
@@ -179,21 +221,38 @@ def attribute(prev: dict, cur: dict) -> dict:
         # /8 (partial) เทียบกับ /11 คนละฐาน — เคสเดียวกับที่ changes.py กันไว้ไม่ให้แจ้ง health_jump
         buckets["other"] = total
         return {"total": round(total, 2), "buckets": buckets, "basis_changed": True,
+                "method_changed": False,
                 "notes": ["ฐานคะแนนเปลี่ยน (partial <-> เต็ม) เทียบตรงๆ ไม่ได้"]}
 
+    if prev_engine and cur_engine and prev_engine != cur_engine:
+        # ยังต้องตัดจบตรงนี้แม้คะแนนรวมไม่ขยับ: ขาพื้นฐาน +1 กับขาราคา -1 หักกลบเป็น 0 ได้ แล้วการ
+        # ไล่แยก bucket ข้ามกติกาจะรายงาน 'ธุรกิจดีขึ้น 1 จุด' ที่ไม่เคยเกิดขึ้น. แต่ 'กระทบตัวนี้'
+        # นับเฉพาะตอนที่มันขยับเลขจริง — ไม่งั้นเลข 13/16 จะแปลว่า 'มีคอมมิต' ไม่ใช่ 'มีผล'
+        material = abs(total) >= METHOD_NOISE
+        buckets["method"] = total
+        return {"total": round(total, 2),
+                "buckets": {k: round(v, 2) for k, v in buckets.items()},
+                "basis_changed": False, "method_changed": material,
+                "notes": [f"โค้ดให้คะแนนเปลี่ยนเวอร์ชัน ({prev_engine} -> {cur_engine}) "
+                          f"— การขยับ {total:+.2f} จุดรอบนี้มาจากกติกาที่เราแก้เอง"]
+                         if material else []}
+
     business, f_data, notes = _fundamental_delta(prev["fundamental"], cur["fundamental"])
-    price, estimate, v_data, v_notes = _valuation_delta(prev.get("valuation"), cur.get("valuation"))
+    price, estimate, v_data, v_method, v_notes = _valuation_delta(
+        prev.get("valuation"), cur.get("valuation"))
 
     buckets["business"] = business
     buckets["data"] = f_data + v_data
     buckets["estimate"] = estimate
     buckets["price"] = price
+    buckets["method"] = v_method
     buckets["other"] = total - sum(buckets.values())
 
     return {
         "total": round(total, 2),
         "buckets": {k: round(v, 2) for k, v in buckets.items()},
         "basis_changed": False,
+        "method_changed": bool(v_method),
         "notes": notes + v_notes,
     }
 
@@ -213,11 +272,14 @@ def stability(snaps: list[dict]) -> dict | None:
     net = _zero()
     notes: list[str] = []
     basis_changes = 0
+    method_changes = 0
 
     for prev, cur in zip(snaps, snaps[1:]):
-        a = attribute(prev["health"], cur["health"])
+        a = attribute(prev["health"], cur["health"], prev.get("engine"), cur.get("engine"))
         if a["basis_changed"]:
             basis_changes += 1
+        if a.get("method_changed"):
+            method_changes += 1
         for b, v in a["buckets"].items():
             gross[b] += abs(v)
             net[b] += v
@@ -248,6 +310,9 @@ def stability(snaps: list[dict]) -> dict | None:
         # ตรงนี้ ตัวที่พลิกฐานบ่อยที่สุดจะกลายเป็นตัวที่ดู 'นิ่งที่สุด' ในตาราง
         "trustworthy": unexplained < NOISE_POINTS and basis_changes == 0,
         "basis_changes": basis_changes,
+        # ตั้งใจไม่เอาไปตัดสิน trustworthy: วันที่แก้เกณฑ์ หุ้นทุกตัวจะเปลี่ยนเวอร์ชันพร้อมกันหมด
+        # ธงที่ขึ้นทั้งกระดานพร้อมกันไม่ได้แยกอะไรออกจากอะไร — รายงานเป็นข้อเท็จจริงข้างๆ แทน
+        "method_changes": method_changes,
         "notes": notes[:6],
     }
 
@@ -270,7 +335,13 @@ def stability_report(by_ticker: dict[str, list[dict]] | None = None) -> dict:
         headline = (f"{len(flagged)} จาก {len(rows)} ตัว คะแนนขยับโดยไม่ได้มาจากธุรกิจหรือราคา "
                     f"— หนักสุดคือ {worst['ticker']} ({why})")
 
-    return {"headline": headline, "flagged": len(flagged), "total": len(rows), "rows": rows}
+    # จำนวน "ตัวที่ได้รับผลจากการแก้กติกา" ไม่ใช่จำนวนครั้งรวม — คนอ่านสนใจว่ากระทบกี่ตัว
+    touched = sum(1 for r in rows if r["method_changes"] > 0)
+    method_note = (f"{touched} จาก {len(rows)} ตัวมีช่วงที่คะแนนขยับเพราะเราแก้กติกาให้คะแนนเอง "
+                   f"— ไม่นับเป็นความไม่นิ่ง แต่ช่วงก่อน/หลังเทียบกันตรงๆ ไม่ได้") if touched else None
+
+    return {"headline": headline, "flagged": len(flagged), "total": len(rows), "rows": rows,
+            "method_note": method_note, "engine_version": engine_version()}
 
 
 # ---------------------------------------------------------------- ด่าน 2: ทำนายได้ไหม
@@ -383,11 +454,15 @@ def scorecard(rows: list[dict] | None = None, today: date | None = None) -> dict
 
 if __name__ == "__main__":       # python -m src.agent.scorecard  -> ดูสมุดพกในเทอร์มินอล
     sc = scorecard()
-    print(sc["stability"]["headline"], "\n")
+    print(sc["stability"]["headline"])
+    if sc["stability"]["method_note"]:
+        print(sc["stability"]["method_note"])
+    print(f"เอนจิ้นให้คะแนนเวอร์ชันปัจจุบัน: {sc['stability']['engine_version']}\n")
     for r in sc["stability"]["rows"]:
         mark = "!" if not r["trustworthy"] else " "
+        chip = f"  [แก้กติกา {r['method_changes']}x]" if r["method_changes"] else ""
         print(f"{mark} {r['ticker']:6} {r['first_score']:5.1f} -> {r['last_score']:5.1f}/{r['max']:.0f}"
-              f"  swing {r['swing']:4.1f}  อธิบายไม่ได้ {r['unexplained']:4.1f}  ({r['points']} วัน)")
+              f"  swing {r['swing']:4.1f}  อธิบายไม่ได้ {r['unexplained']:4.1f}  ({r['points']} วัน){chip}")
         for n in r["notes"]:
             print(f"      - {n}")
     p = sc["prediction"]

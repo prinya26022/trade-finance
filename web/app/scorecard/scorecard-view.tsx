@@ -11,7 +11,8 @@ import type { Scorecard, StabilityRow, ScoreBuckets } from "@/lib/types";
 
 // business/price = คะแนน "ควร" ขยับตามสองอย่างนี้ (ธุรกิจคือสิ่งที่วัด, ราคาคือสิ่งที่ขา valuation
 // ออกแบบมาให้ตอบสนอง) ส่วน data/estimate คือฝั่งเราเปลี่ยนเอง = สัญญาณว่าคะแนนวัดตัวเองอยู่
-const BUCKET_ORDER: (keyof ScoreBuckets)[] = ["business", "price", "data", "estimate", "other"];
+// method (Phase 37) = เราแก้โค้ดให้คะแนนเอง — อธิบายได้ชัดที่สุด จึงไม่อยู่ใน SUSPECT แต่ต้องเห็น
+const BUCKET_ORDER: (keyof ScoreBuckets)[] = ["business", "price", "data", "estimate", "method", "other"];
 const SUSPECT: (keyof ScoreBuckets)[] = ["data", "estimate"];
 
 function Bars({ gross, labels }: { gross: ScoreBuckets; labels: Record<string, string> }) {
@@ -60,6 +61,11 @@ function Row({ row, labels }: { row: StabilityRow; labels: Record<string, string
               พลิกฐาน {row.basis_changes}×
             </span>
           )}
+          {row.method_changes > 0 && (
+            <span className="sc-chip sc-chip-method" title="โค้ดให้คะแนนเปลี่ยนเวอร์ชัน หรือ anchor ของ reverse-DCF เปลี่ยนแหล่ง — เราแก้เอง ไม่ใช่คะแนนไม่นิ่ง แต่ช่วงก่อน/หลังเทียบกันตรงๆ ไม่ได้">
+              แก้กติกา {row.method_changes}×
+            </span>
+          )}
         </td>
         <td style={{ minWidth: 140 }}>
           <Bars gross={row.gross} labels={labels} />
@@ -106,6 +112,11 @@ export default function ScorecardView({ data }: { data: Scorecard }) {
       <section className="card">
         <div className="section-title">📓 คะแนนของเรานิ่งพอจะเชื่อได้ไหม</div>
         <p className={`sc-headline ${clean ? "sc-ok-text" : "sc-bad-text"}`}>{stability.headline}</p>
+        {stability.method_note && (
+          <p className="sc-method-note">
+            🔧 {stability.method_note}
+          </p>
+        )}
         <p className="sc-muted sc-intro">
           คะแนนพื้นฐานของบริษัทเดิมไม่ควรขยับหลายจุดใน 1 เดือนถ้าไม่มีงบใหม่มาคั่น —
           ถ้าขยับ แปลว่ากำลังวัดความพร้อมของข้อมูลฝั่งเรา ไม่ใช่ความแข็งแรงของธุรกิจ.
@@ -134,6 +145,11 @@ export default function ScorecardView({ data }: { data: Scorecard }) {
             </tbody>
           </table>
         )}
+        <p className="sc-muted sc-intro">
+          กติกาให้คะแนนเวอร์ชันปัจจุบัน <code>{stability.engine_version}</code> — ลายนิ้วมือของโค้ด
+          ที่แปลงข้อเท็จจริงเป็นคะแนน บันทึกติดไปกับผลวิเคราะห์ทุกแถว เพื่อให้แยกออกว่า
+          &ldquo;บริษัทเปลี่ยน&rdquo; กับ &ldquo;เราเปลี่ยนวิธีให้คะแนน&rdquo; คนละเรื่องกัน.
+        </p>
       </section>
 
       {/* ---- ด่าน 2: ยังตอบไม่ได้ ---- */}

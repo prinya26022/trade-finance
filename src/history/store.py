@@ -13,6 +13,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from datetime import datetime
 
+from src.agent.engine_version import engine_version
 from src.agent.health import comparable_score
 from src.agent.summarize import framework_version
 
@@ -51,7 +52,8 @@ def init_db() -> None:
                 xbrl_accuracy        REAL,
                 xbrl_json            TEXT,
                 valuation_json       TEXT,
-                framework_version    TEXT
+                framework_version    TEXT,
+                engine_version       TEXT
             )
             """
         )
@@ -73,6 +75,10 @@ def init_db() -> None:
             # Phase 33.2: ลายนิ้วมือของ checklist/TASK ที่ใช้ตัดสินรอบนั้น — ไม่มีตัวนี้
             # การเทียบข้ามงวดจะปนกันระหว่าง "โมเดลเปลี่ยน" กับ "เราเปลี่ยนโจทย์"
             ("framework_version", "TEXT"),
+            # Phase 37: ลายนิ้วมือของ "โค้ดที่ให้คะแนน" รอบนั้น — framework_version ครอบแค่ prompt
+            # ส่วนเลข /11 ที่ผู้ใช้อ่านมาจาก health.py/valuation.py ซึ่งไม่มีป้ายอะไรเลยมาก่อน
+            # แถวเก่า = NULL แปลว่า "ไม่รู้" ไม่ใช่ "เหมือนกัน" (ดู scorecard._same_engine)
+            ("engine_version", "TEXT"),
         ]:
             if col not in cols:
                 conn.execute(f"ALTER TABLE analyses ADD COLUMN {col} {coltype}")
@@ -109,8 +115,8 @@ def save_analysis(summary, grounding: dict, facts=None, extraction: dict | None 
                 price, confidence, price_ok, news_grounded_ratio, facts_grounded_ratio,
                 summary_json, facts_json, extraction_accuracy, extraction_json,
                 health_score, health_reasons_json, xbrl_accuracy, xbrl_json, valuation_json,
-                framework_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                framework_version, engine_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 summary.ticker,
@@ -133,6 +139,7 @@ def save_analysis(summary, grounding: dict, facts=None, extraction: dict | None 
                 json.dumps(xbrl, ensure_ascii=False) if xbrl else None,
                 json.dumps(valuation, ensure_ascii=False) if valuation else None,
                 framework_version(),
+                engine_version(),
             ),
         )
         return cur.lastrowid
