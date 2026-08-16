@@ -1497,6 +1497,31 @@ Also fixed while here: `build_quality_report` now takes injectable `rows`, becau
 stability layer made it read the real `data/watchlist.db` during tests -- two existing tests passed or
 failed depending on the owner's live data.
 
+### Phase 37's own stamp broke on its first real day
+
+The first CI run after Phase 37 stamped its rows `3f8757f9835a`; the same commit on the owner's
+machine produced `b7b9b79ef876`. **Identical source, different hash** -- CI runs Python 3.12 and the
+laptop runs 3.13, and `ast.dump()` embeds the node/field schema of the running interpreter. The
+docstring had flagged this as a known risk; it took one day to happen. Left alone, every row would
+alternate versions by *where it ran*, and the `method` bucket would fire daily -- precisely the
+failure the stamp was built to avoid.
+
+`normalize()` now works on **text, not AST structure**: strip docstrings (via `ast` node *positions*),
+strip comments (via `tokenize`, which knows a `#` inside a string is not a comment), drop blank lines
+and trailing whitespace, hash what's left. The only things still supplied by Python are line and
+column numbers, which don't move between releases.
+
+The cost is real and accepted: **reformatting now bumps the version** where `ast.dump` was immune.
+That trade is deliberate -- a reflow happens rarely and always has a commit to point at, while a
+Python upgrade shifts every stamp silently with nothing to point at. Two pinned tests (`_SAMPLE` →
+exact normalized text, and its exact digest) turn any future divergence into a red CI run instead of
+quietly mislabelled data -- and because CI is on 3.12 and development is on 3.13, those tests are a
+genuine cross-version check every push.
+
+Restamped with `--rewrite` (new flag: the old labels are on a different scale, so leaving them would
+have manufactured exactly one phantom rule change at the seam). The 18 detected rule changes and
+their row counts came out **identical** to the previous algorithm -- same events, new labels.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

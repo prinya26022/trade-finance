@@ -63,20 +63,37 @@ def test_rewriting_a_docstring_does_not_change_the_version():
 
 
 def test_a_function_that_is_only_a_docstring_survives_stripping():
-    """กันบั๊กที่ลบ docstring แล้ว body ว่างจนพังตอน parse — ของจริงมี stub แบบนี้ได้."""
-    assert ev.normalize('def f():\n    """แค่คำอธิบาย"""\n')
+    """กันบั๊กที่ลบ docstring แล้วเหลือแต่ความว่าง — ของจริงมี stub แบบนี้ได้."""
+    assert ev.normalize('def f():\n    """แค่คำอธิบาย"""\n') == "def f():"
 
 
-def test_reformatting_does_not_change_the_version():
-    """ขึ้นบรรทัดใหม่/เว้นวรรคไม่ใช่การเปลี่ยนกติกา."""
-    before = ev.normalize("def f(a, b):\n    return a + b\n")
-    after = ev.normalize("def f(\n    a,\n    b,\n):\n    return (\n        a + b\n    )\n")
+def test_a_hash_inside_a_string_is_not_a_comment():
+    """ถ้าไล่หา '#' เอาเองจะตัดกลางสตริง แล้วโค้ดที่ยังทำงานเหมือนเดิมจะได้เวอร์ชันใหม่มั่วๆ —
+    ต้องใช้ tokenize ที่รู้ว่าตัวไหนอยู่ในสตริง."""
+    assert ev.normalize('LABEL = "a # b"') == 'LABEL = "a # b"'
+
+
+def test_trailing_whitespace_and_blank_lines_do_not_change_the_version():
+    """ช่องว่างท้ายบรรทัด/บรรทัดว่างไม่ใช่กติกา — และ editor แต่ละตัวจัดการไม่เหมือนกัน."""
+    before = ev.normalize("A = 1\nB = 2\n")
+    after = ev.normalize("A = 1   \n\n\nB = 2\n\n")
     assert before == after
 
 
+def test_reformatting_does_bump_the_version_and_that_is_the_deal():
+    """ราคาของการทำงานบนตัวอักษรแทน AST: ตัดบรรทัดยาวใหม่ทำให้เวอร์ชันเด้งทั้งที่กติกาเท่าเดิม.
+
+    ยอมจ่าย เพราะรุ่นแรกที่ใช้ ast.dump ไม่ไวต่อการจัดรูปแบบก็จริง แต่ **ไวต่อรุ่นของ Python**
+    จนพังในวันแรกที่ใช้จริง (CI 3.12 กับเครื่องเจ้าของ 3.13 ได้คนละเวอร์ชันจากซอร์สเดียวกัน).
+    การจัดรูปแบบใหม่เกิดนานๆ ครั้งและมีคอมมิตให้ชี้เสมอ ส่วนการอัปเกรด Python เด้งเงียบๆ."""
+    before = ev.normalize("def f(a, b):\n    return a + b\n")
+    after = ev.normalize("def f(\n    a,\n    b,\n):\n    return (\n        a + b\n    )\n")
+    assert before != after
+
+
 def test_inserting_a_comment_line_does_not_shift_everything_below_it():
-    """เหตุผลที่ต้อง include_attributes=False: ถ้าเลขบรรทัดติดไปด้วย การแทรกคอมเมนต์บรรทัดเดียว
-    ข้างบนจะทำให้ทุกอย่างข้างล่างเลื่อน แล้วเวอร์ชันเปลี่ยนทั้งที่โค้ดเหมือนเดิมทุกตัวอักษร."""
+    """คอมเมนต์ทั้งบรรทัดต้องหายไปทั้งบรรทัด ไม่ใช่เหลือบรรทัดว่างค้างไว้ — ไม่งั้นการแทรก
+    คำอธิบายหนึ่งบรรทัดจะเปลี่ยนเวอร์ชันทั้งที่โค้ดเหมือนเดิมทุกตัวอักษร."""
     before = ev.normalize("A = 1\nB = 2\n")
     after = ev.normalize("# หมายเหตุ\nA = 1\nB = 2\n")
     assert before == after
@@ -183,3 +200,46 @@ def test_the_backfill_picks_the_newest_rule_change_at_or_before_the_run():
     assert _version_for("2026-07-15T10:00:00", tl) == "old"
     assert _version_for("2026-07-15T21:00:01", tl) == "new"
     assert _version_for("2026-08-01T10:00:00", tl) == "new"
+
+
+# ---------- กับดักข้ามรุ่น Python ----------
+
+# ผลลัพธ์ที่ normalize() ต้องคืนสำหรับซอร์สตัวอย่างข้างล่าง — ค่าคงที่ที่ตรึงไว้ตั้งใจ
+#
+# ทำไมต้องตรึง: เวอร์ชันแรกของ engine_version ใช้ ast.dump ซึ่งพังทันทีในวันแรกที่ใช้จริง —
+# รอบ CI (Python 3.12) กับเครื่องเจ้าของ (3.13) ได้คนละ hash จากซอร์สที่เหมือนกันทุกตัวอักษร
+# แล้วทุกแถวจะสลับเวอร์ชันไปมาตามว่ารันที่ไหน โดยไม่มีอะไรฟ้องเลย. เทสต์นี้คือกับดักที่เปลี่ยน
+# ความล้มเหลวเงียบอันนั้นให้ดังขึ้นมา: CI รัน 3.12 ส่วนเครื่องพัฒนารุ่นอื่น ถ้าวันไหนสองฝั่งเห็น
+# ไม่ตรงกัน เทสต์นี้จะแดงก่อนที่ข้อมูลจะถูกติดป้ายผิด
+_SAMPLE = '''"""คำอธิบายโมดูล"""
+import os          # คอมเมนต์ท้ายบรรทัด
+
+ROIC_MIN = 8.0     # เกณฑ์
+
+
+def check(value):
+    """ตรวจว่าผ่านไหม
+
+    หลายบรรทัด
+    """
+    # คอมเมนต์เดี่ยว
+    tag = "a # b"
+    return value > ROIC_MIN, tag, os
+'''
+
+_SAMPLE_NORMALIZED = "\n".join([
+    "import os",
+    "ROIC_MIN = 8.0",
+    "def check(value):",
+    '    tag = "a # b"',
+    "    return value > ROIC_MIN, tag, os",
+])
+
+
+def test_normalization_is_pinned_so_a_python_upgrade_fails_loudly():
+    assert ev.normalize(_SAMPLE) == _SAMPLE_NORMALIZED
+
+
+def test_the_pinned_sample_hashes_to_a_pinned_value():
+    """hash ก็ตรึงด้วย — normalize ตรงแต่ hash ต่างแปลว่ามีอย่างอื่นเปลี่ยน (encoding/ความยาว)."""
+    assert ev._digest(_SAMPLE_NORMALIZED) == "3296d5be6cfb"

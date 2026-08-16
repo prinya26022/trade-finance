@@ -96,6 +96,10 @@ def _version_for(run_at: str, tl: list[tuple[str, str]]) -> str | None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--apply", action="store_true", help="เขียนลง DB จริง (ไม่ใส่ = ดูอย่างเดียว)")
+    ap.add_argument("--rewrite", action="store_true",
+                    help="ทับป้ายเดิมด้วย ไม่ใช่เติมเฉพาะแถวที่ว่าง — ใช้เมื่อ *วิธีคำนวณ* เวอร์ชัน "
+                         "เปลี่ยน (ไม่ใช่ตอนกติกาเปลี่ยน) เพราะป้ายเก่าจะอยู่คนละสเกลกับป้ายใหม่ "
+                         "แล้วรอยต่อจะกลายเป็น 'แก้กติกา' ปลอมหนึ่งครั้ง")
     args = ap.parse_args()
 
     tl = timeline()
@@ -105,8 +109,9 @@ def main() -> int:
 
     init_db()
     with _connect() as conn:
+        where = "" if args.rewrite else "WHERE engine_version IS NULL "
         rows = conn.execute(
-            "SELECT id, ticker, run_at FROM analyses WHERE engine_version IS NULL ORDER BY run_at"
+            f"SELECT id, ticker, run_at FROM analyses {where}ORDER BY run_at"
         ).fetchall()
 
         plan = [(r["id"], _version_for(r["run_at"], tl)) for r in rows]
@@ -115,7 +120,8 @@ def main() -> int:
         for _, v in filled:
             counts[v] = counts.get(v, 0) + 1
 
-        print(f"\nแถวที่ยังไม่มีป้าย {len(rows)} แถว -> เติมได้ {len(filled)} "
+        label = "แถวทั้งหมด" if args.rewrite else "แถวที่ยังไม่มีป้าย"
+        print(f"\n{label} {len(rows)} แถว -> เติมได้ {len(filled)} "
               f"(เหลือ {len(rows) - len(filled)} แถวที่เก่ากว่าคอมมิตแรก = ปล่อยเป็น NULL)")
         for version, n in sorted(counts.items(), key=lambda kv: -kv[1]):
             print(f"  {version}  {n} แถว")

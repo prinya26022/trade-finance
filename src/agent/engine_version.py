@@ -39,6 +39,8 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import io
+import tokenize
 from pathlib import Path
 
 _ROOT = Path(__file__).parents[2]
@@ -54,8 +56,9 @@ SCORING_MODULES: tuple[str, ...] = (
 _HASH_LEN = 12
 
 
-def _strip_docs(tree: ast.AST) -> ast.AST:
-    """ลบ docstring ของ module/class/function ออกจาก AST (คอมเมนต์หายไปตั้งแต่ ast.parse แล้ว)."""
+def _docstring_lines(tree: ast.AST) -> set[int]:
+    """เลขบรรทัดทั้งหมดที่เป็น docstring ของ module/class/function."""
+    lines: set[int] = set()
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -63,23 +66,51 @@ def _strip_docs(tree: ast.AST) -> ast.AST:
         if (body and isinstance(body[0], ast.Expr)
                 and isinstance(body[0].value, ast.Constant)
                 and isinstance(body[0].value.value, str)):
-            # ฟังก์ชันที่มีแต่ docstring จะเหลือ body ว่างซึ่ง ast.dump รับได้ แต่ใส่ Pass ไว้ให้
-            # เป็นโครงที่ถูกต้องตามไวยากรณ์ เผื่อวันหลังมีใครเอา tree นี้ไป unparse ต่อ
-            node.body = body[1:] or [ast.Pass()]
-    return tree
+            first = body[0]
+            lines.update(range(first.lineno, (first.end_lineno or first.lineno) + 1))
+    return lines
 
 
 def normalize(source: str) -> str:
-    """ซอร์ส -> รูปแบบมาตรฐานที่เหลือเฉพาะสิ่งที่มีผลต่อตัวเลข (ไม่มีคอมเมนต์/docstring/ช่องว่าง).
+    """ซอร์ส -> ข้อความมาตรฐานที่เหลือเฉพาะบรรทัดที่มีผลต่อตัวเลข (ตัดคอมเมนต์/docstring/บรรทัดว่าง).
 
-    include_attributes=False สำคัญ: ไม่งั้นเลขบรรทัด/คอลัมน์จะติดไปด้วย แล้วการแทรกคอมเมนต์
-    หนึ่งบรรทัดจะเลื่อนทุกอย่างที่อยู่ข้างล่างจนเวอร์ชันเปลี่ยน ซึ่งคือสิ่งที่ตั้งใจเลี่ยง.
+    **ทำงานบนตัวอักษร ไม่ใช่บนโครงสร้างของ AST โดยตั้งใจ** — เวอร์ชันแรกของไฟล์นี้ใช้
+    `ast.dump()` ซึ่งอ่านง่ายกว่าและไม่ไวต่อการจัดรูปแบบโค้ด แต่พังทันทีในวันแรกที่ใช้จริง:
+    รอบ CI (Python 3.12) กับเครื่องเจ้าของ (3.13) ได้คนละเวอร์ชันจากซอร์สที่เหมือนกันทุกตัวอักษร
+    เพราะ schema ของ node/field ใน ast เปลี่ยนตามรุ่นภาษา. ผลคือทุกแถวจะสลับเวอร์ชันไปมาตาม
+    ว่ารันที่ไหน แล้วถัง method จะติดธงทุกวัน — ซึ่งคือความล้มเหลวแบบเดียวกับที่ป้ายนี้ถูกออกแบบ
+    มาเพื่อเลี่ยง (ธงที่ขึ้นทุกวันไม่ต่างจากไม่มีธง).
+
+    สิ่งเดียวที่ยังพึ่ง Python คือ **ตำแหน่ง** ของ docstring (ast) และของคอมเมนต์ (tokenize) —
+    ทั้งคู่เป็นเลขบรรทัด/คอลัมน์ ไม่ใช่โครงสร้าง จึงไม่ขยับตามรุ่นภาษา.
+
+    ราคาที่ยอมจ่าย: จัดรูปแบบโค้ดใหม่ (ขึ้นบรรทัดใหม่/ตัดบรรทัดยาว) จะทำให้เวอร์ชันเด้งทั้งที่
+    กติกาเท่าเดิม. รับได้ เพราะมันเกิดนานๆ ครั้ง มีคอมมิตให้ชี้ได้เสมอ และรายงานจะบอกคู่เวอร์ชัน
+    ตรงๆ — ต่างจากการเด้งเพราะอัปเกรด Python ที่เกิดเงียบๆ และไม่มีอะไรให้ชี้เลย.
 
     ตั้งใจ **ไม่** ตัดบล็อก `if __name__ == "__main__"` ทิ้ง (ต่างจาก internal_imports ที่ตัด):
     การแก้เดโมในเทอร์มินอลจะทำให้เวอร์ชันเด้งโดยไม่จำเป็นก็จริง แต่การเริ่มยกเว้นโค้ดบางส่วน
     ออกจาก hash คือจุดเริ่มของช่องที่กติกาจริงหลุดออกไปได้ — เตือนเกินดีกว่าเตือนขาด.
     """
-    return ast.dump(_strip_docs(ast.parse(source)), include_attributes=False)
+    drop = _docstring_lines(ast.parse(source))
+
+    # ตัดคอมเมนต์ด้วย tokenize ไม่ใช่หา '#' เอง — '#' ในสตริงไม่ใช่คอมเมนต์
+    comment_col: dict[int, int] = {}
+    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+        if tok.type == tokenize.COMMENT:
+            line, col = tok.start
+            comment_col[line] = min(comment_col.get(line, col), col)
+
+    out: list[str] = []
+    for lineno, text in enumerate(source.splitlines(), start=1):
+        if lineno in drop:
+            continue
+        if lineno in comment_col:
+            text = text[:comment_col[lineno]]
+        text = text.rstrip()
+        if text:
+            out.append(text)
+    return "\n".join(out)
 
 
 def _is_main_guard(node: ast.stmt) -> bool:
