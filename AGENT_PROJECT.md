@@ -1427,6 +1427,76 @@ reading our own rewrite as flaky data.
   versions is still not split into buckets; and the migration fills the column on an old DB.
   Suite 477/477.
 
+## Phase 38 -- the inputs flicker, and the scorecard was blaming the market
+
+Phase 37 made the scorecard honest enough to point at something specific, and it pointed at **ASML:
+7.0 points of movement with no business cause**, three times worse than anything else on the board.
+This phase followed that finger.
+
+**The cause was a row name.** ASML's criterion #3 (FCF + earnings quality) flipped computable /
+uncomputable **six times in seventeen days**. Diffing the stored facts across one flip left exactly
+one difference: `CFO` present on 08-08, absent on 08-09, everything else identical. yfinance returns
+`Cash Flow From Continuing Operating Activities` for ASML on some calls and `Operating Cash Flow` on
+others; we only knew the second name. Before adding the alias, the "same concept?" question was
+checked the way Phase 36 taught: across 16 tickers, **15/15 that carry both rows report identical
+values to the cent**, and ASML is the only one missing the primary name. It is ordered last, so a
+company with genuine discontinued operations still gets the total, not the continuing-only figure.
+(`Total Cash From Operating Activities`, the legacy alias we had, exists for **nobody** — it was
+guarding nothing.)
+
+**The scorecard had a matching blind spot, and finding it was the more valuable half.** `beta` also
+vanishes from yfinance intermittently, and `capm_wacc` falls back to β=1.0 -- documented, recorded in
+`beta_used`, not silent. But **GOOGL on 2026-07-24 went β 1.25 → 1.0, WACC 11.20% → 9.95% in a
+single day**, which moves implied growth, which the scorecard filed under `price` -- the bucket whose
+whole meaning is "the market moved, this is fine." A gap in our own data was being charged to the
+market, in the one file whose job is to prevent exactly that.
+
+Fixed by an exact counterfactual rather than a heuristic: the stored valuation row keeps `ev`,
+`fcf_base`, `wacc`, `beta_used`, `terminal_growth` and `years`, and CAPM is linear, so Rf can be
+recovered as `wacc − beta_used × ERP` and `implied_growth_rate` -- **the production solver, imported
+not copied**, same discipline as `_gap_to_score` -- re-solved at today's EV with yesterday's beta.
+Verified first: recomputing implied growth from the stored fields reproduces the stored value on
+**276 of 277 rows** (the last differs by 0.02pp, rounding). The split then falls out of the existing
+mid-point trick, and `price + beta_data` still equals the old `price`, so the buckets keep summing to
+the total. Risk-free movement deliberately **stays** in `price`: a bond yield is a price the market
+sets, the same as EV. A beta that went missing is not.
+
+Effect: GOOGL's unexplained movement went **2.3 → 3.7**. The scorecard got *stricter*, not cleaner --
+1.4 points that had been hiding inside an "expected" bucket are now counted, which is the point.
+
+**`src/evals/check_fact_stability.py` -- so the next one takes minutes, not weeks.** This is the
+project's fourth bug of this exact shape (33.3 GOOGL D&A, 33.3 `_first()` stopping at a NaN, now
+ASML's CFO); each took weeks to surface because the scorecard reports *symptoms* -- "ASML moved 7
+points on data" -- and finding the cause meant diffing facts by hand. The eval reports the cause
+directly, from stored rows only, no network and no LLM.
+
+Two design choices carry it:
+- **Oscillation, not change.** A value that disappears *and comes back* is an unstable source; a
+  value that vanishes once is us (Phase 17/18 added ten facts in a day; 33.2 deleted P/S and P/B for
+  ADRs permanently). Things we delete never return on their own. `MIN_FLIPS = 2`.
+- **"Did it reach the score?"** measured from the whole score shape, not the criteria count. Market
+  Cap disappearing changes **zero** fundamental criteria -- it feeds the valuation leg -- yet it drops
+  the row to partial /8. That is the unexplained 2-point flapping Phase 32 flagged on **MA** and
+  nobody accounted for: MA's basis flips on 07-28/07-29 land on exactly the days its Market Cap
+  went missing. A detector that watched only criteria would have missed the most expensive case.
+
+Wired into the existing quality channel (alert-only, silent when healthy), reporting only entries
+that moved a score, over a **14-day window** measured from the newest run in the data rather than the
+clock -- history keeps old events forever, so a windowless report would re-send the same alert every
+day until nobody read it, and a clock-based window would go quiet on days CI didn't run, which reads
+as "all stable" when it means "not checked."
+
+- 21 new offline tests: the alias falls back and the exact row still wins when both exist; flicker
+  detected, ranked by score impact, silent for one-way additions and removals, silent for
+  same-day reruns, exempt for metrics designed to appear later, surviving rows with no health at all;
+  the window ages events out and is anchored to the data not the clock; beta vanishing is charged to
+  data with the buckets still summing; an unchanged beta leaves `price` alone; rows without the DCF
+  fields degrade to the old behaviour. Suite 498/498.
+
+Also fixed while here: `build_quality_report` now takes injectable `rows`, because adding the
+stability layer made it read the real `data/watchlist.db` during tests -- two existing tests passed or
+failed depending on the owner's live data.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

@@ -178,3 +178,30 @@ def test_a_successor_shell_is_told_apart_from_a_company_with_no_data():
     assert has_annual_data(shell) is False
     assert has_annual_data(real) is True
     assert has_annual_data(None) is False
+
+
+# ---------- ชื่อแถวงบกระแสเงินสดที่ yfinance สลับใช้ (Phase 38) ----------
+
+def test_cfo_falls_back_to_the_continuing_operations_row():
+    """ASML ของจริง: บางรอบ yfinance คืนเฉพาะ 'Cash Flow From Continuing Operating Activities'
+    -> CFO หาย -> เกณฑ์ #3 คำนวณไม่ได้ -> คะแนนพลิก 6 ครั้งใน 17 วัน (ตัวหนักสุดในสมุดพก)."""
+    import pandas as pd
+
+    from src.providers.stock.fundamentals import CFO_ROWS, _first
+
+    df = pd.DataFrame({pd.Timestamp("2025-12-31"): [12658500000.0]},
+                      index=["Cash Flow From Continuing Operating Activities"])
+    assert _first(CFO_ROWS, df) == 12658500000.0
+
+
+def test_the_exact_row_still_wins_when_both_exist():
+    """ชื่อสำรองต้องเป็นทางออกฉุกเฉิน ไม่ใช่ตัวแทน — บริษัทที่มี discontinued operations จริง
+    'Operating Cash Flow' คือยอดรวม ส่วน 'Continuing' คือยอดที่ตัดส่วนที่เลิกไปแล้วออก"""
+    import pandas as pd
+
+    from src.providers.stock.fundamentals import CFO_ROWS, _first
+
+    df = pd.DataFrame({pd.Timestamp("2025-12-31"): [100.0, 90.0]},
+                      index=["Operating Cash Flow",
+                             "Cash Flow From Continuing Operating Activities"])
+    assert _first(CFO_ROWS, df) == 100.0

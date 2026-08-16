@@ -43,7 +43,7 @@ from datetime import date, datetime, timedelta
 # เพราะการแยก 'ราคาขยับ' ออกจาก 'ประมาณการขยับ' ต้องคำนวณคะแนนของ gap สมมติ ถ้าลอกสูตรมาไว้
 # ที่นี่แล้ววันหลัง valuation.py ปรับ threshold การแบ่ง bucket จะเพี้ยนเงียบๆ โดยไม่มีเทสต์ไหนจับได้.
 from src.agent.engine_version import engine_version
-from src.agent.valuation import _gap_to_score
+from src.agent.valuation import DEFAULT_ERP, _gap_to_score, implied_growth_rate
 from src.history.store import all_rows
 
 # ขยับเกินเท่านี้ (จุด, สะสมตลอดช่วง) โดยไม่ได้มาจากธุรกิจหรือราคา = ตั้งธงว่าคะแนนตัวนี้ยังไม่นิ่ง
@@ -149,6 +149,27 @@ def _anchor_source(v: dict | None) -> str | None:
     return ((v or {}).get("anchor_window") or {}).get("source")
 
 
+# ค่าที่ต้องมีครบถึงจะย้อนคำนวณ implied growth ที่เบต้าอีกค่าได้ (แถวก่อน Phase 18 ไม่มี -> ข้าม)
+_DCF_FIELDS = ("ev", "fcf_base", "wacc", "beta_used", "terminal_growth", "years")
+
+
+def _implied_at_beta(v: dict, beta: float) -> float | None:
+    """implied growth ของรอบนี้ ถ้าเบต้าเป็นค่าที่ให้มา (ตัวแปรอื่น — EV, FCF, Rf — คงเดิม).
+
+    ใช้ `implied_growth_rate` ตัวจริงจาก valuation.py ไม่ลอกสูตร ด้วยเหตุผลเดียวกับที่
+    `_gap_to_score` ถูก import มาแทนที่จะลอก: การแยกถังต้องเดินบนสูตรเดียวกับที่ให้คะแนนจริง
+    ไม่งั้นวันหลัง valuation.py ขยับ การแยกจะเพี้ยนเงียบๆ โดยไม่มีเทสต์ไหนจับได้.
+
+    Rf ถอดกลับจาก WACC ได้ตรงๆ เพราะ CAPM เป็นเส้นตรง: WACC = Rf + β×ERP (ERP ล็อกค่าเดียว
+    ทุกหุ้นโดยตั้งใจ) — ตรวจแล้วว่าย้อนคำนวณ implied growth จาก ev/fcf_base/wacc ที่เก็บไว้
+    ได้ตรงกับค่าที่บันทึกไว้ 276 จาก 277 แถว (ที่เหลือต่าง 0.02pp = ปัดเศษ)
+    """
+    erp_pct = DEFAULT_ERP * 100.0
+    rf_pct = v["wacc"] - v["beta_used"] * erp_pct
+    return implied_growth_rate(v["ev"], v["fcf_base"], (rf_pct + beta * erp_pct) / 100.0,
+                               v["terminal_growth"] / 100.0, v["years"])
+
+
 def _valuation_delta(prev: dict | None, cur: dict | None) -> tuple[float, float, float, float, list[str]]:
     """(price, estimate, data, method, notes) จากขา valuation.
 
@@ -193,7 +214,33 @@ def _valuation_delta(prev: dict | None, cur: dict | None) -> tuple[float, float,
     mid = _gap_to_score(ci - pr)
     price = mid - base
     estimate = _gap_to_score(ci - cr) - mid
+    beta_data = 0.0
+
+    # เบต้าหายจาก yfinance = อัตราคิดลดกระโดดโดยที่ตลาดไม่ได้ทำอะไร (GOOGL 2026-07-24:
+    # β 1.25 -> ไม่มีค่า -> ใช้ค่ากลาง 1.0 -> WACC 11.20% -> 9.95% ในวันเดียว; AMZN เจอแบบ
+    # เดียวกัน). implied growth ขยับตามทันที แล้วเดิมทั้งก้อนตกถัง price = 'ราคาขยับ ปกติ'
+    # ซึ่งเป็นการโยนความเคลื่อนไหวที่เกิดจากข้อมูลฝั่งเราไปให้ตลาดรับผิด — ตรงข้ามกับหน้าที่ของไฟล์นี้
+    #
+    # แยกด้วยการย้อนคำนวณ implied growth ที่ 'EV วันนี้ แต่เบต้าเมื่อวาน' แล้วเทียบ:
+    #   price     = ส่วนที่ขยับเพราะ EV/Rf (ตลาดจริง — ขาราคาออกแบบมาให้ตอบสนอง)
+    #   beta_data = ส่วนที่เหลือ = เบต้าฝั่งเราเปลี่ยน
+    # Rf ไม่แยกออกจาก price โดยตั้งใจ: อัตราผลตอบแทนพันธบัตรคือราคาที่ตลาดตั้งเหมือน EV
+    # ส่วนเบต้าที่ 'หายไป' ไม่ใช่ราคา แต่คือช่องว่างของข้อมูล
+    if (prev and cur and prev.get("beta_used") != cur.get("beta_used")
+            and all(cur.get(k) is not None for k in _DCF_FIELDS)
+            and prev.get("beta_used") is not None):
+        ci_old_beta = _implied_at_beta(cur, prev["beta_used"])
+        if ci_old_beta is not None:
+            market_mid = _gap_to_score(ci_old_beta - pr)
+            price = market_mid - base
+            beta_data = mid - market_mid
+            if abs(beta_data) >= 0.05:
+                notes.append(f"เบต้าที่เราใช้คิดอัตราคิดลดเปลี่ยน {prev['beta_used']} -> "
+                             f"{cur['beta_used']} ({beta_data:+.2f} จุด — ไม่ใช่ตลาดขยับ)")
+
     # เศษที่เหลือ = ส่วนปรับที่ไม่ได้มาจาก gap ตรงๆ (เช่น Rule of 40 ของ lens='growth') -> data
+    # ส่วนของเบต้าไหลเข้าที่นี่เองโดยไม่ต้องบวกซ้ำ: price ถูกหั่นให้เล็กลงเท่ากับ beta_data แล้ว
+    # (price + beta_data = mid − base = ค่าเดิมก่อนแยก) เศษจึงโตขึ้นเท่ากันพอดี
     data = total - price - estimate
 
     if abs(cr - pr) >= 1.0:

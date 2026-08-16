@@ -437,3 +437,61 @@ def test_a_zero_net_move_across_engines_is_still_not_split_into_buckets():
     a = attribute(prev, cur, "aaaaaaaaaaaa", "bbbbbbbbbbbb")
 
     assert a["buckets"]["business"] == 0.0 and a["buckets"]["price"] == 0.0
+
+
+# ------------------------------------------------- Phase 38: อัตราคิดลดขยับเพราะข้อมูลเราหาย
+
+def _valued(implied, realistic, beta, wacc, **kw):
+    """health dict ที่มีของครบพอให้ย้อนคำนวณ implied growth ที่เบต้าอีกค่าได้ (เหมือนแถวจริง)."""
+    h = _health(FULL, implied=implied, realistic=realistic)
+    h["valuation"].update({"beta_used": beta, "wacc": wacc, "ev": 4.0e12,
+                           "fcf_base": 7.0e10, "terminal_growth": 2.5, "years": 10, **kw})
+    return h
+
+
+def test_beta_vanishing_is_our_data_not_the_market_moving():
+    """GOOGL 2026-07-24 ของจริง: yfinance ไม่คืน beta -> ใช้ค่ากลาง 1.0 -> WACC 11.20% -> 9.95%
+    ในวันเดียว. implied growth ขยับตามทันที แล้วเดิมทั้งก้อนตกถัง price = 'ราคาขยับ ปกติ' ซึ่งคือ
+    การโยนความเคลื่อนไหวที่เกิดจากข้อมูลฝั่งเราไปให้ตลาดรับผิด."""
+    prev = _valued(24.6, 12.5, beta=1.25, wacc=11.20)
+    cur = _valued(21.0, 12.5, beta=1.0, wacc=9.95)
+
+    a = attribute(prev, cur)
+
+    assert a["buckets"]["data"] != 0.0
+    assert any("เบต้า" in n for n in a["notes"])
+    assert round(sum(a["buckets"].values()), 2) == a["total"]
+
+
+def test_the_same_beta_leaves_the_price_bucket_alone():
+    """ต้องไม่เหมาว่าทุกการขยับของ implied growth เป็นเรื่องเบต้า — ไม่งั้นถัง price ที่ Phase 32
+    ออกแบบไว้จะตายทั้งดุ้น."""
+    prev = _valued(24.6, 12.5, beta=1.25, wacc=11.20)
+    cur = _valued(18.0, 12.5, beta=1.25, wacc=11.23)      # ราคาลง เบต้าเท่าเดิม
+
+    a = attribute(prev, cur)
+
+    assert a["buckets"]["price"] > 0
+    assert not any("เบต้า" in n for n in a["notes"])
+
+
+def test_rows_without_the_dcf_inputs_behave_exactly_as_before():
+    """แถวก่อน Phase 18 ไม่มี ev/fcf_base/wacc ให้ย้อนคำนวณ — ต้องถอยไปพฤติกรรมเดิม ไม่ใช่ระเบิด."""
+    prev = _health(FULL, implied=24.6, realistic=12.5)
+    cur = _health(FULL, implied=18.0, realistic=12.5)
+
+    a = attribute(prev, cur)
+
+    assert a["buckets"]["price"] > 0 and a["buckets"]["data"] == 0.0
+
+
+def test_a_tiny_beta_refresh_moves_the_bucket_without_shouting():
+    """Yahoo คำนวณเบต้าใหม่เป็นระยะ (MSFT 1.13 -> 1.10) — เป็นอินพุตฝั่งเราเปลี่ยนจริง จึงต้องเข้า
+    ถัง data เหมือนกัน แต่ไม่ต้องเปลืองโควตา notes ถ้าขยับไม่ถึง 0.05 จุด."""
+    prev = _valued(24.6, 12.5, beta=1.13, wacc=10.43)
+    cur = _valued(24.5, 12.5, beta=1.10, wacc=10.27)
+
+    a = attribute(prev, cur)
+
+    assert round(sum(a["buckets"].values()), 2) == a["total"]
+    assert all(len(n) < 200 for n in a["notes"])

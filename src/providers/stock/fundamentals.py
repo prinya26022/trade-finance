@@ -360,6 +360,27 @@ def _compute_bank_metrics(fin, bs, revenue) -> dict:
     }
 
 
+# ชื่อแถว CFO ในงบกระแสเงินสดของ yfinance — เรียงจาก 'ชื่อที่ใช้บ่อยสุด' ไปหา 'ชื่อสำรอง'
+# (_first ลองตามลำดับ ตัวหลังจึงถูกใช้ต่อเมื่อตัวหน้าไม่มีจริงๆ)
+#
+# ทำไมต้องมี 'Cash Flow From Continuing Operating Activities' (2026-08-16): ASML คืนเฉพาะชื่อนี้
+# บางรอบและคืน 'Operating Cash Flow' บางรอบ ทำให้เกณฑ์ #3 (FCF+คุณภาพกำไร) พลิกคำนวณได้/ไม่ได้
+# 6 ครั้งใน 17 วัน = 7 จุดของ 'คะแนนขยับโดยอธิบายไม่ได้' ในสมุดพก ซึ่งเป็นตัวหนักสุดในตาราง
+#
+# ตรวจก่อนเพิ่มว่าเป็นตัวเลขเดียวกันจริง ไม่ใช่ยอดที่ตัดธุรกิจที่เลิกไปออก (กับดักเดียวกับ
+# `Revenues` vs `RevenueFromContract...` ใน Phase 36): **15/15 ตัวที่มีทั้งสองแถว ค่าตรงกันเป๊ะ**
+# (ASML เป็นตัวเดียวที่ขาดชื่อแรก). ถ้าวันหนึ่งบริษัทมี discontinued operations จริง ชื่อแรกจะมี
+# อยู่แล้วและถูกเลือกก่อนเสมอ — ชื่อนี้จึงเป็นทางออกฉุกเฉิน ไม่ใช่ตัวแทน
+#
+# 'Total Cash From Operating Activities' คือชื่อยุคเก่าของ yfinance — ตรวจ 16 ตัวแล้วไม่มีใครมี
+# เลยสักตัว เก็บไว้เฉยๆ ไม่ได้เสียอะไร แต่อย่านับว่ามันกันอะไรได้
+CFO_ROWS = [
+    "Operating Cash Flow",
+    "Cash Flow From Continuing Operating Activities",
+    "Total Cash From Operating Activities",
+]
+
+
 def _first(row_names, df):
     """ค่าล่าสุด (คอลัมน์ซ้ายสุด) ของ 'ชื่อแถวสำรองตัวแรกที่มีค่าจริง', ไม่มีเลยคืน None.
 
@@ -420,7 +441,7 @@ def _compute_free_cash_flow(info: dict, cashflow) -> float | None:
     if fcf is not None:
         return float(fcf)
     # สำรอง: FCF = OCF + Capex (capex เก็บเป็นเลขติดลบอยู่แล้ว)
-    ocf = _first(["Operating Cash Flow", "Total Cash From Operating Activities"], cashflow)
+    ocf = _first(CFO_ROWS, cashflow)
     capex = _first(["Capital Expenditure", "Capital Expenditures"], cashflow)
     if ocf is not None and capex is not None:
         return ocf + capex
@@ -652,7 +673,7 @@ class StockFundamentalsProvider(FundamentalsProvider):
             market_cap=float(market_cap) if market_cap is not None else None,
             avg_volume=float(info["averageVolume"]) if info.get("averageVolume") is not None else None,
             net_income=_first(["Net Income", "Net Income Common Stockholders"], fin),
-            cfo=_first(["Operating Cash Flow", "Total Cash From Operating Activities"], cf),
+            cfo=_first(CFO_ROWS, cf),
             net_debt=_compute_net_debt(bs),
             capex=_first(["Capital Expenditure", "Capital Expenditures"], cf),
             # ชื่อสำรองเรียงจาก 'ตรงความหมายที่สุด' ไปหา 'กว้างที่สุด' — yfinance สลับชุดแถวที่คืนมา

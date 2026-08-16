@@ -23,7 +23,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.history.store import latest_per_ticker, history
+from src.evals.check_fact_stability import (
+    DEFAULT_WINDOW_DAYS as STABILITY_WINDOW_DAYS,
+    check_many as check_fact_stability,
+)
+from src.history.store import latest_per_ticker, history, all_rows
 from src.agent.changes import detect_changes, changes_over_window
 from src.agent.performance import portfolio_edge
 from src.watchlist.store import list_all
@@ -288,23 +292,42 @@ def _flag_mismatches(a: dict, key: str, source_label: str, ref_label: str, thres
     return f"🔴 **{a['ticker']}** — {source_label} accuracy {acc:.0%} ({detail})"
 
 
-def build_quality_report(threshold: float = EXTRACTION_WARN_THRESHOLD) -> str | None:
+def build_quality_report(threshold: float = EXTRACTION_WARN_THRESHOLD,
+                         rows: list[dict] | None = None) -> str | None:
     """สรุป ticker ที่ accuracy ต่ำกว่าเกณฑ์ — ทั้ง extraction (Phase 4, เทียบ yfinance เอง) และ
     xbrl (Phase 12, เทียบ SEC XBRL จริง — ground truth ที่อิสระกว่า) — alert-only เหมือน daily
-    report: คืน None ถ้าทุกตัวปกติ (เงียบไว้ ไม่ใช่ error ไม่ต้องส่งอะไร)."""
+    report: คืน None ถ้าทุกตัวปกติ (เงียบไว้ ไม่ใช่ error ไม่ต้องส่งอะไร).
+
+    rows = ประวัติ analyses ทั้งหมดสำหรับชั้นความนิ่งของข้อมูล (Phase 38) — รับเข้ามาได้เพื่อให้
+    เทสต์ฉีดของปลอมได้ แบบเดียวกับ scorecard(rows=) ไม่ใช่เพราะมีคนเรียกด้วยค่าอื่นจริง."""
     flagged = []
     for a in latest_per_ticker():
         f1 = _flag_mismatches(a, "extraction", "extraction", "yfinance", threshold)
         f2 = _flag_mismatches(a, "xbrl", "xbrl (SEC ground truth)", "xbrl", threshold)
         flagged += [f for f in (f1, f2) if f]
 
-    if not flagged:
+    # Phase 38: ตัวเลขที่หายๆ โผล่ๆ ข้ามวัน — คนละอาการกับ accuracy (ค่าที่ได้มา *ถูก* ทุกครั้ง
+    # แค่บางวันไม่ได้มา) แต่ปลายทางเดียวกันคือคะแนนขยับโดยที่บริษัทไม่ได้เปลี่ยน ซึ่งช่องนี้มีไว้จับ.
+    # เอาเฉพาะตัวที่ลากคะแนนไปด้วยจริง — 'หายจาก DATA เฉยๆ' ไม่คุ้มกับการรบกวนทุกวัน
+    history_rows = all_rows() if rows is None else rows
+    unstable = [r for r in check_fact_stability(history_rows, since_days=STABILITY_WINDOW_DAYS)
+                if r["score_impact"]]
+
+    if not flagged and not unstable:
         return None   # ไม่มีอะไรผิดปกติ = ไม่ต้องส่ง (เงียบตามหลัก alert-only)
 
-    lines = [f"🔬 **Extraction Accuracy Alert — {date.today().isoformat()}**", ""]
-    lines += flagged
-    lines.append("")
-    lines.append("ตรวจสอบเพิ่ม: `python -m src.providers.stock.fundamentals <TICKER>` หรือ `python -m src.evals.check_xbrl_accuracy`")
+    lines = [f"🔬 **Data Quality Alert — {date.today().isoformat()}**", ""]
+    if flagged:
+        lines += flagged
+        lines.append("")
+    if unstable:
+        lines.append(f"**ตัวเลขที่หายๆ โผล่ๆ ใน {STABILITY_WINDOW_DAYS} วันล่าสุด (ลากคะแนนไปด้วย)**")
+        for r in unstable[:6]:
+            lines.append(f"• `{r['ticker']}` **{r['label']}** — หาย {r['missing_days']}/"
+                         f"{r['total_days']} วัน, พลิก {r['flips']}x, กระทบคะแนน {r['score_impact']}x")
+        lines.append("")
+    lines.append("ตรวจสอบเพิ่ม: `python -m src.providers.stock.fundamentals <TICKER>` · "
+                 "`python -m src.evals.check_xbrl_accuracy` · `python -m src.evals.check_fact_stability`")
     return "\n".join(lines)
 
 
