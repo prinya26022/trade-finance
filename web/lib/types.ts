@@ -123,9 +123,39 @@ export type Valuation = {
     at_rotce?: number | null; // เลนส์ธนาคารใช้ ROTCE เป็นแกนแทน growth
     band_pp: number;
     band: { growth?: number; rotce?: number; discount_pct: number | null }[];
-    // ราคาขยับกี่ % ต่อ growth (หรือ ROTCE) 1pp — ตัวเลขที่บอกว่าควรเชื่อเลขข้างบนแค่ไหน
+    // ราคาขยับกี่ % ต่อ growth (หรือ ROTCE) 1pp — **ความไวเชิงกลไก ไม่ใช่ตัววัดความเปราะ**:
+    // วัดจริงทั้ง watchlist พบว่ามันเท่ากับ 7 × (ราคาที่คุ้มค่า ÷ ราคาตลาด) แทบเป๊ะ = เลข
+    // เดียวกับ discount_pct ที่อยู่ข้างๆ ตัวที่บอกความเปราะจริงคือ `agreement` ด้านล่าง
     pct_per_pp: number | null;
     lens?: string;
+  } | null;
+  // Phase 41: ราคาที่คุ้มค่าเปลี่ยนไปแค่ไหนถ้าเลือก anchor การเติบโตอีกตัวที่มีเหตุผลพอกัน —
+  // ไม่ใช่ช่วงความเชื่อมั่นทางสถิติ แต่คือ "คำตอบนี้ขึ้นกับการเลือกของเรามากแค่ไหน"
+  agreement?: {
+    candidates: {
+      source: string;
+      label: string;
+      family: "structure" | "history";
+      raw_growth: number;
+      growth: number;
+      discount_pct: number | null;
+      used: boolean;
+      rejected: boolean; // valuation_guard ปฏิเสธ anchor ตัวนี้ไปแล้วอย่างมีเหตุผล
+      capped: boolean; // ค่าดิบชนเพดานก่อนเข้าโมเดล -> เลขที่ออกมาคือเพดาน ไม่ใช่ข้อมูล
+    }[];
+    used: string | null;
+    used_discount_pct: number | null;
+    used_is_most_generous: boolean; // ส่วนลดที่โชว์คือขอบที่ดีที่สุดของช่วง ไม่ใช่จุดกึ่งกลาง
+    growth_spread_pp: number;
+    discount_lo: number;
+    discount_hi: number;
+    discount_spread_pp: number;
+    level: "narrow" | "mixed" | "wide";
+    capped_count: number;
+    // ช่วงแคบเพราะเพดาน growth กลืนความไม่เห็นตรงกันไปหมด ไม่ใช่เพราะข้อมูลเห็นตรงกันจริง
+    // (NVDA: ประวัติสามตัวบอก 194%/65%/100% ต่อปี แต่ทุกตัวชนเพดาน 35% แล้วออกมา 18.29% เท่ากัน)
+    narrow_by_cap: boolean;
+    structure_vs_history_pp: number | null;
   } | null;
 };
 
@@ -189,6 +219,11 @@ export type ScreenerResult = {
   // Phase 40: gap ในหน่วยราคา + ความไวของมัน — ตั้งใจไม่ใช้เรียงลำดับ (นั่นคือการทำสัญญาณซื้อ)
   fair_discount_pct?: number | null;
   fair_pct_per_pp?: number | null;
+  // Phase 41: ส่วนลดข้างบนขยับกี่ pp ถ้าเลือก anchor การเติบโตอีกตัว — ตัวที่บอกว่าควรเชื่อ
+  // ตัวเลขข้างบนแค่ไหนจริงๆ (fair_pct_per_pp บอกไม่ได้ ดู Valuation.fair.pct_per_pp)
+  fair_spread_pp?: number | null;
+  fair_level?: "narrow" | "mixed" | "wide" | null;
+  fair_narrow_by_cap?: boolean | null;
   valuation_score: number | null;
   implied_growth: number | null;
   realistic_growth: number | null;

@@ -118,6 +118,9 @@ def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
             "gap": None,
             "fair_discount_pct": None,
             "fair_pct_per_pp": None,
+            "fair_spread_pp": None,
+            "fair_level": None,
+            "fair_narrow_by_cap": None,
             "lens": (dcf or {}).get("lens", "NA"),
             "pe": _fact_value(facts, "P/E"),
             "roic": _fact_value(facts, "ROIC"),
@@ -147,6 +150,13 @@ def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
         # สิ่งที่โปรเจกต์นี้ทำ — อันดับยังมาจากคะแนนคุณภาพเหมือนเดิม ตัวเลขนี้เป็นข้อมูลข้างๆ
         "fair_discount_pct": (dcf.get("fair") or {}).get("discount_pct"),
         "fair_pct_per_pp": (dcf.get("fair") or {}).get("pct_per_pp"),
+        # Phase 41: ตัวที่บอก 'ควรเชื่อส่วนลดข้างบนแค่ไหน' จริง — pct_per_pp บอกไม่ได้เพราะมัน
+        # ≈ 7 × (ราคาที่คุ้มค่า ÷ ราคาตลาด) คือเลขเดียวกับส่วนลดที่อยู่ข้างๆ มันเอง
+        "fair_spread_pp": (dcf.get("agreement") or {}).get("discount_spread_pp"),
+        "fair_level": (dcf.get("agreement") or {}).get("level"),
+        # ช่วงแคบเพราะเพดาน growth ไม่ใช่เพราะข้อมูลตรงกัน (NVDA) — ถ้าปล่อยให้ระบายเขียวเฉยๆ
+        # คอลัมน์นี้จะยิ่งดูมั่นใจตอนที่ยิ่งควรระวัง ซึ่งแย่กว่าไม่มีคอลัมน์เลย
+        "fair_narrow_by_cap": (dcf.get("agreement") or {}).get("narrow_by_cap"),
         "lens": dcf.get("lens", "NA"),
         "pe": _fact_value(facts, "P/E"),
         "roic": _fact_value(facts, "ROIC"),

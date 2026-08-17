@@ -245,10 +245,12 @@ export default function TickerDetail({
                     </span>
                   </div>
                   {a.valuation.fair.pct_per_pp != null && (
-                    <p className="fair-sens">
-                      ไวมาก: {a.valuation.fair.at_rotce != null ? "ROTCE" : "การเติบโต"} ต่างไป 1pp
-                      = ราคาขยับ <strong>{a.valuation.fair.pct_per_pp.toFixed(1)}%</strong>
-                    </p>
+                    <Tip def="ความไวเชิงกลไกของโมเดล ไม่ใช่ตัววัดว่าธุรกิจนี้ประเมินยากแค่ไหน — วัดจริงทั้ง watchlist แล้วพบว่าเลขนี้เท่ากับ 7 × (ราคาที่คุ้มค่า ÷ ราคาตลาด) แทบเป๊ะ คือข้อมูลเดียวกับส่วนลดที่อยู่ข้างบนมันเอง. ตัวที่บอกว่าควรเชื่อแค่ไหนจริงๆ คือช่วง 'ถ้าวัดการเติบโตอีกวิธี' ด้านล่าง">
+                      <p className="fair-sens">
+                        {a.valuation.fair.at_rotce != null ? "ROTCE" : "การเติบโต"} ต่างไป 1pp
+                        = ราคาขยับ <strong>{a.valuation.fair.pct_per_pp.toFixed(1)}%</strong>
+                      </p>
+                    </Tip>
                   )}
                   <div className="fair-band">
                     {a.valuation.fair.band.map((b, i) => (
@@ -258,6 +260,66 @@ export default function TickerDetail({
                       </span>
                     ))}
                   </div>
+                  {/* Phase 41: ความเปราะจริงไม่ได้อยู่ที่ ±1pp รอบ anchor ที่เลือกแล้ว แต่อยู่ที่
+                      **การเลือก anchor** — MSFT ของจริง: โครงสร้างธุรกิจบอก 17.2%/ปี ประวัติ FCF
+                      บอก 3-5%/ปี ส่วนลดจึงวิ่ง -27% ถึง -74% ทั้งที่หน้าจอโชว์เลขเดียวอย่างมั่นใจ.
+                      ส่วน MA ทุกวิธีตอบ 8.1-9.9% ตรงกันหมด (ขยับแค่ 11pp) ทั้งที่ pct_per_pp
+                      ของ MA สูงกว่า MSFT ด้วยซ้ำ — ซึ่งคือหลักฐานว่าบรรทัดข้างบนวัดผิดตัว */}
+                  {a.valuation.agreement && (
+                    <div className={`fair-agree fair-agree-${a.valuation.agreement.level}`}>
+                      <Tip def="ถ้าเราเลือกวิธีวัดการเติบโตอีกตัวที่มีเหตุผลพอกัน ราคาที่คุ้มค่าจะออกมาเท่าไร. ช่วงแคบ = ทุกวิธีเห็นตรงกัน คำตอบทนต่อการเปลี่ยนวิธี. ช่วงกว้าง = ยังไม่มีใครรู้ว่าบริษัทนี้โตเท่าไร รวมทั้งเราด้วย. ไม่ใช่ช่วงความเชื่อมั่นทางสถิติ และเป็นขอบบนโดยตั้งใจ — บาง anchor ในลิสต์คือตัวที่โมเดลปฏิเสธไปแล้วอย่างมีเหตุผล (ติดป้าย 'ไม่ถูกเลือก' ไว้)">
+                        <span className="fair-agree-head">
+                          ถ้าวัดการเติบโตอีกวิธี:{" "}
+                          <strong>
+                            {a.valuation.agreement.discount_lo >= 0 ? "+" : ""}
+                            {a.valuation.agreement.discount_lo.toFixed(0)}% ถึง{" "}
+                            {a.valuation.agreement.discount_hi >= 0 ? "+" : ""}
+                            {a.valuation.agreement.discount_hi.toFixed(0)}%
+                          </strong>{" "}
+                          <span className="muted-sm">
+                            (
+                            {a.valuation.agreement.narrow_by_cap
+                              ? "แคบเพราะเพดาน ไม่ใช่เพราะเห็นตรงกัน"
+                              : a.valuation.agreement.level === "narrow"
+                                ? "ทุกวิธีเห็นตรงกัน"
+                                : a.valuation.agreement.level === "wide"
+                                  ? "วิธีวัดแต่ละแบบตอบคนละเรื่อง"
+                                  : "เห็นไม่ตรงกันพอสมควร"}
+                            )
+                          </span>
+                        </span>
+                      </Tip>
+                      <ul className="fair-agree-list">
+                        {a.valuation.agreement.candidates.map((c) => (
+                          <li key={c.source} className={c.used ? "fair-agree-used" : c.rejected ? "fair-agree-out" : ""}>
+                            <span className="fair-agree-src">{c.label}</span>
+                            <span className="fair-agree-num">
+                              {c.growth.toFixed(1)}% →{" "}
+                              {c.discount_pct != null
+                                ? `${c.discount_pct >= 0 ? "+" : ""}${c.discount_pct.toFixed(0)}%`
+                                : "—"}
+                              {c.capped && <span className="fair-agree-tag">ชนเพดาน</span>}
+                              {c.used && <span className="fair-agree-tag">ที่ใช้อยู่</span>}
+                              {c.rejected && !c.used && <span className="fair-agree-tag">ไม่ถูกเลือก</span>}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      {a.valuation.agreement.narrow_by_cap && (
+                        <p className="muted fair-note">
+                          ⚠ ช่วงนี้แคบเพราะ anchor {a.valuation.agreement.capped_count} ตัว
+                          <b> ชนเพดานการเติบโตเท่ากันหมด</b> ไม่ใช่เพราะข้อมูลเห็นตรงกัน —
+                          ความแคบเป็นสมบัติของกติกาเรา ไม่ใช่หลักฐานเรื่องบริษัทนี้
+                        </p>
+                      )}
+                      {a.valuation.agreement.used_is_most_generous && (
+                        <p className="muted fair-note">
+                          anchor ที่เลือกให้ผลลัพธ์ที่ <b>ใจกว้างที่สุด</b> ในบรรดาตัวเลือกทั้งหมด —
+                          ส่วนลดข้างบนจึงเป็นขอบที่ดีที่สุดของช่วง ไม่ใช่จุดกึ่งกลาง
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <p className="muted fair-note">
                     เลขนี้แขวนอยู่บนประมาณการการเติบโตตัวเดียว และ DCF {a.valuation.years} ปีขยาย
                     ความต่างของมันเป็นทวีคูณ — แถบด้านบนคือช่วงที่ได้ถ้าเราประมาณพลาด ±

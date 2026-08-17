@@ -1621,6 +1621,69 @@ quality score and this rides alongside as data.
   exceeding enterprise value, for an invalid Gordon model and for rows with no anchor at all --
   plus the bank lens carrying its own. Suite 530/530.
 
+## Phase 41 -- the fragility number from Phase 40 was measuring itself
+
+Asked how we actually *know* DUOL is six times more fragile than AAPL, I measured `pct_per_pp`
+across the whole watchlist instead of trusting the story I had told about it. **It carries almost no
+information that is not already in the number printed beside it.**
+
+The elasticity of enterprise value to growth turns out to be nearly constant across every name --
+6.5% to 7.7% of EV per point -- because `intrinsic_value` is *linear* in `fcf_base`, so the derivative
+depends on `(wacc, growth, horizon)` and not on the company at all. What is left is arithmetic:
+
+    pct_per_pp ≈ 7 × (fair value ÷ market cap)
+
+Mean error 8.2%, worst 21.2% across the 12 names that compute. Since `discount_pct` **is**
+`fair ÷ price − 1`, the sensitivity column was a restatement of the discount column. "DUOL is six
+times more sensitive than AAPL" is true and mechanical -- DUOL's fair value is six times larger
+relative to its price -- and says nothing whatsoever about which business is harder to value, which
+is exactly what the word "sensitivity" invites you to conclude. A pinned test now asserts the
+identity, so if the model constants ever change enough to break it, the rationale for this phase
+gets re-examined instead of silently rotting.
+
+**The real fragility is which anchor got picked, not ±1pp around the anchor already picked.** We have
+several defensible ways to measure growth -- structure (`reinvestment × ROIC`) and history (FCF CAGR
+short and long, revenue growth). `anchor_agreement()` re-prices the stock under each one and reports
+the range *in price units*. Every candidate passes through its own family's rules first (sustainable
+capped at 20%, history faded through `growth_lens_realistic`), because comparing a faded anchor to a
+raw one compares two different things.
+
+What it found, live:
+
+| | discount | `pct_per_pp` | range across anchors |
+|---|---|---|---|
+| MA | −23% | 6.1 | **−30% … −19%** (every method agrees, 8.1–9.9%) |
+| MSFT | −27% | 5.4 | **−74% … −27%** (structure 17.2%, FCF history 3.3–5.0%) |
+| DUOL | +121% | 15.3 | **−56% … +121%** |
+| TSLA | −96% | 0.2 | **−97% … −96%** |
+
+MA has the *higher* `pct_per_pp` of the first pair and the sturdiest number on the board; MSFT's
+−27% rests entirely on believing that reinvestment converts to growth at ROIC, which is defensible
+but is a modelling choice, not a measurement. The old column ranked those two backwards.
+
+**Two things it says out loud that the honest version requires:**
+
+- **The chosen anchor is the most generous of the candidates in 11 of 13 names.** Not a bug --
+  `reinvestment × ROIC` *should* exceed an FCF CAGR that growth capex is suppressing, by definition
+  -- but it means the discount on screen is the best edge of the range, not its middle.
+- **Narrow is not always agreement.** NVDA's three history anchors say 193.9%, 65.5% and 100.1% per
+  year -- different planets -- yet all three hit `CAP_INITIAL_GROWTH` (35%) and fade out to *exactly*
+  18.29%, collapsing the range to 10.7pp. That narrowness is a property of our own rules, not
+  evidence about NVDA, and unflagged it would make the display most confident precisely where it
+  should be most careful. `narrow_by_cap` catches it; DUOL, whose width is real, is correctly not
+  flagged.
+
+Anchors the guard already rejected stay in the list, marked `rejected`, rather than being hidden --
+dropping the candidates we dislike is how a number gets made to look sturdier than it is. The range
+is an **upper bound on uncertainty**, and labelled as one; it is not a confidence interval, and we
+have no distribution to claim one from.
+
+Screener swaps the redundant `±%/pp` sub-line for `±Npp ตามวิธีวัด`, colour-coded, never green when
+narrowness came from the cap. Ticker page lists every candidate with its growth, its resulting
+discount, and which one is live.
+
+- 18 new offline tests, plus one that pins the `7 × (fair ÷ price)` finding itself. Suite 548/548.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

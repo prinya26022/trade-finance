@@ -162,6 +162,137 @@ def fair_value(dcf: dict, market_cap: float | None, band_pp: float = FAIR_BAND_P
     }
 
 
+# ── ความมั่นใจในราคาที่คุ้มค่า (Phase 41) ─────────────────────────────────────────
+# วัดจริงกับ watchlist ทั้งชุด 2026-08-17 แล้วพบว่า `pct_per_pp` ที่ Phase 40 โชว์เป็น "ตัววัด
+# ความเปราะ" นั้น **ซ้ำซ้อนกับตัวเลขที่อยู่ข้างๆ มันเอง**: ความยืดหยุ่นของ EV ต่อ growth 1pp
+# แทบคงที่ทุกตัว (6.5-7.7% ของ EV) เพราะมันขึ้นกับ (wacc, g, horizon) ไม่ใช่ตัวบริษัท — ดังนั้น
+#     pct_per_pp ≈ 7 × (ราคาที่คุ้มค่า ÷ ราคาตลาด)
+# คลาดเคลื่อนเฉลี่ย 8.2% สูงสุด 21.2% จาก 12 ตัวที่คำนวณได้. แปลว่า "DUOL ไวกว่า AAPL 6 เท่า"
+# เป็นความจริงเชิงกลไกล้วน (fair/price ของ DUOL สูงกว่า 6 เท่า) ไม่ได้แปลว่าธุรกิจ DUOL
+# ประเมินยากกว่า — ซึ่งเป็นสิ่งที่คำว่า "ความไว" ชวนให้เข้าใจ
+#
+# ความเปราะจริงอยู่คนละที่: **ราคาที่คุ้มค่าแขวนอยู่บน "การเลือก anchor" ไม่ใช่บน ±1pp รอบ
+# anchor ที่เลือกแล้ว.** เรามีวิธีวัดการเติบโตอยู่หลายทางที่มีเหตุผลพอกัน (โครงสร้าง:
+# reinvestment × ROIC / ประวัติ: FCF CAGR สั้น-ยาว, รายได้) — ถ้าทุกทางตอบใกล้กัน คำตอบมั่นคง
+# ถ้าตอบคนละเรื่อง คำตอบคือเหรียญที่โยนไปแล้วหนึ่งครั้ง. วัดจริง: MA ทุก anchor ตอบ 8.1-9.9%
+# (ส่วนลดขยับแค่ 11pp) แต่ MSFT โครงสร้างบอก 17.2% ประวัติ FCF บอก 3.3-5.0% — ส่วนลดวิ่งจาก
+# -27% ถึง -74%. ทั้งที่ pct_per_pp ของ MA (6.1) สูงกว่า MSFT (5.4) ด้วยซ้ำ
+_SPREAD_NARROW_PP = 25.0   # ส่วนลดขยับน้อยกว่านี้เมื่อสลับ anchor = ทุกวิธีเห็นตรงกัน
+_SPREAD_WIDE_PP = 60.0     # เกินนี้ = คำตอบขึ้นกับว่าเลือก anchor ไหน มากกว่าขึ้นกับตัวธุรกิจ
+
+ANCHOR_LABELS = {
+    "sustainable": "โครงสร้าง: reinvestment × ROIC",
+    "fcf_long": "ประวัติ: FCF CAGR ยาว (งบที่ยื่นจริง)",
+    "fcf": "ประวัติ: FCF CAGR (หน้าต่าง yfinance)",
+    "revenue_recent": "ประวัติ: รายได้โตปีล่าสุด",
+    "revenue_cagr": "ประวัติ: รายได้ CAGR",
+}
+# ครอบครัวของ anchor — สองครอบครัวนี้ตอบคนละคำถาม ("ธุรกิจลงทุนกลับเท่าไรแล้วได้ผลตอบแทน
+# เท่าไร" vs "ที่ผ่านมามันโตเท่าไรจริง") การที่มันไม่ตรงกันจึงเป็นข้อมูล ไม่ใช่ error
+ANCHOR_FAMILY = {"sustainable": "structure"}
+
+
+def anchor_realistic(source: str, raw_pct: float, terminal_growth: float, years: int) -> float:
+    """แปลง anchor ดิบเป็น realistic_growth ตามกติกาของครอบครัวตัวเอง — sustainable โดน cap
+    ที่ SUSTAINABLE_GROWTH_CAP ส่วน anchor ฝั่งประวัติโดน fade ผ่าน growth_lens_realistic
+    เหมือนที่ reverse_dcf ทำจริงถ้าเลือกตัวนั้น. ต้องผ่านกติกาเดียวกันถึงจะเทียบกันได้ —
+    ไม่งั้นจะเทียบ 'ตัวที่ถูก fade แล้ว' กับ 'ตัวดิบ' ซึ่งคนละหน่วยความหมาย"""
+    if source == "sustainable":
+        return round(max(-100.0, min(SUSTAINABLE_GROWTH_CAP * 100, raw_pct)), 2)
+    return growth_lens_realistic(raw_pct, terminal_growth, years)
+
+
+def anchor_agreement(dcf: dict, market_cap: float | None, raw: dict[str, float | None],
+                     used: str | None) -> dict | None:
+    """"ถ้าเราเลือก anchor อีกตัวที่มีเหตุผลพอกัน ราคาที่คุ้มค่าจะเปลี่ยนไปแค่ไหน" — คืน None
+    ถ้ามี anchor ที่คำนวณได้น้อยกว่าสองตัว (ไม่มีอะไรให้เทียบ = ไม่มีสิทธิ์พูดเรื่องความมั่นใจ).
+
+    **มันไม่ใช่ช่วงความเชื่อมั่นทางสถิติ และไม่ใช่การบอกว่า anchor ที่เลือกผิด** — มันคือ
+    "คำตอบนี้ขึ้นกับการเลือกของเรามากแค่ไหน". ช่วงแคบ = ทุกวิธีวัดการเติบโตเห็นตรงกัน คำตอบ
+    ทนต่อการเปลี่ยนวิธี. ช่วงกว้าง = ยังไม่มีใครรู้ว่าบริษัทนี้โตเท่าไร รวมทั้งเราด้วย
+
+    ค่าที่ได้เป็น **ขอบบน** ของความไม่แน่นอนโดยตั้งใจ: บาง anchor ในลิสต์คือตัวที่
+    valuation_guard ปฏิเสธไปแล้วอย่างมีเหตุผล (DUOL: sustainable ติดลบเพราะ deferred revenue
+    ทำให้ reinvestment ติดลบ ซึ่ง Phase 18 พิสูจน์แล้วว่าเป็นสูตรที่พังกับธุรกิจแบบนี้ ไม่ใช่
+    ความจริงเรื่อง DUOL) — เก็บไว้ในลิสต์เพราะการซ่อนตัวที่ไม่ชอบใจออกคือการทำให้เลขดูมั่นคง
+    กว่าที่เป็น แต่ติดธง `rejected` ไว้ให้อ่านออกว่าตัวไหนคือตัวที่โมเดลไม่เลือกและเพราะอะไร
+    """
+    if not dcf or market_cap is None or market_cap <= 0:
+        return None
+    tg, years = dcf.get("terminal_growth"), dcf.get("years")
+    if tg is None or years is None:
+        return None
+
+    rejected = set(dcf.get("flags") or [])
+    cands = []
+    for source, raw_pct in raw.items():
+        if raw_pct is None:
+            continue
+        family = ANCHOR_FAMILY.get(source, "history")
+        growth = anchor_realistic(source, raw_pct, tg / 100.0, years)
+        alt = fair_value({**dcf, "realistic_growth": growth}, market_cap)
+        cands.append({
+            "source": source,
+            "label": ANCHOR_LABELS.get(source, source),
+            "family": family,
+            "raw_growth": round(raw_pct, 2),
+            "growth": growth,
+            "discount_pct": alt["discount_pct"] if alt else None,
+            "used": source == used,
+            # sustainable ถูกปฏิเสธก็ต่อเมื่อ guard ติดธง — ธงพวกนั้นพูดถึง sustainable ล้วน
+            "rejected": source == "sustainable" and bool(rejected),
+            # anchor ที่ค่าดิบชนเพดานก่อนเข้าโมเดล -> ค่าที่ออกมาคือ 'เพดาน' ไม่ใช่ 'ข้อมูล'
+            "capped": (raw_pct > CAP_INITIAL_GROWTH * 100 if family == "history"
+                       else raw_pct > SUSTAINABLE_GROWTH_CAP * 100),
+        })
+    discounts = [c["discount_pct"] for c in cands if c["discount_pct"] is not None]
+    if len(discounts) < 2:
+        return None
+
+    lo, hi = min(discounts), max(discounts)
+    spread = round(hi - lo, 1)
+    growths = [c["growth"] for c in cands]
+    level = ("narrow" if spread < _SPREAD_NARROW_PP
+             else "wide" if spread > _SPREAD_WIDE_PP else "mixed")
+
+    # ── ช่วงแคบเทียมจากเพดาน (เจอตอนวัด NVDA/DUOL จริง) ───────────────────────────
+    # NVDA: anchor ฝั่งประวัติสามตัวคือ FCF CAGR 193.9%, รายได้ปีล่าสุด 65.5%, รายได้ CAGR
+    # 100.1% — ต่างกันคนละโลก แต่ทั้งสามชนเพดาน CAP_INITIAL_GROWTH (35%) แล้ว fade ออกมาเป็น
+    # 18.29% เท่ากันเป๊ะทั้งสามตัว ทำให้ช่วงแคบเหลือ 10.7pp และดูเหมือน "ทุกวิธีเห็นตรงกัน"
+    # ทั้งที่ความจริงคือ **เพดานกลืนความไม่เห็นตรงกันไปหมด** — ความแคบนั้นเป็นสมบัติของกติกา
+    # เรา ไม่ใช่หลักฐานเรื่องบริษัท. ถ้าไม่บอก มันจะเป็นตัวเลขที่ยิ่งมั่นใจตอนที่ยิ่งควรระวัง
+    capped_history = [c for c in cands if c["capped"] and c["family"] == "history"]
+    narrow_by_cap = level == "narrow" and len(capped_history) >= 2
+
+    # ระยะห่างระหว่างสองครอบครัว — ต้นตอของช่วงกว้างเกือบทุกเคสที่วัดมา (AAPL/ADBE/DUOL/MSFT)
+    st = [c["growth"] for c in cands if c["family"] == "structure"]
+    hist = [c["growth"] for c in cands if c["family"] == "history"]
+    structure_vs_history = (round(st[0] - sum(hist) / len(hist), 2) if st and hist else None)
+
+    # anchor ที่เลือกไปให้ราคาที่คุ้มค่า "ใจกว้างที่สุด" ในบรรดาตัวเลือกหรือเปล่า — วัดจริงกับ
+    # watchlist พบ 11/13 ตัวเป็นแบบนั้น (standard lens เลือก sustainable ซึ่งสูงกว่าประวัติเกือบ
+    # ทุกครั้ง). ไม่ได้แปลว่าเลือกผิด — reinvestment × ROIC ควรสูงกว่า FCF CAGR ที่ถูกกด
+    # ด้วย capex ของการเติบโตอยู่แล้วโดยนิยาม — แต่แปลว่าส่วนลดที่เห็นคือ **ขอบที่ดีที่สุด**
+    # ของช่วง ไม่ใช่จุดกึ่งกลาง ซึ่งเป็นคนละเรื่องกันมากเวลาอ่าน
+    used_row = next((c for c in cands if c["used"]), None)
+    used_discount = used_row["discount_pct"] if used_row else None
+
+    return {
+        "candidates": sorted(cands, key=lambda c: (c["discount_pct"] is None, c["discount_pct"])),
+        "used": used,
+        "used_discount_pct": used_discount,
+        "used_is_most_generous": used_discount is not None and used_discount >= hi,
+        "growth_spread_pp": round(max(growths) - min(growths), 2),
+        "discount_lo": lo,
+        "discount_hi": hi,
+        "discount_spread_pp": spread,
+        "level": level,
+        "capped_count": len(capped_history),
+        "narrow_by_cap": narrow_by_cap,
+        "structure_vs_history_pp": structure_vs_history,
+    }
+
+
 def implied_growth_rate(
     target_value: float,
     fcf_base: float,
@@ -526,6 +657,18 @@ def reverse_dcf(
     fcf_series = getattr(fundamentals, "fcf_series", None)
     revenue_series = getattr(fundamentals, "revenue_series", None)
 
+    # Phase 41: คำนวณ anchor "ทุกตัวที่คำนวณได้" ตรงนี้ที่เดียว แล้วให้ทั้งขาเลือก lens และขา
+    # วัดความมั่นใจอ่านจากชุดเดียวกัน — เดิม fcf_growth/long_cagr ถูกคำนวณในกิ่ง growth เท่านั้น
+    # ทำให้หุ้น standard lens (MSFT/GOOGL/META/...) ไม่เคยรู้ด้วยซ้ำว่า anchor ฝั่งประวัติของมัน
+    # ตอบว่าเท่าไร ทั้งที่นั่นคือข้อมูลที่ชี้ขาดว่าควรเชื่อราคาที่คุ้มค่าแค่ไหน
+    raw_anchors = {
+        "sustainable": sustainable,
+        "fcf_long": getattr(fundamentals, "fcf_cagr_long", None),
+        "fcf": _fcf_growth_multiyear(fcf_series),
+        "revenue_recent": rev_growth_recent,
+        "revenue_cagr": historical_cagr,
+    }
+
     if route == "growth":
         lens = "growth"
         # audit fix 19.4: anchor บน FCF growth ก่อนเสมอถ้าคำนวณได้ (unit เดียวกับ implied_growth
@@ -535,21 +678,24 @@ def reverse_dcf(
         # — หน้าต่าง 4 ปีที่บังเอิญเริ่มปีผิดปกติทำให้ 'เทรนด์' กลายเป็น 'ระยะห่างจากปีนั้น'
         # (CVX เริ่มที่ยอดพีคน้ำมัน FY2022). provider ตรวจแล้วว่าปีที่ทับกันตรงกับ yfinance
         # ถึงจะยอมส่งค่ามา ไม่งั้นส่ง None แล้วตรงนี้ทำงานเหมือนเดิมทุกประการ
-        long_cagr = getattr(fundamentals, "fcf_cagr_long", None)
+        long_cagr = raw_anchors["fcf_long"]
         long_window = getattr(fundamentals, "fcf_long_window", None)
-        fcf_growth = _fcf_growth_multiyear(fcf_series)
+        fcf_growth = raw_anchors["fcf"]
         if long_cagr is not None:
-            anchor_growth = long_cagr
+            anchor_growth, used_anchor = long_cagr, "fcf_long"
             window = {"source": "fcf_long", "years": getattr(fundamentals, "fcf_long_years", None),
                       "start": (long_window or "-").split("-")[0],
                       "end": (long_window or "-").split("-")[-1],
                       "starts_at_max": False, "starts_at_min": False, "flags": []}
         elif fcf_growth is not None:
-            anchor_growth, window = fcf_growth, _anchor_window(fcf_series, "fcf")
+            anchor_growth, used_anchor = fcf_growth, "fcf"
+            window = _anchor_window(fcf_series, "fcf")
         elif rev_growth_recent is not None:
-            anchor_growth, window = rev_growth_recent, _anchor_window(revenue_series, "revenue")
+            anchor_growth, used_anchor = rev_growth_recent, "revenue_recent"
+            window = _anchor_window(revenue_series, "revenue")
         else:
-            anchor_growth, window = historical_cagr, _anchor_window(revenue_series, "revenue_cagr")
+            anchor_growth, used_anchor = historical_cagr, "revenue_cagr"
+            window = _anchor_window(revenue_series, "revenue_cagr")
         realistic_growth = (
             growth_lens_realistic(anchor_growth, terminal_growth, years)
             if anchor_growth is not None else historical_cagr
@@ -560,10 +706,12 @@ def reverse_dcf(
         # -> ไม่มีประเด็นเรื่องหน้าต่าง ยกเว้นตอนตกไปใช้ historical_cagr เป็น fallback
         if sustainable is not None:
             realistic_growth = round(max(-100.0, min(SUSTAINABLE_GROWTH_CAP * 100, sustainable)), 2)
+            used_anchor = "sustainable"
             window = {"source": "sustainable", "years": None, "start": None, "end": None,
                       "starts_at_max": False, "starts_at_min": False, "flags": []}
         else:
             realistic_growth = historical_cagr
+            used_anchor = "revenue_cagr"
             window = _anchor_window(revenue_series, "revenue_cagr")
 
     implied = implied_growth_rate(ev, fcf_base, wacc, terminal_growth, years)
@@ -589,6 +737,9 @@ def reverse_dcf(
     # คำนวณที่นี่ที่เดียวแล้วติดไปกับผล เพื่อให้ทุกฝั่ง (คะแนน/หน้าเว็บ/ประวัติ) อ่านเลขตัวเดียวกัน
     # — บั๊กประจำของโปรเจกต์คือตรรกะเดียวกันถูกเขียนสองที่แล้วตอบไม่ตรงกัน (33.3, 34, 39)
     out["fair"] = fair_value(out, market_cap)
+    # Phase 41: ราคาที่คุ้มค่าเปลี่ยนไปแค่ไหนถ้าเลือก anchor อีกตัว — ตัวเลขที่ `pct_per_pp`
+    # ทำท่าจะบอกแต่บอกไม่ได้จริง (ดู block ความเห็นเหนือ anchor_agreement)
+    out["agreement"] = anchor_agreement(out, market_cap, raw_anchors, used_anchor)
     return out
 
 
