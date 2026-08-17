@@ -494,8 +494,30 @@ def _bank_valuation_score(facts: list[dict], risk_free_pct: float) -> dict:
         + _graded_below(premium_pp, BANK_PREMIUM_FAIR_PCT, BANK_PREMIUM_BAND_PCT),
         2,
     )
+    # ราคาที่คุ้มค่าฝั่งธนาคาร (Phase 40) — เลนส์คนละตัวกับ reverse-DCF จึงต้องคิดของตัวเอง
+    # ห้ามปล่อยว่างเฉยๆ: แบงก์เคยหายจาก screener ทั้งกลุ่มมาแล้วเพราะ "เลนส์นี้ไม่มีของนั้น" (33.3)
+    #
+    # justified P/B = (ROTCE − g)/(COE − g) แปลว่า ราคาที่คุ้มค่า/ราคาวันนี้ = justified_pb / pb
+    # ตรงๆ — ไม่ต้องรู้จำนวนหุ้นหรือ book value ต่อหุ้นเลย (เหตุผลเดียวกับที่ฝั่ง DCF คืนสัดส่วน)
+    # ความไววัดเป็น "ต่อ ROTCE 1pp" ซึ่งเป็นหน่วยที่มีความหมายกับแบงก์ ไม่ใช่ growth
+    def _discount_at(r: float) -> float | None:
+        jpb = (r - g_pct) / (coe_pct - g_pct)
+        return round((jpb / pb - 1) * 100, 1) if jpb > 0 else None
+
+    band = [{"rotce": round(r, 2), "discount_pct": d}
+            for r in (rotce - 1.0, rotce, rotce + 1.0)
+            if (d := _discount_at(r)) is not None]
+    fair = {
+        "market_cap": None,          # เลนส์นี้ให้สัดส่วน ไม่ได้ให้มูลค่ากิจการเป็นตัวเงิน
+        "discount_pct": _discount_at(rotce),
+        "at_growth": None, "at_rotce": rotce,
+        "band_pp": 1.0, "band": band,
+        "pct_per_pp": (round(1.0 / (coe_pct - g_pct) / pb * 100, 1) if pb else None),
+        "lens": "bank_pb",
+    }
+
     return {
-        "score": score, "excluded": False, "lens": "bank_pb",
+        "score": score, "excluded": False, "lens": "bank_pb", "fair": fair,
         "rotce": rotce, "pb": pb, "justified_pb": round(justified_pb, 2),
         "premium_pct": premium_pp, "coe": round(coe_pct, 2),
         "terminal_growth": round(g_pct, 2),

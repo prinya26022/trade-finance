@@ -116,6 +116,8 @@ def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
             "implied_growth": None,
             "realistic_growth": None,
             "gap": None,
+            "fair_discount_pct": None,
+            "fair_pct_per_pp": None,
             "lens": (dcf or {}).get("lens", "NA"),
             "pe": _fact_value(facts, "P/E"),
             "roic": _fact_value(facts, "ROIC"),
@@ -140,6 +142,11 @@ def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
         "implied_growth": dcf.get("implied_growth"),
         "realistic_growth": dcf.get("realistic_growth"),
         "gap": dcf.get("gap"),
+        # Phase 40: gap ตัวเดียวกันในหน่วยราคา — ที่นี่คือที่ที่มันมีประโยชน์ที่สุด เพราะเทียบ 40 ตัว
+        # พร้อมกัน. **ไม่เอาไปเรียงลำดับ** เจตนา: การเรียงตามส่วนลดคือการทำสัญญาณซื้อ ซึ่งไม่ใช่
+        # สิ่งที่โปรเจกต์นี้ทำ — อันดับยังมาจากคะแนนคุณภาพเหมือนเดิม ตัวเลขนี้เป็นข้อมูลข้างๆ
+        "fair_discount_pct": (dcf.get("fair") or {}).get("discount_pct"),
+        "fair_pct_per_pp": (dcf.get("fair") or {}).get("pct_per_pp"),
         "lens": dcf.get("lens", "NA"),
         "pe": _fact_value(facts, "P/E"),
         "roic": _fact_value(facts, "ROIC"),

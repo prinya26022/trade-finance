@@ -113,6 +113,20 @@ export type Valuation = {
     starts_at_min: boolean;
     flags: string[];
   } | null;
+  // Phase 40: gap เดิมในหน่วยราคา — ไม่ใช่ราคาเป้าหมายและไม่ใช่สัญญาณซื้อ (โปรเจกต์นี้ไม่ฟันธง
+  // จังหวะ) แต่คือ "ตลาดขอราคาสูง/ต่ำกว่าที่ประมาณการของเรารองรับกี่ %" ซึ่งเป็นข้อมูลเดียวกับ
+  // gap ที่โชว์อยู่แล้ว แค่อยู่ในหน่วยที่เจ้าของใช้ซื้อขายจริง
+  fair?: {
+    market_cap: number | null; // null สำหรับเลนส์ธนาคาร (ให้สัดส่วน ไม่ได้ให้ตัวเงิน)
+    discount_pct: number | null; // ลบ = ราคาวันนี้แพงกว่าที่ประมาณการรองรับ
+    at_growth: number | null;
+    at_rotce?: number | null; // เลนส์ธนาคารใช้ ROTCE เป็นแกนแทน growth
+    band_pp: number;
+    band: { growth?: number; rotce?: number; discount_pct: number | null }[];
+    // ราคาขยับกี่ % ต่อ growth (หรือ ROTCE) 1pp — ตัวเลขที่บอกว่าควรเชื่อเลขข้างบนแค่ไหน
+    pct_per_pp: number | null;
+    lens?: string;
+  } | null;
 };
 
 // Phase 13: agentic investigation transcript — ทุกสเต็ปที่ agent ตัดสินใจ+เรียก tool เอง
@@ -172,6 +186,9 @@ export type ScreenerResult = {
   // Phase 39: true = ดึงข้อมูลไม่สำเร็จรอบนี้ (ไม่ใช่ข้อสรุปว่าบริษัทประเมินไม่ได้) — สองอย่างนี้
   // ต่างกันที่ผู้อ่านควรทำอะไรต่อ จึงต้องแยกให้เห็น ไม่ใช่ให้เดาจากข้อความ
   data_gap?: boolean;
+  // Phase 40: gap ในหน่วยราคา + ความไวของมัน — ตั้งใจไม่ใช้เรียงลำดับ (นั่นคือการทำสัญญาณซื้อ)
+  fair_discount_pct?: number | null;
+  fair_pct_per_pp?: number | null;
   valuation_score: number | null;
   implied_growth: number | null;
   realistic_growth: number | null;

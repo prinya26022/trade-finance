@@ -225,6 +225,46 @@ export default function TickerDetail({
                   )}
                 </p>
               )}
+              {/* Phase 40: gap ตัวเดิมในหน่วยราคา. "gap +14.8pp" รู้สึกไม่ได้ ส่วน "แพงกว่าที่
+                  ประมาณการเรารองรับ 67%" รู้สึกได้ทันที — ข้อมูลชุดเดียวกันเป๊ะ.
+                  ตั้งใจโชว์ความไวติดกันเสมอ ไม่แยกบรรทัด: DCF 10 ปีขยายความต่างของ growth เป็น
+                  ทวีคูณ (DUOL 15.2%/pp vs AAPL 2.5%/pp) เลขราคาเดี่ยวๆ จึงเชื่อได้ไม่เท่ากันเลย
+                  และเราเพิ่งใช้สามเฟส (35/36/38) พิสูจน์ว่า growth ที่ป้อนเข้าไปนั้นเปราะแค่ไหน */}
+              {a.valuation.fair?.discount_pct != null && (
+                <div className="fair-box">
+                  <Tip def="ราคาที่ทำให้ 'ที่ตลาดคาด' เท่ากับ 'ที่เราคาด' พอดี — ที่ราคานี้คุณจ่ายเท่ากับสิ่งที่โมเดลเชื่อว่าจะเกิดขึ้น ไม่มีส่วนเผื่อทั้งสองทาง. ไม่ใช่ราคาเป้าหมาย ไม่ใช่สัญญาณซื้อขาย และไม่ได้บอกว่าราคาจะไปถึงเมื่อไหร่ — มันคือ gap ด้านบนที่แปลงหน่วยจาก pp เป็น %ราคา เท่านั้น">
+                    <span className="fair-label">ราคาที่ทั้งสองฝ่ายคาดตรงกัน</span>
+                  </Tip>
+                  <div className={`fair-main ${a.valuation.fair.discount_pct < 0 ? "gap-hot" : "gap-cold"}`}>
+                    {a.price != null && (
+                      <strong>${(a.price * (1 + a.valuation.fair.discount_pct / 100)).toFixed(2)}</strong>
+                    )}
+                    <span className="fair-delta">
+                      {a.valuation.fair.discount_pct >= 0 ? "+" : ""}
+                      {a.valuation.fair.discount_pct.toFixed(1)}% จากราคาวันนี้
+                    </span>
+                  </div>
+                  {a.valuation.fair.pct_per_pp != null && (
+                    <p className="fair-sens">
+                      ไวมาก: {a.valuation.fair.at_rotce != null ? "ROTCE" : "การเติบโต"} ต่างไป 1pp
+                      = ราคาขยับ <strong>{a.valuation.fair.pct_per_pp.toFixed(1)}%</strong>
+                    </p>
+                  )}
+                  <div className="fair-band">
+                    {a.valuation.fair.band.map((b, i) => (
+                      <span key={i} className={i === 1 ? "fair-band-mid" : ""}>
+                        {(b.growth ?? b.rotce)?.toFixed(1)}% →{" "}
+                        {b.discount_pct != null ? `${b.discount_pct >= 0 ? "+" : ""}${b.discount_pct.toFixed(0)}%` : "—"}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="muted fair-note">
+                    เลขนี้แขวนอยู่บนประมาณการการเติบโตตัวเดียว และ DCF {a.valuation.years} ปีขยาย
+                    ความต่างของมันเป็นทวีคูณ — แถบด้านบนคือช่วงที่ได้ถ้าเราประมาณพลาด ±
+                    {a.valuation.fair.band_pp}pp ไม่ใช่ช่วงความเชื่อมั่นทางสถิติ
+                  </p>
+                </div>
+              )}
               {a.valuation.flags.length > 0 && (
                 <p className="valuation-flag">
                   ⚠ ใช้ growth lens แทน sustainable growth เพราะ: {a.valuation.flags.join(", ")}

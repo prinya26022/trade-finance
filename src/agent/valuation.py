@@ -76,6 +76,92 @@ def intrinsic_value(
     return pv
 
 
+# ช่วง growth ที่โชว์ข้างราคาที่คุ้มค่า (pp บวก/ลบจาก realistic) — **ไม่ใช่ช่วงความเชื่อมั่นทาง
+# สถิติ** เราไม่มีการแจกแจงของ growth และไม่ควรแกล้งว่ามี. มันคือเครื่องมือวัดความไว: ตัวเลข
+# ราคาเดี่ยวๆ อ่านเหมือนความจริงที่คำนวณได้ ทั้งที่มันแขวนอยู่บนประมาณการตัวเดียวที่สามเฟสล่าสุด
+# (35/36/38) พิสูจน์แล้วว่าเปราะ — anchor เปลี่ยนหน้าต่าง CVX ก็เด้ง -11% เป็น +3% ในวันเดียว
+FAIR_BAND_PP = 3.0
+
+
+def fair_market_cap(fcf_base: float | None, growth_pct: float | None, wacc_pct: float | None,
+                    terminal_growth_pct: float | None, years: int | None,
+                    net_debt: float) -> float | None:
+    """market cap ที่ทำให้ implied growth เท่ากับ growth ที่ให้มาพอดี (None ถ้าคำนวณไม่ได้).
+
+    นี่คือ reverse-DCF เดินย้อนทาง และมัน **ง่ายกว่าขาไป**: ขาไปต้องแก้สมการหา growth จาก EV
+    (bisection) ส่วนขากลับแทนค่า growth ลงไปตรงๆ แล้วอ่าน EV ออกมา — ใช้ `intrinsic_value`
+    ตัวเดียวกับที่ให้คะแนนจริง ไม่มีสูตรที่สอง
+
+    รับหน่วยเป็น % ทั้งหมดเพราะ dict ที่เก็บใน analyses.valuation_json เก็บเป็น % —
+    ให้คนเรียกส่งของที่มีอยู่ในมือได้เลย ไม่ต้องแปลงหน่วยเอง (ซึ่งเป็นจุดที่พลาดง่ายที่สุด)
+    """
+    if None in (fcf_base, growth_pct, wacc_pct, terminal_growth_pct, years) or fcf_base <= 0:
+        return None
+    wacc, g_term = wacc_pct / 100.0, terminal_growth_pct / 100.0
+    if wacc <= g_term:
+        return None                      # โมเดล Gordon ใช้ไม่ได้ (ตัวหารติดลบ/เป็นศูนย์)
+    ev = intrinsic_value(fcf_base, growth_pct / 100.0, wacc, g_term, years)
+    mcap = ev - net_debt
+    # หนี้สุทธิกลืนมูลค่ากิจการทั้งก้อน = ส่วนของผู้ถือหุ้นไม่เหลืออะไรตามโมเดลนี้ ซึ่งเป็นข้อความที่
+    # แรงเกินกว่าจะพูดจาก DCF ธรรมดา -> ไม่ตอบดีกว่าตอบเลขติดลบที่ดูเหมือนคำนวณมาอย่างดี
+    return mcap if mcap > 0 else None
+
+
+def fair_value(dcf: dict, market_cap: float | None, band_pp: float = FAIR_BAND_PP) -> dict | None:
+    """ราคาที่ 'ตลาดคาดเท่ากับที่เราคาดพอดี' + ความไวของมัน (None ถ้าคำนวณไม่ได้).
+
+    **มันไม่ใช่ราคาเป้าหมาย และไม่ใช่สัญญาณซื้อ** — โปรเจกต์นี้ไม่ฟันธงจังหวะโดยตั้งใจ. สิ่งที่
+    ฟังก์ชันนี้ทำคือ *แปลงหน่วย* ของ gap ที่แสดงอยู่แล้ว: "gap +6.4pp" เป็นตัวเลขที่รู้สึกไม่ได้
+    ส่วน "ตลาดขอราคาสูงกว่าที่ประมาณการของเรารองรับ 22.8%" คือเรื่องเดียวกันในหน่วยที่เจ้าของ
+    ใช้ซื้อขายจริง. ข้อมูลเท่าเดิม อ่านออกคนละระดับ
+
+    คืน `discount_pct` เป็นหลัก ไม่ใช่ราคาต่อหุ้น เพราะสัดส่วนนี้ไม่ต้องใช้จำนวนหุ้นเลย —
+    บทเรียนสดๆ จาก Phase 39: `Diluted Shares` ของ MA (971M ถ่วงน้ำหนัก) ต่างจากหุ้นคงเหลือจริง
+    (883.58M) อยู่ 9.9% การหารด้วยมันจะได้ราคาต่อหุ้นที่ผิดเงียบๆ. ฝั่งที่รู้ราคาวันนี้อยู่แล้ว
+    คูณกลับเองได้เป๊ะ
+
+    `band` = ราคาที่ growth ต่างจากประมาณการเรา ±band_pp — อยู่ที่นี่เพราะเลขเดี่ยวๆ ให้ความ
+    แม่นยำปลอม. `pct_per_pp` สรุปความไวเป็นตัวเลขเดียว: "โตต่างไป 1pp ราคาขยับกี่ %"
+
+    **ระดับสัมบูรณ์ของตัวเลขนี้ไม่ได้ถูก calibrate** — วัดจริงกับ 6 ตัวแล้วติดลบทั้งหมด (AAPL -67%
+    ถึง JPM -10%) เพราะ anchor ฝั่งเราอนุรักษ์นิยมกว่าที่ตลาด price ไว้อย่างเป็นระบบ. สิ่งที่อ่านได้
+    จริงคือ (1) การเทียบข้ามตัว และ (2) ความไว — AAPL -67% ที่ 2.5%/pp มั่นคงกว่า CVX -28% ที่
+    6.2%/pp มาก ทั้งที่ตัวเลขหน้าบ้านชวนให้คิดตรงกันข้าม. อย่าอ่านว่า "ทุกตัวแพงเกินไป"
+    """
+    if not dcf or market_cap is None or market_cap <= 0:
+        return None
+    realistic = dcf.get("realistic_growth")
+    ev = dcf.get("ev")
+    if realistic is None or ev is None:
+        return None
+
+    net_debt = ev - market_cap
+    args = (dcf.get("fcf_base"), dcf.get("wacc"), dcf.get("terminal_growth"), dcf.get("years"))
+    base = fair_market_cap(args[0], realistic, *args[1:], net_debt)
+    if base is None:
+        return None
+
+    def _row(growth: float) -> dict | None:
+        mcap = fair_market_cap(args[0], growth, *args[1:], net_debt)
+        if mcap is None:
+            return None
+        return {"growth": round(growth, 2), "discount_pct": round((mcap / market_cap - 1) * 100, 1)}
+
+    band = [r for r in (_row(realistic - band_pp), _row(realistic), _row(realistic + band_pp)) if r]
+    lo, hi = _row(realistic - band_pp), _row(realistic + band_pp)
+    pct_per_pp = (round((hi["discount_pct"] - lo["discount_pct"]) / (2 * band_pp), 1)
+                  if lo and hi else None)
+
+    return {
+        "market_cap": round(base, 2),
+        "discount_pct": round((base / market_cap - 1) * 100, 1),   # ลบ = ราคาวันนี้แพงกว่า
+        "at_growth": realistic,
+        "band_pp": band_pp,
+        "band": band,
+        "pct_per_pp": pct_per_pp,
+    }
+
+
 def implied_growth_rate(
     target_value: float,
     fcf_base: float,
@@ -496,10 +582,14 @@ def reverse_dcf(
     if lens == "growth" and score is not None and r40 is not None and r40 < RULE40_WEAK:
         score = min(score, 1.0)
 
-    return ReverseDcfResult(
+    out = ReverseDcfResult(
         implied_growth=implied, realistic_growth=realistic_growth, gap=gap, score=score,
         lens=lens, rule_of_40=r40, note=note, anchor_window=window, **base_result,
     ).to_dict()
+    # คำนวณที่นี่ที่เดียวแล้วติดไปกับผล เพื่อให้ทุกฝั่ง (คะแนน/หน้าเว็บ/ประวัติ) อ่านเลขตัวเดียวกัน
+    # — บั๊กประจำของโปรเจกต์คือตรรกะเดียวกันถูกเขียนสองที่แล้วตอบไม่ตรงกัน (33.3, 34, 39)
+    out["fair"] = fair_value(out, market_cap)
+    return out
 
 
 if __name__ == "__main__":

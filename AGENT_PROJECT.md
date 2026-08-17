@@ -1573,6 +1573,54 @@ Verified live: **MA now scores 9.91/11** with no gap, while **ORCL stays partial
   it has, the attempt count respected, the canary pinned, and each reason branch named correctly with
   health and screener agreeing on all of them. Suite 516/516.
 
+## Phase 40 -- the same gap, in the unit the owner actually trades in
+
+`gap +14.8pp` is a number nobody feels. "The market is asking 67% more than our own growth estimate
+supports" is the identical information, and it lands. This phase is a **unit conversion, not a new
+signal** -- the project does not call timing, and nothing here does either.
+
+**The inversion is easier than the thing it inverts.** `reverse_dcf` solves "given EV, what growth
+is priced in?" by bisection. Going the other way just substitutes our growth into
+`intrinsic_value()` -- the same function that produces the score -- and reads EV off the other side.
+No second formula, so the fair price cannot drift from the score. A test asserts the round trip:
+feed the fair market cap back into `implied_growth_rate` and you get `realistic_growth` returned.
+
+**It reports a ratio, not a price per share.** Phase 39 had just proved that MA's `Diluted Shares`
+(971M, weighted average) differs from actual shares outstanding (883.58M) by 9.9% -- dividing by it
+would have produced a silently wrong dollar figure. `discount_pct` needs no share count at all, and
+the caller, which already knows today's price, multiplies back exactly.
+
+**Sensitivity is not an optional extra here, it is the guard rail.** A 10-year DCF amplifies a growth
+disagreement geometrically, so the price number is far more fragile than the growth number it comes
+from -- and Phases 35, 36 and 38 were spent proving how fragile that growth input is. Every fair
+value therefore ships with a ±3pp band and `pct_per_pp`, one number for "how much should you trust
+the number next to it": **DUOL moves 15.2% per point of growth, AAPL 2.5%** -- six times the
+fragility behind two figures that look equally precise. The UI puts them in one box for that reason;
+a lone price figure reads as a target.
+
+**Banks get their own, rather than a hole.** They use justified P/B, not DCF, and `justified_pb / pb`
+*is* the ratio directly -- no share count, no book value per share. Sensitivity is quoted per point of
+ROTCE, the unit that means something for a bank. Skipping this is how the whole sector vanished from
+the screener in 33.3.
+
+**The absolute level is not calibrated, and the docstring says so.** Measured across six names it is
+negative every time (AAPL −67% … JPM −10%), because our anchors are systematically more conservative
+than what the market prices. What can be read is the *cross-sectional* comparison and the
+sensitivity -- AAPL at −67% / 2.5%/pp is a far sturdier statement than CVX at −28% / 6.2%/pp, which
+is the opposite of what the headline figures suggest.
+
+Surfaced on the ticker page (with band, sensitivity and the "not a target price" tooltip) and as a
+screener column -- where comparing forty names at once is what makes it useful. **Deliberately not a
+sort key:** ranking by discount would be manufacturing a buy signal, so the ordering stays on
+quality score and this rides alongside as data.
+
+- 14 new offline tests: the round trip lands exactly on our growth, the same model as the score is
+  reused rather than copied, a zero gap prices at exactly fair, net debt genuinely enters the
+  equation, the band always straddles the estimate, sensitivity matches the band it came from, a
+  longer horizon amplifies the same disagreement, and it stays silent for cash burners, for debt
+  exceeding enterprise value, for an invalid Gordon model and for rows with no anchor at all --
+  plus the bank lens carrying its own. Suite 530/530.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

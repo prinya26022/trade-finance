@@ -107,6 +107,11 @@ export default function ScreenerView({ initial, healthTrends }: { initial: Scree
                     Valuation gap
                   </Tip>
                 </th>
+                <th className="num">
+                  <Tip def="gap ซ้ายมือในหน่วยราคา: ราคาต้องขยับกี่ % ตลาดถึงจะคาดเท่ากับที่เราคาดพอดี. ตัวเลขในวงเล็บคือความไว — ราคาขยับกี่ % ถ้าประมาณการการเติบโตพลาดไป 1pp. ยิ่งเลขในวงเล็บสูง ยิ่งอย่าเชื่อเลขข้างหน้ามาก. ตารางนี้ไม่เรียงตามคอลัมน์นี้โดยตั้งใจ — การเรียงตามส่วนลดคือการทำสัญญาณซื้อ">
+                    ห่างจากราคาที่ตรงกัน
+                  </Tip>
+                </th>
                 <th></th>
               </tr>
             </thead>
@@ -115,7 +120,7 @@ export default function ScreenerView({ initial, healthTrends }: { initial: Scree
                 <Fragment key={r.ticker}>
                 {r.partial && !data.results[i - 1]?.partial && (
                   <tr className="pf-group">
-                    <td colSpan={6}>
+                    <td colSpan={7}>
                       ประเมินราคาไม่ได้ — คะแนนด้านล่างเป็น<b>พื้นฐานล้วน /8</b> เอาไปเทียบกับ /11 ข้างบนตรงๆ ไม่ได้
                     </td>
                   </tr>
@@ -156,6 +161,22 @@ export default function ScreenerView({ initial, healthTrends }: { initial: Scree
                         {pct(r.gap)}
                         <div className="muted-sm">{r.lens} lens</div>
                       </>
+                    )}
+                  </td>
+                  <td className="num">
+                    {r.fair_discount_pct != null ? (
+                      <>
+                        <span className={r.fair_discount_pct >= 0 ? "ok" : ""}>
+                          {r.fair_discount_pct >= 0 ? "+" : ""}
+                          {r.fair_discount_pct.toFixed(0)}%
+                        </span>
+                        {/* ความไวต้องอยู่ติดกันเสมอ — เลขส่วนลดที่ยืนลำพังจะถูกอ่านเป็นราคาเป้าหมาย */}
+                        {r.fair_pct_per_pp != null && (
+                          <div className="muted-sm">±{r.fair_pct_per_pp.toFixed(0)}% ต่อ 1pp</div>
+                        )}
+                      </>
+                    ) : (
+                      <span className="muted-sm">—</span>
                     )}
                   </td>
                   <td className="actions">
