@@ -28,6 +28,8 @@ from src.agent import investigate_runner
 from src.agent.timeline import build_timeline
 from src.agent.timeline_store import get_narrative
 from src.agent.screener import screen
+from src.agent.board import build_board, summary as board_summary
+from src.providers.stock.market import get_risk_free_rate_pct
 from src.agent.chat import ask as ask_chat
 from src.agent.invalidation import check_invalidation, check_expectations
 from src.agent.correlation import portfolio_correlation
@@ -317,6 +319,17 @@ def get_screener(force: bool = False):
     for r in data["results"]:
         r["already_watching"] = r["ticker"] in watching
     return data
+
+
+@app.get("/api/board")
+def get_board():
+    """Phase 43 — กระดานสรุปหน้าแรก: 'ตัวไหนน่าสนใจ ดูเร็วๆ' ในหน่วย 'ถ้าราคาวันนี้ 100'.
+
+    ไม่แตะ network เลย (คำนวณจาก facts ที่เก็บไว้ในแถวล่าสุดของแต่ละ ticker) ยกเว้น
+    get_risk_free_rate_pct ที่ cache ดิสก์อยู่แล้วเหมือน /api/screener — จึงเร็วพอจะเป็น
+    ของที่เปิดหน้าแรกแล้วเห็นทันที ไม่ต้องรอ"""
+    board = build_board(risk_free_pct=get_risk_free_rate_pct())
+    return {"rows": board, "summary": board_summary(board)}
 
 
 @app.post("/api/chat")

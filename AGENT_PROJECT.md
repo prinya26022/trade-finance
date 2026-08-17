@@ -1715,6 +1715,50 @@ guard, the lens choice, and Phase 41's agreement range all read the same numbers
   objects while revenue agrees) and the AAPL shape (the FCF-only rule letting it through). Suite
   556/556.
 
+## Phase 43 -- the board on the front page, in a unit a person can act on
+
+The owner read the Phase 41 report and said, plainly, that it was unreadable: *"what is 79pp, what
+is wide, I don't understand how it affects a decision."* The content was right and the delivery was
+useless -- work that doesn't reach the person using it isn't finished.
+
+**Everything converts to one unit: if today's price were 100, what do we compute?** "−27% discount"
+and "a 47pp spread" are the tool's units. "Price 100 → we get 73, range 26–73" is a sentence anyone
+reads without knowing what a reverse-DCF is.
+
+**One rule replaces the narrow/mixed/wide labels: does the range cross 100?** If every method lands
+below the market price, they agree the price is above what the numbers support. If they all land
+above, they agree the other way. **If the range crosses 100, some methods say cheap and some say
+expensive, and the number cannot decide anything for you** -- go find the growth answer elsewhere.
+The reader never has to learn one of our thresholds.
+
+That rule surfaced something the pp-based labels had hidden: **of the three names scoring a perfect
+3/3 on price (ADBE, META, DUOL), only ADBE survives a change of method.** META crosses (67 … 114) and
+DUOL's three surviving anchors are the same capped number. Cheapness is the most fragile conclusion
+on the board; expensiveness mostly confirms itself -- which makes sense, since concluding "cheap"
+requires believing something about the future and concluding "expensive" does not.
+
+**Two columns, two provenances, on purpose.** The *score* is read straight off the stored row, so the
+front page can never disagree with the dashboard, the ticker page, or the screener about the number
+the owner already knows -- rows written before the current engine keep their recorded score (that is
+what `engine_version` exists to make visible). The *price and range* are computed live from the same
+row's stored `facts`, because older rows have no such field at all (`fair` arrived in Phase 40,
+`agreement` in Phase 41) -- computing them is strictly additive, not contradictory. No network; the
+stored facts are enough for the whole reverse-DCF. Each row carries its `run_at`, since frozen and
+monthly-cadence names are weeks behind the rest and a board that looks uniformly fresh would lie.
+
+Anchors the guard rejected are excluded from the verdict but still listed under a "ทำไม" toggle --
+AAPL is the case that matters: the only method putting it near its market price is the one rejected
+for contradicting 1.8%/yr revenue growth, and counting it would flip AAPL to "can't decide" when
+every usable method agrees.
+
+**A silent CSS bug turned up on the way:** `--fg` and `--accent` are used at ten places in
+`globals.css` and were never declared -- including one from before this phase. An undefined custom
+property doesn't error, it just does nothing, so text meant to be emphasised had been quietly
+inheriting its colour. Declared once at `:root` rather than rewriting ten call sites.
+
+- `GET /api/board` + `src/agent/board.py` (rows injectable, so tests never touch the real DB --
+  the Phase 38 lesson). 17 new offline tests. Suite 573/573.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

@@ -654,3 +654,42 @@ export type CompareResult = {
   };
   disagreements: { ticker: string; field: string; claude: string | null; gemini: string | null }[];
 };
+
+// Phase 43: กระดานสรุปหน้าแรก — ทุกอย่างในหน่วย "ถ้าราคาวันนี้ 100 เราคำนวณได้เท่าไร"
+// เพราะ "ส่วนลด −27%" กับ "ช่วง 47pp" เป็นหน่วยของเครื่องมือ ไม่ใช่หน่วยที่คนใช้ตัดสินใจ
+export type BoardVerdict =
+  | "cheap"       // ทุกวิธีวัดบอกว่าราคาต่ำกว่าที่คำนวณได้
+  | "expensive"   // ทุกวิธีวัดบอกว่าราคาสูงกว่าที่คำนวณได้
+  | "straddles"   // คร่อม 100 — บางวิธีบอกถูก บางวิธีบอกแพง = ตัดสินใจแทนไม่ได้
+  | "capped"      // ดูแน่นเพราะทุกวิธีชนเพดาน growth ของระบบ ไม่ใช่เพราะข้อมูลตรงกัน
+  | "single"      // มีวิธีวัดเดียว ไม่มีอะไรมาตรวจสอบ
+  | "bank"        // เลนส์ธนาคาร (justified P/B) — เทียบกับตัวอื่นตรงๆ ไม่ได้
+  | "none";       // ยังคำนวณราคาไม่ได้
+
+export type BoardRow = {
+  ticker: string;
+  run_at: string | null; // วันที่ของแถวที่เอาข้อมูลมา — ตัวที่แช่แข็งไว้จะเก่ากว่าตัวอื่นมาก
+  score: number | null;
+  max: number | null;
+  tier: string | null;
+  partial: boolean;
+  at_100: number | null; // ราคาที่คำนวณได้ ถ้าราคาตลาดวันนั้น = 100
+  lo_100: number | null; // ช่วงนับเฉพาะวิธีที่ระบบไม่ได้ตัดทิ้ง
+  hi_100: number | null;
+  lens: string | null;
+  verdict: BoardVerdict;
+  note: string;
+  candidates: {
+    label: string;
+    growth: number;
+    at_100: number | null;
+    used: boolean;
+    rejected: boolean;
+    capped: boolean;
+  }[];
+};
+
+export type BoardResponse = {
+  rows: BoardRow[];
+  summary: { total: number; priced: number; usable: number; cheap: number; unreliable: number };
+};

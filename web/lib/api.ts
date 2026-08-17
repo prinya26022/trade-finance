@@ -1,4 +1,4 @@
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, InvestigationJob, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status, Expectation, ExpectationsResponse, CorrelationResponse, ClaimExtraction, Scorecard, CompareResult } from "./types";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, Investigation, InvestigationJob, Timeline, ScreenerResponse, HealthTrends, ChatAnswer, MacroResponse, Thesis, InvalidationRule, InvalidationCheck, Decision, DecisionAction, Gate2Status, Expectation, ExpectationsResponse, CorrelationResponse, ClaimExtraction, Scorecard, CompareResult, BoardResponse } from "./types";
 
 // ที่อยู่ FastAPI — override ด้วย NEXT_PUBLIC_API_BASE ได้ ไม่งั้น default localhost:8000
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -274,6 +274,13 @@ export async function getClaudePeriods(): Promise<string[]> {
 export async function getCompare(period: string, model?: string): Promise<CompareResult> {
   const q = model ? `?model=${encodeURIComponent(model)}` : "";
   const res = await fetch(`${API_BASE}/api/compare/${period}${q}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// Phase 43: กระดานสรุปหน้าแรก — ไม่แตะ network ฝั่ง provider (คำนวณจาก facts ที่เก็บไว้)
+export async function getBoard(): Promise<BoardResponse> {
+  const res = await fetch(`${API_BASE}/api/board`, { cache: "no-store" });
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }

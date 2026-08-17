@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { getAnalyses, getWatchlist, getChanges, getPortfolio, getHealthTrends } from "@/lib/api";
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, HealthTrends } from "@/lib/types";
+import { getAnalyses, getWatchlist, getChanges, getPortfolio, getHealthTrends, getBoard } from "@/lib/api";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, HealthTrends, BoardResponse } from "@/lib/types";
 import Dashboard from "./dashboard";
+import Board from "./board";
 
 // server component: ดึงจาก FastAPI ตอน render (no-store = สดเสมอ)
 export const dynamic = "force-dynamic";
@@ -23,14 +24,16 @@ export default async function Home() {
   let changes: ChangeReport[] = [];
   let portfolio: Portfolio = EMPTY_PORTFOLIO;
   let healthTrends: HealthTrends = {};
+  let board: BoardResponse | null = null;
   let error: string | null = null;
   try {
-    [analyses, watchlist, changes, portfolio, healthTrends] = await Promise.all([
+    [analyses, watchlist, changes, portfolio, healthTrends, board] = await Promise.all([
       getAnalyses(),
       getWatchlist(),
       getChanges(),
       getPortfolio(),
       getHealthTrends(),
+      getBoard(),
     ]);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
@@ -59,6 +62,9 @@ export default async function Home() {
           <code>uvicorn src.api.main:app --port 8000</code>
         </div>
       ) : (
+        <>
+        {/* กระดานสรุปอยู่บนสุด: ตอบ "ตัวไหนน่าสนใจ" ก่อนที่จะต้องเลื่อนอ่านการ์ดทีละตัว */}
+        {board && board.rows.length > 0 && <Board data={board} />}
         <Dashboard
           analyses={analyses}
           watchlist={watchlist}
@@ -66,6 +72,7 @@ export default async function Home() {
           portfolio={portfolio}
           healthTrends={healthTrends}
         />
+        </>
       )}
 
       <p className="disclaimer">
