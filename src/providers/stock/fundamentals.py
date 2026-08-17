@@ -622,10 +622,47 @@ def _fcf_yield(fcf, market_cap) -> float | None:
 # ─────────────────────────────────────────────────────────────────────────────
 # PROVIDER
 # ─────────────────────────────────────────────────────────────────────────────
+INFO_ATTEMPTS = 3
+
+# ตัวชี้วัดว่า .info คืนมา "บาง" ไม่ใช่ "ไม่มีจริง": หุ้นที่ซื้อขายอยู่ทุกตัวมี market cap เสมอ
+# ไม่มีข้อยกเว้น — ต่างจาก beta/PEG/forwardPE ที่หายได้ตามธรรมชาติ (บริษัทเพิ่ง IPO, ไม่มีนักวิเคราะห์)
+# การเลือกฟิลด์ที่ "ไม่มีได้" มาเป็นตัวชี้วัดจะทำให้ retry ทำงานฟรีทุกวันกับหุ้นที่ปกติดี
+_INFO_CANARY = "marketCap"
+
+
+def _fetch_info(ticker: str, attempts: int = INFO_ATTEMPTS) -> dict:
+    """`.info` ที่ลองใหม่เมื่อคืนมาไม่ครบ.
+
+    ทำไมต้องมี: **MA (Mastercard) เมื่อ 2026-07-28** ได้ `.info` ที่ไม่มี marketCap มาหนึ่งรอบ
+    -> EV คำนวณไม่ได้ -> reverse-DCF ตกทั้งขา -> คะแนนร่วง 10.0/11 เป็น 8.0/8 แล้วเด้งกลับวันถัดมา
+    (JPM เจอ 6 ครั้งใน 17 วัน). ไม่มีอะไรในระบบรู้เลยว่านั่นคือความล้มเหลว — มันไหลลงคะแนนเงียบๆ
+    ในรูปของ "หุ้นตัวนี้ประเมินมูลค่าไม่ได้"
+
+    ต้องสร้าง Ticker ใหม่ทุกครั้ง: yfinance จำผลไว้บน object ถ้าเรียก `.info` ซ้ำบนตัวเดิม
+    จะได้ dict บางๆ ใบเดิมกลับมาทุกครั้ง แล้ว retry จะไม่มีความหมายอะไรเลย
+    """
+    info: dict = {}
+    for attempt in range(1, attempts + 1):
+        try:
+            info = yf.Ticker(ticker).info or {}
+        except Exception as e:                                  # noqa: BLE001
+            print(f"[fundamentals] {ticker}: .info รอบ {attempt} ล้มเหลว - {e}")
+            info = {}
+        if info.get(_INFO_CANARY) is not None:
+            return info
+        if attempt < attempts:
+            print(f"[fundamentals] {ticker}: .info คืนมาไม่มี {_INFO_CANARY} "
+                  f"(รอบ {attempt}/{attempts}) — ลองใหม่")
+    # ยอมแพ้แล้วก็ยังคืน dict ที่ได้: ฟิลด์อื่นยังใช้ได้ และการเงียบดีกว่าการล้มทั้งรอบวิเคราะห์ —
+    # แต่ปลายทาง (health.no_valuation_reason) จะบอกตรงๆ ว่านี่คือปัญหาการดึงข้อมูล ไม่ใช่ข้อสรุป
+    print(f"[fundamentals] {ticker}: ไม่มี {_INFO_CANARY} หลังลอง {attempts} รอบ — ขาราคาจะคำนวณไม่ได้")
+    return info
+
+
 class StockFundamentalsProvider(FundamentalsProvider):
     def get_fundamentals(self, ticker: str) -> StockFundamentals:
         t = yf.Ticker(ticker)
-        info = t.info
+        info = _fetch_info(ticker)
         fin, bs, cf = t.financials, t.balance_sheet, t.cashflow
 
         revenue = info.get("totalRevenue") or _first(["Total Revenue"], fin)

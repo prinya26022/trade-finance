@@ -505,15 +505,40 @@ def _bank_valuation_score(facts: list[dict], risk_free_pct: float) -> dict:
     }
 
 
+def no_valuation_reason(obj, dcf: dict | None = None) -> tuple[str, bool]:
+    """(เหตุผลที่ไม่มีขาราคา, เป็นปัญหาการดึงข้อมูลหรือไม่) — ที่เดียวสำหรับทั้ง health และ screener.
+
+    ทำไมต้องแยก "ดึงไม่สำเร็จ" ออกจาก "ประเมินไม่ได้": เดิมทั้งสองกรณีได้ข้อความเดียวกันคือ
+    "ไม่มี Market Cap/FCF พอคำนวณ reverse-DCF" — แล้ว **MA (Mastercard) ได้ข้อความนี้จริงเมื่อ
+    2026-07-28** เพราะ `t.info` คืนมาไม่ครบหนึ่งรอบ คะแนนร่วง 10.0/11 -> 8.0/8 ในวันเดียวแล้ว
+    เด้งกลับวันถัดมา. หุ้นที่ซื้อขายอยู่จริงมี market cap เสมอ — ไม่มีเลยแปลว่าเราดึงพลาด ไม่ใช่
+    ข้อสรุปเรื่องบริษัท. สองอย่างนี้ต่างกันที่ "เจ้าของควรทำอะไรต่อ" คนละทางเลย จึงห้ามเขียนเหมือนกัน.
+
+    ส่วน FCF ที่ไม่เป็นบวกคือข้อเท็จจริงของธุรกิจจริงๆ (ORCL รอบ capex, SPCX ยัง burn cash) —
+    อันนั้นคือคำตอบ ไม่ใช่ความผิดพลาด.
+
+    อยู่ไฟล์นี้ที่เดียวเพราะ screener.py เคยตอบคนละอย่างกับ health.py มาแล้วสองรอบ (33.3, 34)
+    ทุกครั้งจากการมีตรรกะเดียวกันเขียนไว้สองที่.
+    """
+    if getattr(obj, "currency_mismatch", False):
+        return "งบกับราคาคนละสกุลเงิน — คำนวณ EV/reverse-DCF ไม่ได้", False
+    if dcf is None:
+        if getattr(obj, "market_cap", None) is None:
+            return ("ดึง Market Cap ไม่สำเร็จรอบนี้ — เป็นปัญหาการดึงข้อมูล "
+                    "ไม่ใช่ข้อสรุปว่าบริษัทประเมินมูลค่าไม่ได้"), True
+        return "FCF ไม่พอคำนวณ reverse-DCF", False
+    return dcf.get("note") or "reverse-DCF คำนวณไม่ได้", False
+
+
 def _valuation_score(facts: list[dict], risk_free_pct: float) -> dict:
     """คืน dict: score (0-3 หรือ None), excluded (bool), reason (str|None), + field อื่นจาก
     reverse_dcf() ทั้งหมด (implied_growth/realistic_growth/gap/wacc/...) เพื่อความโปร่งใส."""
     duck = _build_duck_fundamentals(facts)
     dcf = reverse_dcf(duck, risk_free_pct=risk_free_pct)
     if dcf is None:
-        reason = ("งบกับราคาคนละสกุลเงิน — คำนวณ EV/reverse-DCF ไม่ได้"
-                  if duck.currency_mismatch else "ไม่มี Market Cap/FCF พอคำนวณ reverse-DCF")
-        return {"score": None, "excluded": True, "reason": f"{reason} — ตัดออกจาก screen นี้"}
+        reason, data_gap = no_valuation_reason(duck)
+        return {"score": None, "excluded": True, "data_gap": data_gap,
+                "reason": f"{reason} — ตัดออกจาก screen นี้"}
     if dcf["score"] is None:
         reason = dcf.get("note") or "reverse-DCF คำนวณไม่ได้"
         return {"score": None, "excluded": True, "reason": f"{reason} — ตัดออกจาก screen นี้", **dcf}

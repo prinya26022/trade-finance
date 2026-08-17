@@ -145,7 +145,11 @@ export default function ScreenerView({ initial, healthTrends }: { initial: Scree
                   <td className={`num ${r.gap != null && r.gap < 0 ? "ok" : ""}`}>
                     {r.partial ? (
                       <Tip def={r.partial_reason ?? "ประเมินราคาด้วย reverse-DCF ไม่ได้"}>
-                        <span className="muted-sm">ประเมินราคาไม่ได้</span>
+                        {/* ดึงข้อมูลไม่สำเร็จ ≠ ประเมินไม่ได้ — อันแรกให้เมินแล้วดูรอบหน้า
+                            อันหลังคือข้อเท็จจริงเรื่องธุรกิจที่ต้องเอาไปคิดต่อ */}
+                        <span className="muted-sm">
+                          {r.data_gap ? "⚠ ดึงข้อมูลไม่สำเร็จ" : "ประเมินราคาไม่ได้"}
+                        </span>
                       </Tip>
                     ) : (
                       <>

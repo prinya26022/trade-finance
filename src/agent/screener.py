@@ -25,7 +25,7 @@ from pathlib import Path
 
 from src.agent.health import (
     PARTIAL_MAX, _bank_valuation_score, _fundamental_score, _is_bank, _normalize_facts,
-    tier_from_score,
+    no_valuation_reason, tier_from_score,
 )
 from src.agent.valuation import reverse_dcf
 from src.providers.stock.fundamentals import StockFundamentalsProvider
@@ -59,13 +59,10 @@ def _fact_value(facts: list[dict], label: str) -> float | None:
     return next((f["value"] for f in facts if f["label"] == label), None)
 
 
-def _partial_reason(dcf: dict | None, obj) -> str:
-    """บอกว่า 'ทำไมไม่มีขาราคา' ด้วยคำที่อ่านแล้วรู้ว่าต้องคิดต่อยังไง — ไม่ใช่แค่ 'ไม่มีข้อมูล'."""
-    if dcf is None:
-        return ("งบกับราคาคนละสกุลเงิน — คำนวณ EV/reverse-DCF ไม่ได้"
-                if getattr(obj, "currency_mismatch", False)
-                else "ไม่มี Market Cap/FCF พอคำนวณ reverse-DCF")
-    return dcf.get("note") or "reverse-DCF คำนวณไม่ได้"
+def _partial_reason(dcf: dict | None, obj) -> tuple[str, bool]:
+    """(ทำไมไม่มีขาราคา, เป็นปัญหาการดึงข้อมูลไหม) — ยืมจาก health.py ตัวเดียวกันเป๊ะ ไม่เขียนซ้ำ
+    เพราะสองไฟล์นี้เคยตอบคนละอย่างสำหรับหุ้นตัวเดียวกันมาแล้วสองรอบ (33.3 แบงก์, 34 ORCL)."""
+    return no_valuation_reason(obj, dcf)
 
 
 def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
@@ -103,6 +100,7 @@ def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
     if dcf is None or dcf.get("score") is None:
         score = round(fundamental["score"], 2)
         tier, label = tier_from_score(score, PARTIAL_MAX)
+        reason, data_gap = _partial_reason(dcf, obj)
         return {
             "ticker": ticker,
             "score": score,
@@ -110,7 +108,9 @@ def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
             "tier": tier,
             "label": label,
             "partial": True,
-            "partial_reason": _partial_reason(dcf, obj),
+            "partial_reason": reason,
+            # แยก "ดึงข้อมูลไม่สำเร็จ" ออกจาก "ประเมินไม่ได้" ให้ฝั่งหน้าเว็บอ่านออกโดยไม่ต้องเดาจากข้อความ
+            "data_gap": data_gap,
             "fundamental_score": fundamental["score"],
             "valuation_score": None,
             "implied_growth": None,
@@ -133,6 +133,7 @@ def screen_one(ticker: str, risk_free_pct: float) -> dict | None:
         "label": label,
         "partial": False,
         "partial_reason": None,
+        "data_gap": False,
         "fundamental_score": fundamental["score"],
         "valuation_score": dcf["score"],
         # แบงก์ไม่มี implied/realistic growth (คนละเลนส์) -> None ไม่ใช่ 0 ที่ชวนให้อ่านผิด

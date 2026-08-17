@@ -169,6 +169,9 @@ export type ScreenerResult = {
   // ห้ามเอา score ของ partial ไปเทียบกับตัวที่ได้เต็ม /11 ตรงๆ — คนละมาตรวัด
   partial: boolean;
   partial_reason: string | null;
+  // Phase 39: true = ดึงข้อมูลไม่สำเร็จรอบนี้ (ไม่ใช่ข้อสรุปว่าบริษัทประเมินไม่ได้) — สองอย่างนี้
+  // ต่างกันที่ผู้อ่านควรทำอะไรต่อ จึงต้องแยกให้เห็น ไม่ใช่ให้เดาจากข้อความ
+  data_gap?: boolean;
   valuation_score: number | null;
   implied_growth: number | null;
   realistic_growth: number | null;

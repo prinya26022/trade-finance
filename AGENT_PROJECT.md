@@ -1522,6 +1522,57 @@ Restamped with `--rewrite` (new flag: the old labels are on a different scale, s
 have manufactured exactly one phantom rule change at the seam). The 18 detected rule changes and
 their row counts came out **identical** to the previous algorithm -- same events, new labels.
 
+## Phase 39 -- "we couldn't fetch it" and "this company can't be valued" were the same sentence
+
+Phase 38's new detector left one finding unexplained rather than unfixed: **MA and JPM kept losing
+`Market Cap`**, and MA's two basis flips landed on exactly those days. Pulling the stored row for
+2026-07-28 showed what Mastercard was actually told:
+
+> `ราคา: ไม่มี Market Cap/FCF พอคำนวณ reverse-DCF — ตัดออกจาก screen นี้`
+
+One of the most liquid equities on earth, recorded as unvaluable, because `yf.Ticker(t).info` came
+back without `marketCap` on one call. Score 10.0/11 → 8.0/8, back the next day. JPM lost the same
+field six times in seventeen days.
+
+**The obvious fallback was wrong, and checking took two minutes.** Price and `Diluted Shares` were
+both present on the bad day, so `price × shares` looks like a free recovery -- except it lands
+**9.9% high** (971M weighted-average diluted shares vs 883.58M actually outstanding). That is the
+Phase 36 `Revenues` trap again: a number that looks right, is defensible in isolation, and quietly
+poisons EV → implied growth → the valuation score. Not used. (Worth noting for later: the *implied*
+share count was identical to five figures across both good days, so it -- not market cap -- is the
+stable quantity if a carry-forward is ever wanted.)
+
+**Fixed at the source instead.** `_fetch_info()` retries when `.info` comes back thin, with two
+details that matter:
+- **A new `Ticker` per attempt.** yfinance memoises `.info` on the object, so retrying on the same
+  instance returns the identical thin dict forever and the retry is decorative. A test asserts three
+  distinct constructions, because this is precisely the line a future cleanup would "simplify."
+- **`marketCap` as the canary, not `beta` or `PEG`.** Those go missing legitimately (recent IPO, no
+  analyst coverage); picking one of them would make every healthy stock retry three times daily and
+  buy nothing. A traded equity always has a market cap.
+
+Giving up stays quiet and returns whatever arrived -- one ticker must not kill the run -- but the
+verdict downstream is no longer a lie.
+
+**`no_valuation_reason()` now separates three different things** that had been collapsed into one
+string: a fetch gap (`data_gap=True`, "this is a data problem, not a conclusion about the company"),
+a currency mismatch (a known limitation from 33.2), and a genuine business fact -- ORCL's negative
+three-year FCF during the AI datacenter capex cycle *is* the answer, not a failure. It lives in
+`health.py` alone and `screener.py` calls it, because those two files have already given different
+answers for the same stock twice (33.3 banks, 34 ORCL), both times from the same logic existing in
+two places. A test asserts they agree across every branch.
+
+The flag rides alongside the sentence rather than replacing it: prose is for the reader, `data_gap`
+is for the code (screener UI shows `⚠ ดึงข้อมูลไม่สำเร็จ` instead of "ประเมินราคาไม่ได้").
+
+Verified live: **MA now scores 9.91/11** with no gap, while **ORCL stays partial at 4.8/8 with
+`data_gap=False`** and its real reason intact -- the two cases are finally distinguishable.
+
+- 14 new offline tests (fake `Ticker`, no network): thin response retried until whole, a new object
+  built per attempt, exceptions on one attempt not stopping the next, quiet surrender returning what
+  it has, the attempt count respected, the canary pinned, and each reason branch named correctly with
+  health and screener agreeing on all of them. Suite 516/516.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice
