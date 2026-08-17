@@ -1684,6 +1684,37 @@ discount, and which one is live.
 
 - 18 new offline tests, plus one that pins the `7 × (fair ÷ price)` finding itself. Suite 548/548.
 
+## Phase 42 -- the trust check was reading the wrong meter, and fixing it barely moves anything
+
+Phase 41 noticed that `valuation_guard` tests `sustainable_growth` against **revenue** CAGR, while
+since Phase 19.4 the model itself treats **FCF** CAGR as the correct unit to compare against implied
+growth. The check was running on a quantity the model had already ruled the wrong measure. `_diverges`
+now accepts both.
+
+**Switching to FCF alone would have been worse than leaving it.** A/B on live data: AAPL's
+`sustainable` is 19.07% and its long-run FCF CAGR is 6.67% -- 12.4pp apart, *under* the 15pp
+trigger -- so an FCF-only rule stops flagging AAPL and hands it **2.42/3 instead of 0.0/3**, on a
+company whose revenue compounded at 1.81% a year. The rule shipped is therefore "one piece of
+contrary evidence is enough": if *either* measured history contradicts the structural estimate past
+the threshold, don't trust it. Requiring both to object would extend the benefit of the doubt to the
+number we computed ourselves.
+
+**The honest result: it is nearly inert, and it does not fix the case that motivated it.** A/B across
+all 423 stored rows moves **6 rows, all META, by 0.09 points**. On live data it changes AMZN and META
+from the structural anchor to the measured one (META's fair value +27% → +16%, AMZN's −76% → −95%)
+and leaves every other name identical. **MSFT is untouched** -- its `sustainable` 17.21 versus
+long-run FCF CAGR 7.43 is 9.8pp apart, still inside the 15pp trigger. The 47pp swing Phase 41 found
+in MSFT comes from the *threshold*, not from which history the threshold is measured against, and
+moving `DIVERGENCE_TRIGGER_PP` shifts the whole board -- a separate job needing its own A/B, not a
+change to smuggle in beside a consistency fix.
+
+Anchors are now computed once before the guard runs (rather than inside the growth branch), so the
+guard, the lens choice, and Phase 41's agreement range all read the same numbers.
+
+- 8 new offline tests, including the two that lock the trade-off in place: the MSFT shape (FCF
+  objects while revenue agrees) and the AAPL shape (the FCF-only rule letting it through). Suite
+  556/556.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

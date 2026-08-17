@@ -359,15 +359,57 @@ def sustainable_growth_rate(
     return rr * (roic_pct / 100.0)
 
 
+# โหมดการตรวจ SUSTAINABLE_DIVERGES — ดู `_diverges` และ Phase 42 ใน AGENT_PROJECT.md
+# ("revenue" = พฤติกรรมเดิมก่อน Phase 42 เก็บไว้ให้ A/B ย้อนได้ ไม่ใช่ตัวเลือกที่ใช้จริง)
+DIVERGENCE_MODE = "either"
+
+
+def _diverges(sustainable_pct: float, revenue_cagr: float | None,
+              fcf_cagr: float | None, mode: str | None = None) -> bool:
+    """sustainable_growth ขัดกับ 'สิ่งที่เกิดขึ้นจริง' มากพอจนไม่ควรเชื่อหรือยัง.
+
+    **ทำไมต้องดูสองฝั่ง (Phase 42):** เดิมเทียบกับ revenue CAGR อย่างเดียว ทั้งที่ตั้งแต่ 19.4
+    โมเดลตัดสินไปแล้วว่า **FCF CAGR คือหน่วยที่ถูกต้อง** ในการเทียบกับ implied_growth — ตัวตรวจ
+    ความน่าเชื่อถือจึงทำงานกับปริมาณที่โมเดลเองบอกว่าใช้หน่วยผิด. MSFT คือหลักฐานสด: sustainable
+    17.21 vs revenue CAGR 16.12 ห่างแค่ 1.1pp จึงไม่ติดธงเลย ขณะที่ FCF CAGR จริงบอก 4.04/7.43
+    (FCF ลดลงสามปีติดขณะรายได้โต 35%) — ส่วนต่างที่ Phase 41 วัดได้ว่าทำให้ราคาที่คุ้มค่าวิ่ง 47pp
+
+    แต่ **สลับไปใช้ FCF อย่างเดียวก็ผิดคนละทาง** — A/B แล้วพบว่า AAPL จะเลิกติดธง (sustainable
+    19.07 vs FCF ยาว 6.67 = 12.4pp ลอดใต้เกณฑ์ 15pp) ทั้งที่รายได้โต 1.81%/ปี ซึ่งขัดกับ
+    'ทบต้นได้ 19%/ปี' อย่างชัดเจน แล้วคะแนนขาราคาของ AAPL จะกระโดดจาก 0.0 เป็น ~2.9
+
+    ข้อสรุปคือคำถามนี้ไม่มี 'ตัวเลขอ้างอิงตัวเดียวที่ถูก': **หลักฐานคัดค้านหนึ่งชิ้นก็พอ**
+    ถ้าการวัดอดีตแบบใดแบบหนึ่งขัดกับ sustainable เกินเกณฑ์ = ไม่ควรเชื่อ sustainable
+    ไม่ใช่ 'ต้องขัดทั้งคู่ถึงจะนับ' ซึ่งเป็นการให้ประโยชน์แห่งความสงสัยกับตัวเลขที่เราคำนวณเอง
+    """
+    refs = [r for r in (revenue_cagr, fcf_cagr) if r is not None]
+    if not refs:
+        return False
+    if (mode or DIVERGENCE_MODE) == "revenue":
+        refs = refs[:1] if revenue_cagr is not None else []
+    elif (mode or DIVERGENCE_MODE) == "fcf":
+        refs = [fcf_cagr] if fcf_cagr is not None else refs[:1]
+    # ติดลบทั้งที่อดีตโตสองหลัก = ขัดแย้งเชิงทิศทาง ไม่ใช่แค่ห่างเป็นตัวเลข
+    return any(
+        (sustainable_pct < 0 and ref > 10.0)
+        or abs(sustainable_pct - ref) > DIVERGENCE_TRIGGER_PP
+        for ref in refs
+    )
+
+
 def valuation_guard(
     fcf_base: float | None, nopat: float | None, revenue: float | None,
     capex: float | None, da: float | None, nwc_change: float | None,
     roic_pct: float | None, historical_cagr: float | None,
+    fcf_cagr: float | None = None,
 ) -> tuple[str, list[str], float | None]:
     """ตรวจว่า sustainable_growth เชื่อถือได้ไหมก่อนใช้เป็น realistic_growth หลัก (value lens)
     — คืน (route, flags, sustainable_pct). route: 'NA' (คำนวณ reverse-DCF ไม่ได้เลย) |
     'growth' (sustainable ไม่น่าเชื่อถือ -> ใช้ growth lens แทน) | 'standard' (ใช้ sustainable
-    ตามปกติ). sustainable_pct เป็น % (เทียบหน่วยกับ historical_cagr ได้ตรงๆ)."""
+    ตามปกติ). sustainable_pct เป็น % (เทียบหน่วยกับ historical_cagr ได้ตรงๆ).
+
+    `fcf_cagr` (Phase 42) = การเติบโตของ **FCF** ที่วัดได้จริง (long-run ก่อน ไม่มีค่อยใช้
+    หน้าต่าง yfinance) — ดู `_divergence_evidence` ว่าทำไมต้องดูทั้งสองฝั่ง ไม่ใช่เลือกข้าง"""
     if fcf_base is None or fcf_base <= 0:
         return "NA", ["FCF_NONPOSITIVE"], None
 
@@ -395,11 +437,8 @@ def valuation_guard(
     if sustainable_pct is None:
         flags.append("SUSTAINABLE_UNCOMPUTABLE")
 
-    if sustainable_pct is not None and historical_cagr is not None:
-        contradiction = sustainable_pct < 0 and historical_cagr > 10.0
-        divergence = abs(sustainable_pct - historical_cagr) > DIVERGENCE_TRIGGER_PP
-        if contradiction or divergence:
-            flags.append("SUSTAINABLE_DIVERGES")
+    if sustainable_pct is not None and _diverges(sustainable_pct, historical_cagr, fcf_cagr):
+        flags.append("SUSTAINABLE_DIVERGES")
 
     route = "growth" if flags else "standard"
     return route, flags, sustainable_pct
@@ -629,8 +668,19 @@ def reverse_dcf(
     nwc_change = getattr(fundamentals, "nwc_change", None)
     revenue = getattr(fundamentals, "revenue", None)
 
+    # Phase 42: anchor ฝั่งประวัติต้องคำนวณ **ก่อน** guard เพราะ guard ต้องใช้ FCF CAGR เป็น
+    # หลักฐานด้วย ไม่ใช่ revenue CAGR อย่างเดียว (ดู _diverges)
+    rev_growth_recent = _rev_growth_recent(getattr(fundamentals, "revenue_series", None))
+    fcf_series = getattr(fundamentals, "fcf_series", None)
+    revenue_series = getattr(fundamentals, "revenue_series", None)
+    fcf_cagr_long = getattr(fundamentals, "fcf_cagr_long", None)
+    fcf_cagr_short = _fcf_growth_multiyear(fcf_series)
+    # long-run ก่อนเสมอ ลำดับเดียวกับตอนเลือก anchor จริง — ไม่งั้น guard กับ anchor จะมองคนละปี
+    fcf_cagr_ref = fcf_cagr_long if fcf_cagr_long is not None else fcf_cagr_short
+
     route, flags, sustainable = valuation_guard(
-        fcf_base, nopat, revenue, capex, da, nwc_change, roic, historical_cagr
+        fcf_base, nopat, revenue, capex, da, nwc_change, roic, historical_cagr,
+        fcf_cagr=fcf_cagr_ref,
     )
 
     base_result = dict(
@@ -647,15 +697,11 @@ def reverse_dcf(
             **base_result,
         ).to_dict()
 
-    rev_growth_recent = _rev_growth_recent(getattr(fundamentals, "revenue_series", None))
     fcf_margin = getattr(fundamentals, "fcf_margin", None)
     r40 = (
         round(rev_growth_recent + fcf_margin, 2)
         if rev_growth_recent is not None and fcf_margin is not None else None
     )
-
-    fcf_series = getattr(fundamentals, "fcf_series", None)
-    revenue_series = getattr(fundamentals, "revenue_series", None)
 
     # Phase 41: คำนวณ anchor "ทุกตัวที่คำนวณได้" ตรงนี้ที่เดียว แล้วให้ทั้งขาเลือก lens และขา
     # วัดความมั่นใจอ่านจากชุดเดียวกัน — เดิม fcf_growth/long_cagr ถูกคำนวณในกิ่ง growth เท่านั้น
@@ -663,8 +709,8 @@ def reverse_dcf(
     # ตอบว่าเท่าไร ทั้งที่นั่นคือข้อมูลที่ชี้ขาดว่าควรเชื่อราคาที่คุ้มค่าแค่ไหน
     raw_anchors = {
         "sustainable": sustainable,
-        "fcf_long": getattr(fundamentals, "fcf_cagr_long", None),
-        "fcf": _fcf_growth_multiyear(fcf_series),
+        "fcf_long": fcf_cagr_long,
+        "fcf": fcf_cagr_short,
         "revenue_recent": rev_growth_recent,
         "revenue_cagr": historical_cagr,
     }
@@ -678,9 +724,9 @@ def reverse_dcf(
         # — หน้าต่าง 4 ปีที่บังเอิญเริ่มปีผิดปกติทำให้ 'เทรนด์' กลายเป็น 'ระยะห่างจากปีนั้น'
         # (CVX เริ่มที่ยอดพีคน้ำมัน FY2022). provider ตรวจแล้วว่าปีที่ทับกันตรงกับ yfinance
         # ถึงจะยอมส่งค่ามา ไม่งั้นส่ง None แล้วตรงนี้ทำงานเหมือนเดิมทุกประการ
-        long_cagr = raw_anchors["fcf_long"]
+        long_cagr = fcf_cagr_long
         long_window = getattr(fundamentals, "fcf_long_window", None)
-        fcf_growth = raw_anchors["fcf"]
+        fcf_growth = fcf_cagr_short
         if long_cagr is not None:
             anchor_growth, used_anchor = long_cagr, "fcf_long"
             window = {"source": "fcf_long", "years": getattr(fundamentals, "fcf_long_years", None),
