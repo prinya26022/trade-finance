@@ -28,6 +28,15 @@ function signed(x: number) {
   return `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`;
 }
 
+// Phase 44: ตัวเลขระดับพันล้าน/ล้านล้าน — เขียนเต็มแล้วนับศูนย์ไม่ไหว ซึ่งทำลายประเด็นทั้งหมด
+// ของฟีเจอร์ (มันมีอยู่เพื่อให้ "รู้สึกได้" ว่าข้อเรียกร้องใหญ่แค่ไหน)
+function money(x: number): string {
+  if (x >= 1e12) return `$${(x / 1e12).toFixed(2)}T`;
+  if (x >= 1e9) return `$${(x / 1e9).toFixed(0)}B`;
+  if (x >= 1e6) return `$${(x / 1e6).toFixed(0)}M`;
+  return `$${x.toFixed(0)}`;
+}
+
 function ChartCard({
   title,
   hint,
@@ -324,6 +333,48 @@ export default function TickerDetail({
                     เลขนี้แขวนอยู่บนประมาณการการเติบโตตัวเดียว และ DCF {a.valuation.years} ปีขยาย
                     ความต่างของมันเป็นทวีคูณ — แถบด้านบนคือช่วงที่ได้ถ้าเราประมาณพลาด ±
                     {a.valuation.fair.band_pp}pp ไม่ใช่ช่วงความเชื่อมั่นทางสถิติ
+                  </p>
+                </div>
+              )}
+              {/* Phase 44: ข้อเรียกร้องเดียวกันในหน่วยที่เอาไปชนกับความรู้เรื่องอุตสาหกรรมได้.
+                  Phase 40/43 แปลงหน่วยอยู่ในโลกของโมเดลเหมือนเดิม อันนี้เอาออกไปชนเพดานทาง
+                  กายภาพ — ขนาดตลาดรวม จำนวนลูกค้าบนโลก margin สูงสุดที่ธุรกิจแบบนั้นเคยทำได้
+                  ซึ่งเป็น check ที่โมเดลทำเองไม่ได้ (เราไม่มีข้อมูล TAM และจะไม่แต่งขึ้นมา)
+                  แต่เจ้าของทำได้ในห้าวินาที */}
+              {a.valuation.reality?.market && (
+                <div className="rc-box">
+                  <Tip def="เดินการเติบโตที่ตลาด price ไว้ไปข้างหน้าจริงๆ แล้วถามว่าบริษัทต้องใหญ่แค่ไหนถึงจะทำ FCF ก้อนนั้นได้ โดยสมมติให้ใจกว้างที่สุดว่าทำ FCF margin ได้ระดับดีที่สุดที่บริษัทมหาชนทำได้จริง. ไม่ใช่คำพยากรณ์ — ตัวเลขปีสุดท้ายผูกกับ horizon ที่ล็อกไว้ อ่านได้แค่เทียบข้ามตัวเพราะทุกตัวใช้หน้าต่างเดียวกัน">
+                    <span className="fair-label">ราคานี้เรียกร้องให้บริษัทใหญ่แค่ไหน</span>
+                  </Tip>
+                  <div className="rc-grid">
+                    {([["ตลาดขอ", a.valuation.reality.market], ["เราขอ", a.valuation.reality.ours]] as const).map(
+                      ([who, r]) =>
+                        r && (
+                          <div key={who} className={`rc-cell ${who === "ตลาดขอ" ? "rc-market" : ""}`}>
+                            <span className="rc-who">{who} <span className="muted-sm">(FCF โต {r.at_growth.toFixed(1)}%/ปี)</span></span>
+                            {r.margin_alone_enough ? (
+                              <span className="rc-main rc-easy">margin กลับมาปกติก็พอ</span>
+                            ) : (
+                              <span className="rc-main">
+                                รายได้ ×{r.revenue_multiple.toFixed(1)}
+                                <span className="muted-sm"> ({r.revenue_cagr_needed_pct.toFixed(1)}%/ปี)</span>
+                              </span>
+                            )}
+                            <span className="rc-sub">
+                              FCF ต้องไปถึง {money(r.fcf_needed)} (×{r.fcf_multiple.toFixed(1)} ของวันนี้)
+                              {!r.margin_alone_enough && ` · รายได้ ${money(r.revenue_needed)}`}
+                            </span>
+                          </div>
+                        ),
+                    )}
+                  </div>
+                  <p className="muted fair-note">
+                    สมมติ FCF margin {a.valuation.reality.market.margin_ceiling_pct}% (ดีที่สุดที่บริษัทมหาชนทำได้จริง
+                    {a.valuation.reality.market.margin_today_pct != null &&
+                      ` — วันนี้ทำได้ ${a.valuation.reality.market.margin_today_pct}%`}
+                    ) ตลอด {a.valuation.reality.market.years} ปี.{" "}
+                    <b>เอาตัวเลขรายได้ไปเทียบกับขนาดตลาดรวมของอุตสาหกรรมนี้เอง</b> —
+                    นั่นคือส่วนที่โมเดลตอบแทนไม่ได้ และเป็นเหตุผลเดียวที่ตัวเลขนี้มีอยู่
                   </p>
                 </div>
               )}

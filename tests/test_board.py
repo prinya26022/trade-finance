@@ -213,3 +213,30 @@ def test_a_bank_is_flagged_as_a_different_ruler_rather_than_compared_head_to_hea
 
     assert bank_row["verdict"] == "bank"
     assert "คนละไม้บรรทัด" in bank_row["note"]
+
+
+# ---------- Phase 44: "ราคานี้ขออะไร" บนกระดาน ----------
+
+def test_the_board_carries_what_the_price_demands_in_company_size():
+    row = build_row(_row_with())
+
+    assert row["asks"] is not None
+    assert row["asks"]["revenue_multiple"] > 0
+    assert row["asks"]["years"] == 10
+
+
+def test_the_fcf_multiple_is_kept_even_when_margin_alone_suffices():
+    """สองตัวที่ขึ้นว่า 'margin พอแล้ว' เหมือนกันต้องแยกกันออก — SBUX ขอ FCF 4.5 เท่า
+    ADBE ขอ 1.5 เท่า คนละน้ำหนักกันมาก ถ้าตัดตัวคูณทิ้งกระดานจะบอกว่าสองตัวนี้เท่ากัน."""
+    row = build_row(_row_with(facts=_facts(extra=[
+        {"label": "FCF Margin", "value": 0.5, "unit": "%", "period": "TTM"},
+    ])))
+
+    assert row["asks"]["margin_alone_enough"] is True
+    assert row["asks"]["fcf_multiple"] > 1
+
+
+def test_a_row_with_no_price_has_no_demand_either():
+    row = build_row({"ticker": "OLD", "run_at": "2026-01-01", "health": {}, "facts": []})
+
+    assert row["asks"] is None

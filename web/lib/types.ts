@@ -129,6 +129,13 @@ export type Valuation = {
     pct_per_pp: number | null;
     lens?: string;
   } | null;
+  // Phase 44: ข้อเรียกร้องเดียวกันในหน่วยที่ "ชนกับความเป็นจริงได้" — "ตลาด price ไว้ที่ FCF โต
+  // 33.8%/ปี" เถียงไม่ได้เพราะไม่มีอะไรให้เทียบ ส่วน "ราคานี้ขอให้รายได้โต 8.9 เท่าใน 10 ปี"
+  // เอาไปชนกับขนาดตลาดรวม/จำนวนลูกค้าบนโลกได้ทันที
+  reality?: {
+    market: RequiredScale | null; // ที่ราคาตลาดเรียกร้อง (implied growth)
+    ours: RequiredScale | null;   // ที่ประมาณการของเราเรียกร้อง (realistic growth)
+  } | null;
   // Phase 41: ราคาที่คุ้มค่าเปลี่ยนไปแค่ไหนถ้าเลือก anchor การเติบโตอีกตัวที่มีเหตุผลพอกัน —
   // ไม่ใช่ช่วงความเชื่อมั่นทางสถิติ แต่คือ "คำตอบนี้ขึ้นกับการเลือกของเรามากแค่ไหน"
   agreement?: {
@@ -679,6 +686,16 @@ export type BoardRow = {
   lens: string | null;
   verdict: BoardVerdict;
   note: string;
+  // Phase 44: "ราคานี้เรียกร้องอะไร" ย่อให้อ่านได้ในบรรทัดเดียว
+  asks: {
+    revenue_multiple: number;
+    revenue_cagr_needed_pct: number;
+    fcf_multiple: number;
+    margin_alone_enough: boolean;
+    margin_today_pct: number | null;
+    margin_ceiling_pct: number;
+    years: number;
+  } | null;
   candidates: {
     label: string;
     growth: number;
@@ -692,4 +709,22 @@ export type BoardRow = {
 export type BoardResponse = {
   rows: BoardRow[];
   summary: { total: number; priced: number; usable: number; cheap: number; unreliable: number };
+};
+
+// Phase 44: "ถ้า FCF ต้องโตเท่านี้ บริษัทต้องใหญ่แค่ไหน" — ไม่ใช่คำพยากรณ์:
+// ตัวเลข "ปีที่ N" ผูกกับ horizon ที่ล็อกไว้ อ่านได้แค่เทียบข้ามตัว (ทุกตัวใช้หน้าต่างเดียวกัน)
+export type RequiredScale = {
+  years: number;
+  at_growth: number;          // % ต่อปีที่กำลังทดสอบ
+  fcf_now: number;
+  fcf_needed: number;         // FCF ณ ปีที่ N ที่ growth นี้เรียกร้อง
+  fcf_multiple: number;       // กี่เท่าของ FCF วันนี้
+  margin_today_pct: number | null;
+  margin_ceiling_pct: number; // เพดาน FCF margin ที่ใช้ (50% หรือของบริษัทเองถ้าสูงกว่า)
+  revenue_now: number;
+  revenue_needed: number;     // รายได้ที่ต้องมี ถ้า margin ขึ้นไปชนเพดาน
+  revenue_multiple: number;
+  revenue_cagr_needed_pct: number; // 0 = ราคานี้ไม่ได้เรียกร้องการเติบโตของรายได้เลย
+  // margin ที่ถูกกดอยู่กลับมาชนเพดานอย่างเดียวก็พอ ไม่ต้องโตรายได้เลย (AMZN 0.4% -> ทำได้)
+  margin_alone_enough: boolean;
 };

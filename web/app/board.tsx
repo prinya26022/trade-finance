@@ -35,6 +35,30 @@ function ago(runAt: string | null): string {
   return `${days} วันก่อน`;
 }
 
+/* Phase 44: "ราคานี้เรียกร้องอะไร" — สองตัวที่ขึ้นว่า margin พอแล้วเหมือนกันยังต้องแยกกันออก
+   จึงพ่วง FCF กี่เท่าไว้เสมอ (SBUX ขอ 4.5x ส่วน ADBE ขอ 1.5x คนละน้ำหนักกันมาก) */
+function Asks({ asks }: { asks: NonNullable<BoardRow["asks"]> }) {
+  if (asks.margin_alone_enough) {
+    return (
+      <Tip def={`ราคานี้ไม่ได้เรียกร้องให้รายได้โตเลย — แค่ margin ที่ถูกกดอยู่ (${asks.margin_today_pct ?? "?"}%) กลับขึ้นไปถึงระดับดีที่สุดที่ธุรกิจแบบนี้ทำได้ (${asks.margin_ceiling_pct}%) ก็พอแล้ว`}>
+        <span className="bd-asks bd-asks-easy">
+          margin พอแล้ว
+          <span className="bd-asks-sub">FCF ×{asks.fcf_multiple.toFixed(1)}</span>
+        </span>
+      </Tip>
+    );
+  }
+  const heavy = asks.revenue_multiple >= 4;
+  return (
+    <Tip def={`แม้สมมติให้ทำ FCF margin ได้ ${asks.margin_ceiling_pct}% ซึ่งเป็นระดับดีที่สุดที่บริษัทมหาชนทำได้จริง รายได้ก็ยังต้องโตเป็น ${asks.revenue_multiple.toFixed(1)} เท่าของวันนี้ภายใน ${asks.years} ปี. เอาไปเทียบกับขนาดตลาดรวมของอุตสาหกรรมนั้นได้เลย — นั่นคือ check ที่โมเดลทำเองไม่ได้`}>
+      <span className={`bd-asks ${heavy ? "bd-asks-heavy" : ""}`}>
+        รายได้ ×{asks.revenue_multiple.toFixed(1)}
+        <span className="bd-asks-sub">{asks.revenue_cagr_needed_pct.toFixed(1)}%/ปี</span>
+      </span>
+    </Tip>
+  );
+}
+
 function Bar({ row }: { row: BoardRow }) {
   if (row.at_100 == null) return <span className="muted-sm">—</span>;
   const lo = row.lo_100 ?? row.at_100;
@@ -93,6 +117,11 @@ export default function Board({ data }: { data: BoardResponse }) {
                 </Tip>
               </th>
               <th style={{ minWidth: 170 }}>เทียบราคาตลาด</th>
+              <th className="num">
+                <Tip def="เดินตัวเลขที่ตลาด price ไว้ไปข้างหน้าจริงๆ แล้วถามว่าบริษัทต้องใหญ่แค่ไหน — สมมติให้ใจกว้างที่สุดว่าทำ FCF margin ได้ระดับดีที่สุดที่บริษัทมหาชนทำได้ (50%). ต่างจากคอลัมน์ซ้ายตรงที่อันนี้เอาไปชนกับขนาดตลาดรวมของอุตสาหกรรมได้ ไม่ต้องเชื่อโมเดลเลย">
+                  ราคานี้ขออะไร
+                </Tip>
+              </th>
               <th>ตัวเลขนี้ใช้ได้ไหม</th>
             </tr>
           </thead>
@@ -115,6 +144,9 @@ export default function Board({ data }: { data: BoardResponse }) {
                     : <span className="muted-sm">—</span>}
                 </td>
                 <td><Bar row={r} /></td>
+                <td className="num">
+                  {r.asks ? <Asks asks={r.asks} /> : <span className="muted-sm">—</span>}
+                </td>
                 <td>
                   <span className={`bd-verdict ${VERDICT[r.verdict].cls}`}>
                     {VERDICT[r.verdict].label}

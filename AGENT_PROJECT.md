@@ -1759,6 +1759,59 @@ inheriting its colour. Declared once at `:root` rather than rewriting ten call s
 - `GET /api/board` + `src/agent/board.py` (rows injectable, so tests never touch the real DB --
   the Phase 38 lesson). 17 new offline tests. Suite 573/573.
 
+## Phase 44 -- what the price demands, in a unit you can argue with
+
+"The market prices NVDA at 33.8%/yr FCF growth" is a sentence **nobody can disagree with**, because
+there is nothing to compare it to. Walk that number forward and ask what the company must *be*, and
+it becomes checkable: **revenue must reach $2.26T** -- roughly three times today's entire global
+semiconductor market -- and that is assuming a 50% FCF margin, the best any public company sustains.
+
+This is not the third unit conversion. Phases 40 and 43 both stayed inside the model's own world
+(gap → % of price → "if price were 100"). This one takes the number **outside and collides it with
+physical ceilings**: total addressable market, how many customers exist on earth, the highest margin
+that kind of business has ever held. The model cannot make that judgment -- we have no TAM data and
+will not invent any -- but the owner makes it in five seconds. That is the right division of labour.
+
+**The decomposition is the actual finding.** The same implied FCF growth is a wildly different demand
+depending on how much margin headroom exists. A company whose margin is suppressed by capex can
+multiply FCF *without growing revenue at all*, just by normalising. A company already at the ceiling
+must get every point from revenue.
+
+| | FCF margin today | what the price asks |
+|---|---|---|
+| NVDA | 18.3% | revenue **×10.0** (25.8%/yr) |
+| TSLA | 4.7% | revenue ×6.7 (20.9%/yr) |
+| MSFT | 5.0% | revenue ×3.1 (11.9%/yr) |
+| AMZN | 0.4% | revenue ×1.6 (4.7%/yr) |
+| ADBE | 36.6% | revenue ×1.1 (0.7%/yr) |
+| CVX | 7.9% | **margin recovery alone** (FCF ×1.9) |
+
+AMZN is the case that proves the feature earns its place: the board calls it the most expensive name
+on the list (100 → 5), yet its price asks for only 4.7%/yr of revenue growth, because a 0.4% FCF
+margin leaves enormous headroom. The two views answer different questions -- *does the price match
+our growth estimate* versus *is what the price requires physically achievable* -- and **their
+disagreement is information**, not a bug.
+
+`fcf_multiple` is reported even when margin recovery alone suffices, because otherwise SBUX (FCF
+×5.1) and CVX (×1.9) both read as "margin is enough" and become indistinguishable.
+
+The ceiling is generous by construction: if a company already beats 50% it keeps its own number
+rather than being pushed down to fit our formula. If a demand is heavy *after* granting the best
+margin achievable, it is genuinely heavy -- not heavy because we picked a stingy assumption.
+
+**Not a forecast, and the docstring says so.** The year-N figure is tied to the locked 10-year
+horizon; change the horizon and it changes (implied growth re-solves too). What reads is the
+cross-sectional comparison, since every name uses the same window -- the same caveat Phase 40 carries
+about the fair-value level not being calibrated.
+
+**Phase 37 caught the new module immediately.** `valuation.py` now imports `reality.py`, so
+`test_the_module_list_still_covers_everything_the_scoring_code_imports` failed on the first run.
+`reality.py` computes metadata only and cannot move a score, but the invariant is "cover everything
+the scoring code depends on" -- so it was added to `SCORING_MODULES`. Slightly over-covered beats
+under-covered: a stamp that misses something is a stamp that lies.
+
+- 17 new offline tests + 3 on the board row. Suite 593/593.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

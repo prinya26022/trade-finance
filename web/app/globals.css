@@ -863,3 +863,27 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
   display: inline-block; color: var(--muted);
 }
 .bd-note { margin: 9px 0 0; font-size: 12.5px; line-height: 1.7; color: var(--muted); }
+
+/* Phase 44: "ราคานี้ขออะไร" — สีบอกน้ำหนักของข้อเรียกร้อง ไม่ได้บอกว่าหุ้นดี/แย่
+   (ข้อเรียกร้องหนักไม่ได้แปลว่าทำไม่ได้ แปลว่าต้องเอาไปเทียบกับขนาดตลาดจริงก่อนเชื่อ) */
+.bd-asks { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.35; }
+.bd-asks-sub { font-size: 11px; color: var(--muted); font-weight: 400; }
+.bd-asks-easy { color: var(--green); }
+.bd-asks-heavy { color: var(--amber); font-weight: 700; }
+
+/* Phase 44: "ราคานี้เรียกร้องให้บริษัทใหญ่แค่ไหน" — วางข้อเรียกร้องของตลาดกับของเราข้างกัน
+   เพราะเลขเดี่ยวๆ ไม่มีอะไรให้เทียบ ซึ่งเป็นปัญหาเดิมที่ฟีเจอร์นี้ถูกสร้างมาแก้ */
+.rc-box {
+  margin: 10px 0; padding: 10px 12px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--border);
+}
+.rc-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.rc-cell {
+  flex: 1 1 210px; display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+}
+.rc-market { border-color: var(--amber); }
+.rc-who { font-size: 11px; color: var(--muted); letter-spacing: 0.02em; }
+.rc-main { font-size: 17px; font-weight: 700; color: var(--fg); font-variant-numeric: tabular-nums; }
+.rc-easy { color: var(--green); font-size: 15px; }
+.rc-sub { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }

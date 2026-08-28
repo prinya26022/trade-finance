@@ -67,6 +67,25 @@ def _accepted_range(agreement: dict | None) -> tuple[int | None, int | None]:
     return (_at_100(min(ok)), _at_100(max(ok))) if ok else (None, None)
 
 
+def _asks(reality: dict | None) -> dict | None:
+    """ย่อ "ราคานี้เรียกร้องอะไร" ให้เหลือของที่อ่านได้ในบรรทัดเดียวบนกระดาน (Phase 44).
+
+    เก็บ `fcf_multiple` ไว้เสมอแม้ตอนที่ margin อย่างเดียวพอ เพราะไม่งั้นสองตัวที่ขึ้นว่า
+    "margin พอแล้ว" เหมือนกันจะแยกกันไม่ออกเลย ทั้งที่ตัวหนึ่งอาจขอ FCF โต 2 เท่าอีกตัวขอ 20 เท่า
+    """
+    if not reality:
+        return None
+    return {
+        "revenue_multiple": reality["revenue_multiple"],
+        "revenue_cagr_needed_pct": reality["revenue_cagr_needed_pct"],
+        "fcf_multiple": reality["fcf_multiple"],
+        "margin_alone_enough": reality["margin_alone_enough"],
+        "margin_today_pct": reality["margin_today_pct"],
+        "margin_ceiling_pct": reality["margin_ceiling_pct"],
+        "years": reality["years"],
+    }
+
+
 def build_row(row: dict, risk_free_pct: float = FALLBACK_RISK_FREE_PCT) -> dict:
     """แถวเดียวของกระดาน จากแถว analyses หนึ่งแถว (ไม่แตะ network)."""
     health = row.get("health") or {}
@@ -80,6 +99,7 @@ def build_row(row: dict, risk_free_pct: float = FALLBACK_RISK_FREE_PCT) -> dict:
         "partial": bool(health.get("partial")),
         "at_100": None, "lo_100": None, "hi_100": None,
         "lens": None, "verdict": "none", "note": "ยังคำนวณราคาไม่ได้",
+        "asks": None,
         "candidates": [],
     }
     if not facts:
@@ -101,12 +121,15 @@ def build_row(row: dict, risk_free_pct: float = FALLBACK_RISK_FREE_PCT) -> dict:
         return out
 
     agreement = dcf.get("agreement")
+    reality = (dcf.get("reality") or {}).get("market")
     at_100 = _at_100(dcf["fair"]["discount_pct"])
     lo, hi = _accepted_range(agreement)
     verdict, note = _verdict(agreement, at_100)
     out.update(
         lens=dcf.get("lens"), at_100=at_100, lo_100=lo, hi_100=hi,
         verdict=verdict, note=note,
+        # Phase 44: ข้อเรียกร้องเดียวกันในหน่วยที่เถียงได้ — "ราคานี้ขอให้รายได้โตกี่เท่า"
+        asks=_asks(reality),
         candidates=[
             {"label": c["label"], "growth": c["growth"], "at_100": _at_100(c["discount_pct"]),
              "used": c["used"], "rejected": c["rejected"], "capped": c["capped"]}

@@ -51,6 +51,11 @@ SCORING_MODULES: tuple[str, ...] = (
     "src/agent/health.py",       # เกณฑ์พื้นฐาน 8 ข้อ + gate + comparable_score
     "src/agent/valuation.py",    # reverse-DCF: implied vs realistic growth -> คะแนนขาราคา /3
     "src/agent/grading.py",      # การไล่ระดับรอบ threshold ที่ทั้งสองขาใช้ร่วมกัน
+    # Phase 44: reality.py คำนวณ metadata ล้วน (ข้อเรียกร้องต่อขนาดบริษัท) ไม่แตะคะแนนเลย —
+    # แต่ valuation.py import มันแล้ว และกติกาของป้ายนี้คือ "ครอบทุกอย่างที่โค้ดให้คะแนนพึ่งพา"
+    # ครอบเกินไปหน่อย (เวอร์ชันจะขยับตอนแก้ไฟล์ที่ขยับคะแนนไม่ได้) ปลอดภัยกว่าครอบไม่ถึง —
+    # ป้ายที่ครอบไม่ครบคือป้ายที่โกหก ส่วนป้ายที่ครอบเกินแค่ระวังเกินไป
+    "src/agent/reality.py",
 )
 
 _HASH_LEN = 12

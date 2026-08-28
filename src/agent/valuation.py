@@ -35,6 +35,7 @@ score ไม่ขยับเพราะ gap ติดลบมากอยู
 from dataclasses import dataclass
 
 from src.agent.grading import graded_below
+from src.agent.reality import reality_check
 
 DEFAULT_TERMINAL_GROWTH = 0.025  # โตตลอดไปเท่า GDP/เงินเฟ้อระยะยาวโดยประมาณ — ห้ามสูงกว่านี้
 DEFAULT_YEARS = 10
@@ -786,6 +787,9 @@ def reverse_dcf(
     # Phase 41: ราคาที่คุ้มค่าเปลี่ยนไปแค่ไหนถ้าเลือก anchor อีกตัว — ตัวเลขที่ `pct_per_pp`
     # ทำท่าจะบอกแต่บอกไม่ได้จริง (ดู block ความเห็นเหนือ anchor_agreement)
     out["agreement"] = anchor_agreement(out, market_cap, raw_anchors, used_anchor)
+    # Phase 44: ข้อเรียกร้องเดียวกันในหน่วยที่เอาไปชนกับความรู้เรื่องอุตสาหกรรมได้ —
+    # "ตลาดขอ FCF โต 33.8%/ปี" เถียงไม่ได้ ส่วน "ขอให้รายได้โต 8.9 เท่า" เถียงได้
+    out["reality"] = reality_check(out, revenue, fcf_margin)
     return out
 
 
