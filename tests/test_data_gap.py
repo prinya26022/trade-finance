@@ -107,13 +107,18 @@ def test_a_business_that_genuinely_cannot_be_valued_is_not_called_a_fetch_proble
     assert "FCF" in reason
 
 
-def test_a_currency_mismatch_is_neither():
-    """ASML/TSM งบคนละสกุลกับราคา (Phase 33.2) — เป็นข้อจำกัดที่เรารู้ตัวและตั้งใจไม่ข้ามไป
-    ไม่ใช่ทั้งความล้มเหลวในการดึงและไม่ใช่คำตัดสินเรื่องธุรกิจ."""
+def test_a_currency_mismatch_that_survives_is_now_a_fetch_problem():
+    """**เปลี่ยนความหมายโดยตั้งใจใน Phase 45.** ก่อนหน้านี้ 'งบคนละสกุลกับราคา' คือข้อจำกัด
+    ถาวรที่เรารู้ตัวและยอมรับ (จึงไม่ใช่ data_gap) — ตอนนี้เราแปลงสกุลได้แล้วถ้าดึงเรตสำเร็จ
+    ดังนั้นเคสที่ยังเหลือ mismatch อยู่แปลว่า **ดึงอัตราแลกเปลี่ยนไม่สำเร็จรอบนั้น** ซึ่งคือ
+    ปัญหาการดึงข้อมูลที่รอบหน้าอาจหายเอง ไม่ใช่ข้อเท็จจริงเรื่องบริษัท.
+
+    ความต่างนี้สำคัญเพราะมันเปลี่ยนสิ่งที่ผู้ใช้ควรทำ: 'ประเมินไม่ได้' = เอาไปคิดต่อได้เลย
+    ส่วน 'ดึงไม่สำเร็จ' = เมินรอบนี้แล้วดูรอบหน้า (หลักเดียวกับที่ Phase 39 วางไว้)."""
     reason, data_gap = no_valuation_reason(_obj(market_cap=None, mismatch=True))
 
-    assert data_gap is False
-    assert "สกุลเงิน" in reason
+    assert data_gap is True
+    assert "สกุลเงิน" in reason and "อัตราแลกเปลี่ยน" in reason
 
 
 def test_a_dcf_that_ran_but_could_not_score_keeps_its_own_note():

@@ -3,6 +3,7 @@ import pandas as pd
 from dataclasses import dataclass, field
 from src.domain.interfaces import Fundamentals, FundamentalsProvider, Fact
 from src.domain.series import cagr_pct
+from src.providers.stock.fx import get_fx_rate
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -21,6 +22,9 @@ class StockFundamentals(Fundamentals):
     # ความหมาย และเดิมระบบไม่รู้เรื่องนี้เลย จึงติดป้ายทุกอย่างเป็น USD หมด
     financial_currency: str | None = None   # info['financialCurrency'] — สกุลของงบการเงิน
     price_currency: str | None = None       # info['currency'] — สกุลของราคาที่ซื้อขาย
+    # Phase 45: 1 หน่วยสกุลราคา = กี่หน่วยสกุลงบ (None = ดึงไม่ได้ -> ปฏิเสธเหมือนเดิม ไม่เดา)
+    # เก็บเป็น Fact ด้วย เพราะการคำนวณย้อนหลังต้องใช้เรต 'ณ วันที่วิเคราะห์' ไม่ใช่เรตวันนี้
+    fx_rate: float | None = None
 
     # --- ความสามารถทำกำไร / ผลตอบแทนต่อทุน ---
     revenue: float | None = None
@@ -115,6 +119,17 @@ class StockFundamentals(Fundamentals):
         return (self.net_interest_income / self.revenue) >= self.BANK_NII_SHARE_MIN
 
     @property
+    def market_cap_stmt(self) -> float | None:
+        """market cap ในสกุลของงบ — ตัวเดียวที่ต้องแปลงเพื่อให้ reverse-DCF ทั้งเส้นอยู่ในสกุล
+        เดียวกัน (net debt/FCF/รายได้ เป็นสกุลงบอยู่แล้ว). สกุลเดียวกันอยู่แล้ว -> คืนค่าเดิม
+        ตรงๆ. คนละสกุลแต่ไม่มีเรต -> None ซึ่งทำให้ขาราคาถูกปฏิเสธเหมือนก่อน Phase 45 เป๊ะ"""
+        if self.market_cap is None:
+            return None
+        if not self.currency_mismatch:
+            return self.market_cap
+        return self.market_cap * self.fx_rate if self.fx_rate else None
+
+    @property
     def currency_mismatch(self) -> bool:
         """งบกับราคาคนละสกุล — อัตราส่วนข้ามฝั่งทั้งหมดใช้ไม่ได้ (ดู to_facts/reverse_dcf)."""
         return bool(self.financial_currency and self.price_currency
@@ -155,6 +170,12 @@ class StockFundamentals(Fundamentals):
             ("P/S", None if cross_currency else self.price_to_sales, "x", self.period),
             ("FCF Yield", None if cross_currency else self.fcf_yield, "%", "TTM"),
             ("Market Cap", self.market_cap, price_ccy, self.period),
+            # Phase 45: สองตัวนี้มีเฉพาะ ADR ที่งบกับราคาคนละสกุล — ต้องเก็บ **เรตที่ใช้จริง
+            # ณ วันวิเคราะห์** ไม่งั้นการคำนวณย้อนหลังจะหยิบเรตวันนี้ไปใช้กับแถวเก่าเงียบๆ
+            # (บั๊กตระกูลเดียวกับ Phase 32/36) ป้ายหน่วยบอกทิศทางการแปลงให้อ่านออกโดยไม่ต้องเดา
+            ("FX Rate", self.fx_rate, f"{price_ccy}->{stmt_ccy}", self.period),
+            ("Market Cap (สกุลงบ)", self.market_cap_stmt if cross_currency else None,
+             stmt_ccy, self.period),
             ("Avg Daily Volume", self.avg_volume, "shares", self.period),
             ("Goodwill", self.goodwill, stmt_ccy, self.period),
             ("Goodwill % Assets", self.goodwill_pct_assets, "%", self.period),
@@ -674,6 +695,13 @@ class StockFundamentalsProvider(FundamentalsProvider):
         # yfinance อยู่ฝั่งไหน — เดาแล้วผิดจะแย่กว่าไม่มี) แต่ตัดทิ้งพร้อมติดป้ายหน่วยให้ตรงจริง
         financial_currency = info.get("financialCurrency")
         price_currency = info.get("currency")
+        # Phase 45: ดึงเรตเฉพาะตอนคนละสกุลจริง (cache ดิสก์ 1 วัน) — ดึงไม่ได้ -> None ->
+        # market_cap_stmt เป็น None -> ขาราคาถูกปฏิเสธเหมือนเดิม ไม่มีการเดาเรต
+        fx_rate = (
+            get_fx_rate(price_currency, financial_currency)
+            if financial_currency and price_currency and financial_currency != price_currency
+            else None
+        )
         goodwill, goodwill_pct = _compute_goodwill(bs)
         bank = _compute_bank_metrics(fin, bs, revenue)
         roic, nopat, invested_capital = _compute_roic(fin, bs)
@@ -697,6 +725,7 @@ class StockFundamentalsProvider(FundamentalsProvider):
             goodwill_pct_assets=goodwill_pct,
             financial_currency=financial_currency,
             price_currency=price_currency,
+            fx_rate=fx_rate,
             **bank,
             pe=info.get("trailingPE"),
             forward_pe=info.get("forwardPE"),

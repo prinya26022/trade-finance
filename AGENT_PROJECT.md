@@ -1812,6 +1812,68 @@ under-covered: a stamp that misses something is a stamp that lies.
 
 - 17 new offline tests + 3 on the board row. Suite 593/593.
 
+## Phase 45 -- the two best businesses on the board had no price, for a reason that was not about them
+
+Phase 33 rejected any stock whose statements and price are in different currencies, which was right
+at the time: a number that is wrong but looks credible is worse than no number. The side effect was
+that **the two highest fundamental scores in the whole watchlist -- ASML 7.90/8 and TSM 7.50/8 --
+carried no valuation at all**, for a reason that has nothing to do with either business.
+
+**Exactly one figure needs converting: market cap.** Net debt, FCF and revenue are already in
+statement currency, so moving market cap there puts the entire reverse-DCF in one currency, and
+everything it emits -- implied growth, gap, discount, the Phase 44 demands -- is unitless anyway.
+Growth rates are *FX-invariant*: the rate cancels inside a CAGR taken over a same-currency series.
+Only the EV/FCF **level** is converted, at spot, which is the defensible reading (valuing today's
+claim in the currency the cash is actually earned in).
+
+Result, live: **ASML 100 → 27 and TSM 100 → 40, both with every method agreeing** -- they land in the
+usable bucket rather than the hole. Their totals also move from `/8` to `/11`, so they can finally be
+compared with everything else on the same scale.
+
+**The rate is stored as a Fact, point-in-time.** Recomputing history with *today's* rate is exactly
+the class of silent bug Phase 32 (anchor swapping bases) and Phase 36 (a window changing meaning)
+were built to stop. Rows written before this phase have no rate fact, so they keep being rejected --
+history is not rewritten -- and they pick up a price on their next analysis run.
+
+**A failure to fetch is never a guessed rate.** No rate → `market_cap_stmt` is None → the valuation
+leg is refused exactly as before Phase 45. Guessing would recreate the very thing Phase 33 refused,
+only wrong in the rate instead of wrong in the currency.
+
+**One existing test had to change meaning, deliberately.** `test_a_currency_mismatch_is_neither`
+asserted that a currency mismatch is *not* a fetch problem -- true when it was a permanent limitation.
+Now that conversion is possible, a surviving mismatch means the rate was missing that round, which
+**is** a fetch problem: check again next run rather than concluding anything about the company. The
+message covers both causes (fetch failed, or a pre-Phase-45 row) because facts cannot distinguish
+them, and accusing the fetch of failing when the row is simply old would be a small lie.
+
+`reverse_dcf` accepts both callers -- the provider object (mismatch true, `market_cap_stmt` present)
+and the duck built from facts (already converted, mismatch false) -- with the rule written once,
+since those two paths have answered differently for the same stock twice before (33.3, 34).
+
+- New `src/providers/stock/fx.py` (disk cache, 1 day, same shape as the risk-free rate). 9 new
+  offline tests, none of which touch the network. Suite 602/602.
+
+## Phase 46 -- the board, easier to sit with
+
+The board was seven columns of equal weight, and a long explanation crammed next to the verdict chip
+so neither got read. Rewritten around one rule: **one thing pulls the eye per row** -- the computed
+price -- and everything else steps back.
+
+- The price and its range become a single cell: big number, range beneath it in the same small style
+  used for every secondary line on the board, so the eye can run down a column quickly.
+- The explanation moves into a panel that opens **on a click anywhere in the row** (keyboard too:
+  the row is a focusable button, Enter/Space toggles, and the ticker link stops propagation). The
+  panel holds the note, the full anchor table with its own header, and a link into the ticker page.
+- Filter chips -- ทั้งหมด / ตัวเลขใช้ได้ / ยังตัดสินใจแทนไม่ได้ / ยังไม่มีราคา -- each showing its
+  count. **No sort control, on purpose:** sorting by cheapness turns the table into a buy list, which
+  is the one thing this project does not do. Hiding rows changes nothing about what any number means.
+- Hairline dividers separate quality / price / verdict instead of group headers; hover and open
+  states share one panel tone; verdict chips become pills.
+
+A sticky header was written and then removed rather than left in: `.table-scroll` sets `overflow`,
+which makes the header stick to *that* box rather than the viewport -- code that looks like it works
+and does not.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

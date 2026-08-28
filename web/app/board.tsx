@@ -1,14 +1,18 @@
 "use client";
 
-/* Phase 43 — กระดานสรุปบนสุดของหน้าแรก: "ตัวไหนน่าสนใจ ดูเร็วๆ แล้วค่อยเจาะ"
+/* Phase 43/46 — กระดานสรุปบนสุดของหน้าแรก: "ตัวไหนน่าสนใจ ดูเร็วๆ แล้วค่อยเจาะ"
 
    ทุกอย่างอยู่ในหน่วยเดียว: **ถ้าราคาวันนี้ 100 เราคำนวณได้เท่าไร** เพราะหน่วยของเครื่องมือ
    ("ส่วนลด −27%", "ช่วง 47pp") อ่านแล้วไม่เห็นภาพ ส่วน "ราคา 100 → 73, ช่วง 26–73" เห็นทันที
 
    เกณฑ์เดียวที่ต้องจำ: **ช่วงคร่อม 100 หรือเปล่า** — คร่อมเมื่อไหร่แปลว่าบางวิธีวัดบอกถูก
-   บางวิธีบอกแพง = ตัวเลขนี้ตัดสินใจแทนไม่ได้ ต้องไปหาคำตอบเรื่องการเติบโตเอง */
+   บางวิธีบอกแพง = ตัวเลขนี้ตัดสินใจแทนไม่ได้ ต้องไปหาคำตอบเรื่องการเติบโตเอง
 
-import { useState } from "react";
+   Phase 46 (จัดหน้าใหม่): ยุบ "คำนวณได้" กับ "ช่วง" เป็นช่องเดียว (เลขใหญ่ + ช่วงใต้ลงมา)
+   ย้ายคำอธิบายลงไปในแผงที่กางออก แล้วให้คลิกได้ทั้งแถว — เดิมมี 7 คอลัมน์แข่งกันดึงสายตา
+   และคำอธิบายยาวๆ อยู่ติดกับ chip คำตัดสินจนอ่านทั้งคู่ไม่ทัน */
+
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import type { BoardResponse, BoardRow, BoardVerdict } from "@/lib/types";
 import { Tip } from "@/lib/glossary";
@@ -17,13 +21,24 @@ const VERDICT: Record<BoardVerdict, { cls: string; label: string }> = {
   cheap:     { cls: "bv-cheap",  label: "ทุกวิธีบอกว่าถูก" },
   expensive: { cls: "bv-exp",    label: "ทุกวิธีบอกว่าแพง" },
   straddles: { cls: "bv-strad",  label: "พลิกได้ทั้งสองทาง" },
-  capped:    { cls: "bv-capped", label: "แน่นเทียม (ชนเพดาน)" },
+  capped:    { cls: "bv-capped", label: "แน่นเทียม" },
   single:    { cls: "bv-capped", label: "ไม่มีอะไรให้เทียบ" },
   bank:      { cls: "bv-na",     label: "คนละไม้บรรทัด" },
   none:      { cls: "bv-na",     label: "ยังไม่มีราคา" },
 };
 
-// สเกลร่วม 0–250 ทุกแถว ถึงจะเทียบข้ามตัวได้จริง เกินนั้นตัดที่ขอบ (DUOL 216 ยังอยู่ในสเกล)
+// ตัวกรอง — ไม่มีตัวเลือก "เรียงลำดับ" โดยตั้งใจ: เรียงตามความถูกเมื่อไหร่ ตารางนี้กลายเป็น
+// รายการแนะนำซื้อทันที ส่วนการซ่อนแถวที่ยังไม่มีคำตอบไม่ได้เปลี่ยนความหมายของอะไรเลย
+const FILTERS = [
+  { key: "all", label: "ทั้งหมด", match: (_r: BoardRow) => true },
+  { key: "usable", label: "ตัวเลขใช้ได้", match: (r: BoardRow) => r.verdict === "cheap" || r.verdict === "expensive" },
+  { key: "unsure", label: "ยังตัดสินใจแทนไม่ได้", match: (r: BoardRow) => ["straddles", "capped", "single"].includes(r.verdict) },
+  { key: "none", label: "ยังไม่มีราคา", match: (r: BoardRow) => r.verdict === "none" || r.verdict === "bank" },
+] as const;
+
+type FilterKey = (typeof FILTERS)[number]["key"];
+
+// สเกลร่วม 0–250 ทุกแถว ถึงจะเทียบข้ามตัวได้จริง เกินนั้นตัดที่ขอบ
 const SCALE = 250;
 const pos = (v: number) => `${Math.max(0, Math.min(100, (v / SCALE) * 100))}%`;
 
@@ -35,8 +50,8 @@ function ago(runAt: string | null): string {
   return `${days} วันก่อน`;
 }
 
-/* Phase 44: "ราคานี้เรียกร้องอะไร" — สองตัวที่ขึ้นว่า margin พอแล้วเหมือนกันยังต้องแยกกันออก
-   จึงพ่วง FCF กี่เท่าไว้เสมอ (SBUX ขอ 4.5x ส่วน ADBE ขอ 1.5x คนละน้ำหนักกันมาก) */
+/* "ราคานี้เรียกร้องอะไร" — สองตัวที่ขึ้นว่า margin พอแล้วเหมือนกันยังต้องแยกกันออก
+   จึงพ่วง FCF กี่เท่าไว้เสมอ (SBUX ขอ 5.1x ส่วน CVX ขอ 1.9x คนละน้ำหนักกันมาก) */
 function Asks({ asks }: { asks: NonNullable<BoardRow["asks"]> }) {
   if (asks.margin_alone_enough) {
     return (
@@ -50,7 +65,7 @@ function Asks({ asks }: { asks: NonNullable<BoardRow["asks"]> }) {
   }
   const heavy = asks.revenue_multiple >= 4;
   return (
-    <Tip def={`แม้สมมติให้ทำ FCF margin ได้ ${asks.margin_ceiling_pct}% ซึ่งเป็นระดับดีที่สุดที่บริษัทมหาชนทำได้จริง รายได้ก็ยังต้องโตเป็น ${asks.revenue_multiple.toFixed(1)} เท่าของวันนี้ภายใน ${asks.years} ปี. เอาไปเทียบกับขนาดตลาดรวมของอุตสาหกรรมนั้นได้เลย — นั่นคือ check ที่โมเดลทำเองไม่ได้`}>
+    <Tip def={`แม้สมมติให้ทำ FCF margin ได้ ${asks.margin_ceiling_pct}% ซึ่งเป็นระดับดีที่สุดที่บริษัทมหาชนทำได้จริง รายได้ก็ยังต้องโตเป็น ${asks.revenue_multiple.toFixed(1)} เท่าของวันนี้ภายใน ${asks.years} ปี — เอาไปเทียบกับขนาดตลาดรวมของอุตสาหกรรมนั้นได้เลย นั่นคือ check ที่โมเดลทำเองไม่ได้`}>
       <span className={`bd-asks ${heavy ? "bd-asks-heavy" : ""}`}>
         รายได้ ×{asks.revenue_multiple.toFixed(1)}
         <span className="bd-asks-sub">{asks.revenue_cagr_needed_pct.toFixed(1)}%/ปี</span>
@@ -60,7 +75,7 @@ function Asks({ asks }: { asks: NonNullable<BoardRow["asks"]> }) {
 }
 
 function Bar({ row }: { row: BoardRow }) {
-  if (row.at_100 == null) return <span className="muted-sm">—</span>;
+  if (row.at_100 == null) return <span className="bd-dash">—</span>;
   const lo = row.lo_100 ?? row.at_100;
   const hi = row.hi_100 ?? row.at_100;
   return (
@@ -79,120 +94,184 @@ function Bar({ row }: { row: BoardRow }) {
 
 export default function Board({ data }: { data: BoardResponse }) {
   const [open, setOpen] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterKey>("all");
   const { rows, summary } = data;
+
+  const shown = useMemo(
+    () => rows.filter(FILTERS.find((f) => f.key === filter)!.match),
+    [rows, filter],
+  );
+
+  const toggle = (ticker: string) => setOpen((cur) => (cur === ticker ? null : ticker));
 
   return (
     <section className="bd">
       <div className="bd-head">
-        <span className="section-title" style={{ margin: 0 }}>
+        <h2 className="bd-title">
           <Tip def="ราคาที่โมเดลคำนวณได้ของทุกตัวใน watchlist แปลงเป็นหน่วยเดียวกัน: สมมติราคาตลาดวันนี้ของทุกตัว = 100 แล้วดูว่าตัวเลขเราบอกว่าควรเป็นเท่าไร. ไม่ใช่ราคาเป้าหมาย ไม่ใช่สัญญาณซื้อขาย">
             ถ้าราคาวันนี้ 100 เราคำนวณได้เท่าไร
           </Tip>
-        </span>
-        <span className="muted-sm">
-          {summary.priced}/{summary.total} ตัวคำนวณราคาได้ ·{" "}
-          <b>{summary.usable} ตัวที่ทุกวิธีวัดเห็นตรงกัน</b> ·{" "}
-          {summary.unreliable} ตัวที่ตัวเลขยังตัดสินใจแทนไม่ได้
-        </span>
+        </h2>
+        <div className="bd-stats">
+          <span><b>{summary.usable}</b> ตัวเลขใช้ได้</span>
+          <span className="bd-sep" />
+          <span><b>{summary.unreliable}</b> ยังตัดสินใจแทนไม่ได้</span>
+          <span className="bd-sep" />
+          <span><b>{summary.total - summary.priced}</b> ยังไม่มีราคา</span>
+        </div>
       </div>
 
-      <div className="table-scroll">
-        <table className="pf-table bd-table">
+      <div className="bd-filters" role="group" aria-label="กรองแถว">
+        {FILTERS.map((f) => (
+          <button
+            key={f.key}
+            className={`bd-chip ${filter === f.key ? "on" : ""}`}
+            aria-pressed={filter === f.key}
+            onClick={() => setFilter(f.key)}
+          >
+            {f.label} <span className="bd-chip-n">{rows.filter(f.match).length}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="table-scroll bd-wrap">
+        <table className="bd-table">
           <thead>
             <tr>
               <th>Ticker</th>
               <th className="num">
-                <Tip def="พื้นฐานธุรกิจ /8 + ราคาถูกแพง /3 — เอนจิ้นเดียวกับทั้งแอป อ่านจากรอบวิเคราะห์ล่าสุดของตัวนั้น">
-                  คะแนน
-                </Tip>
+                <Tip def="พื้นฐานธุรกิจ /8 + ราคาถูกแพง /3 — เอนจิ้นเดียวกับทั้งแอป อ่านจากรอบวิเคราะห์ล่าสุดของตัวนั้น">คะแนน</Tip>
               </th>
-              <th className="num">
-                <Tip def="ราคาที่โมเดลคำนวณได้ ถ้าราคาตลาด ณ รอบวิเคราะห์นั้น = 100. ต่ำกว่า 100 = ตลาดจ่ายแพงกว่าที่ตัวเลขย้อนหลังรองรับ ซึ่งไม่ได้แปลว่าราคาจะลง">
+              <th className="num bd-div">
+                <Tip def="ราคาที่โมเดลคำนวณได้ ถ้าราคาตลาด ณ รอบวิเคราะห์นั้น = 100. เลขเล็กใต้ลงมาคือช่วงที่ได้ถ้าใช้วิธีวัดการเติบโตแบบอื่นที่มีเหตุผลพอกัน. ต่ำกว่า 100 = ตลาดจ่ายแพงกว่าที่ตัวเลขย้อนหลังรองรับ ซึ่งไม่ได้แปลว่าราคาจะลง">
                   คำนวณได้
                 </Tip>
               </th>
-              <th className="num">
-                <Tip def="ช่วงที่ได้ถ้าใช้วิธีวัดการเติบโตแบบอื่นที่มีเหตุผลพอกัน (นับเฉพาะวิธีที่ระบบไม่ได้ตัดทิ้ง) — ช่วงแคบ = ทุกมุมมองเห็นตรงกัน เชื่อตัวเลขได้; ช่วงคร่อม 100 = ตัดสินใจแทนไม่ได้">
-                  ช่วงตามวิธีวัด
-                </Tip>
-              </th>
-              <th style={{ minWidth: 170 }}>เทียบราคาตลาด</th>
+              <th className="bd-barcol">เทียบราคาตลาด</th>
               <th className="num">
                 <Tip def="เดินตัวเลขที่ตลาด price ไว้ไปข้างหน้าจริงๆ แล้วถามว่าบริษัทต้องใหญ่แค่ไหน — สมมติให้ใจกว้างที่สุดว่าทำ FCF margin ได้ระดับดีที่สุดที่บริษัทมหาชนทำได้ (50%). ต่างจากคอลัมน์ซ้ายตรงที่อันนี้เอาไปชนกับขนาดตลาดรวมของอุตสาหกรรมได้ ไม่ต้องเชื่อโมเดลเลย">
                   ราคานี้ขออะไร
                 </Tip>
               </th>
-              <th>ตัวเลขนี้ใช้ได้ไหม</th>
+              <th className="bd-div">คำตัดสิน</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.ticker} className={open === r.ticker ? "bd-open" : ""}>
-                <td>
-                  <Link href={`/ticker/${r.ticker}`} className="ticker-link">{r.ticker}</Link>
-                  {/* ตัวที่แช่แข็ง/รอบเดือนจะเก่ากว่าตัวอื่นมาก ต้องเห็นว่าเลขมาจากวันไหน */}
-                  <div className="muted-sm">{ago(r.run_at)}</div>
-                </td>
-                <td className="num">
-                  {r.score == null ? "—" : `${r.score.toFixed(1)}/${r.max?.toFixed(0)}`}
-                  {r.partial && <div className="muted-sm">พื้นฐานล้วน</div>}
-                </td>
-                <td className="num bd-main">{r.at_100 ?? "—"}</td>
-                <td className="num">
-                  {r.lo_100 != null && r.hi_100 != null
-                    ? (r.lo_100 === r.hi_100 ? `${r.lo_100}` : `${r.lo_100}–${r.hi_100}`)
-                    : <span className="muted-sm">—</span>}
-                </td>
-                <td><Bar row={r} /></td>
-                <td className="num">
-                  {r.asks ? <Asks asks={r.asks} /> : <span className="muted-sm">—</span>}
-                </td>
-                <td>
-                  <span className={`bd-verdict ${VERDICT[r.verdict].cls}`}>
-                    {VERDICT[r.verdict].label}
-                  </span>
-                  {r.candidates.length > 0 && (
-                    <button
-                      className="bd-more"
-                      onClick={() => setOpen(open === r.ticker ? null : r.ticker)}
-                      aria-expanded={open === r.ticker}
-                    >
-                      {open === r.ticker ? "ซ่อน" : "ทำไม"}
-                    </button>
+            {shown.map((r) => {
+              const isOpen = open === r.ticker;
+              return (
+                <Fragment key={r.ticker}>
+                  <tr
+                    className={`bd-row ${isOpen ? "is-open" : ""}`}
+                    onClick={() => toggle(r.ticker)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggle(r.ticker);
+                      }
+                    }}
+                    tabIndex={0}
+                    role="button"
+                    aria-expanded={isOpen}
+                  >
+                    <td>
+                      <Link
+                        href={`/ticker/${r.ticker}`}
+                        className="bd-tk"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {r.ticker}
+                      </Link>
+                      {/* ตัวที่แช่แข็ง/รอบเดือนเก่ากว่าตัวอื่นหลายสัปดาห์ ต้องเห็นว่าเลขมาจากวันไหน */}
+                      <span className="bd-when">{ago(r.run_at)}</span>
+                    </td>
+                    <td className="num">
+                      {r.score == null ? (
+                        <span className="bd-dash">—</span>
+                      ) : (
+                        <span>
+                          <span className="bd-score">{r.score.toFixed(1)}</span>
+                          <span className="bd-of">/{r.max?.toFixed(0)}</span>
+                        </span>
+                      )}
+                      {r.partial && <span className="bd-when">พื้นฐานล้วน</span>}
+                    </td>
+                    <td className="num bd-div">
+                      {r.at_100 == null ? (
+                        <span className="bd-dash">—</span>
+                      ) : (
+                        <>
+                          <span className="bd-main">{r.at_100}</span>
+                          {r.lo_100 != null && r.hi_100 != null && (
+                            <span className="bd-when">
+                              {r.lo_100 === r.hi_100 ? `${r.lo_100}` : `${r.lo_100}–${r.hi_100}`}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </td>
+                    <td className="bd-barcol"><Bar row={r} /></td>
+                    <td className="num">
+                      {r.asks ? <Asks asks={r.asks} /> : <span className="bd-dash">—</span>}
+                    </td>
+                    <td className="bd-div">
+                      <span className={`bd-verdict ${VERDICT[r.verdict].cls}`}>
+                        {VERDICT[r.verdict].label}
+                      </span>
+                      <span className={`bd-caret ${isOpen ? "up" : ""}`} aria-hidden="true">⌄</span>
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr className="bd-panel-row">
+                      <td colSpan={6}>
+                        <div className="bd-panel">
+                          <p className="bd-why">{r.note}</p>
+                          {r.candidates.length > 0 && (
+                            <table className="bd-cands">
+                              <thead>
+                                <tr>
+                                  <th>วิธีวัดการเติบโต</th>
+                                  <th className="num">โตปีละ</th>
+                                  <th className="num">ได้ราคา</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {r.candidates.map((c) => (
+                                  <tr key={c.label} className={c.used ? "used" : c.rejected ? "dropped" : ""}>
+                                    <td>
+                                      {c.label}
+                                      {c.used && <span className="bd-tag on">ที่ใช้อยู่</span>}
+                                      {c.rejected && <span className="bd-tag">ตัดทิ้ง</span>}
+                                      {c.capped && <span className="bd-tag">ชนเพดาน</span>}
+                                    </td>
+                                    <td className="num">{c.growth.toFixed(1)}%</td>
+                                    <td className="num">{c.at_100 ?? "—"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                          <Link href={`/ticker/${r.ticker}`} className="bd-open-link">
+                            ดูรายละเอียด {r.ticker} →
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
                   )}
-                  <div className="muted-sm">{r.note}</div>
-                  {open === r.ticker && (
-                    <table className="bd-cands">
-                      <tbody>
-                        {r.candidates.map((c) => (
-                          <tr
-                            key={c.label}
-                            className={c.used ? "used" : c.rejected ? "dropped" : ""}
-                          >
-                            <td>
-                              {c.label}
-                              {c.rejected && <span className="bd-chip">ตัดทิ้ง</span>}
-                              {c.capped && <span className="bd-chip">ชนเพดาน</span>}
-                            </td>
-                            <td className="num">โตปีละ {c.growth.toFixed(1)}%</td>
-                            <td className="num">→ {c.at_100 ?? "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </td>
-              </tr>
-            ))}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
+
+      {shown.length === 0 && <p className="bd-empty">ไม่มีแถวในกลุ่มนี้</p>}
 
       {/* เตือนซ้ำตรงนี้เพราะเป็นการอ่านผิดที่เกิดขึ้นแน่ถ้าไม่บอก: ตัวเลขส่วนใหญ่ต่ำกว่า 100
           เป็นสมบัติของวิธีคำนวณ (อนุรักษ์นิยมกว่าตลาดอย่างเป็นระบบ) ไม่ใช่คำตัดสินว่าตลาดผิด */}
       <p className="bd-note">
         เรียงตาม<b>คะแนนคุณภาพ ไม่ใช่ความถูก</b> — เรียงตามความถูกเมื่อไหร่ ตารางนี้กลายเป็น
-        รายการแนะนำซื้อทันที. ส่วนใหญ่คำนวณได้ต่ำกว่า 100 เพราะวิธีของเราอิงข้อมูลย้อนหลังที่วัดได้จริง
+        รายการแนะนำซื้อทันที · ส่วนใหญ่คำนวณได้ต่ำกว่า 100 เพราะวิธีของเราอิงข้อมูลย้อนหลังที่วัดได้จริง
         ส่วนตลาดจ่ายให้อนาคตที่ยังไม่เกิด — <b>อ่านว่า &quot;ตัวไหนต้องเชื่ออนาคตมากกว่ากัน&quot;
         ไม่ใช่ &quot;ตัวไหนควรขาย&quot;</b>
       </p>

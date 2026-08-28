@@ -422,11 +422,23 @@ def _build_duck_fundamentals(facts: list[dict]) -> SimpleNamespace:
     fcf_yield = _scalar(facts, "FCF Yield")
     market_cap = _scalar(facts, "Market Cap")
     fcf = (fcf_yield / 100.0 * market_cap) if fcf_yield is not None and market_cap else None
+
+    # Phase 45: ADR ที่งบกับราคาคนละสกุล — ถ้ารอบนั้นดึงเรตได้ จะมี Fact 'Market Cap (สกุลงบ)'
+    # ติดมาด้วย ใช้ตัวนั้นแล้ว reverse-DCF ทั้งเส้นก็อยู่ในสกุลงบสกุลเดียวหมด. **อ่านจาก Fact
+    # ไม่ใช่คำนวณสด** เพราะพาธนี้ต้องทำงานกับ facts ที่อ่านจาก DB ตอน backfill ด้วย ซึ่งต้องได้
+    # เรต ณ วันนั้น ไม่ใช่เรตวันนี้ — แถวเก่าก่อน Phase 45 ไม่มี Fact นี้ -> None -> ถูกปฏิเสธ
+    # เหมือนเดิมทุกประการ (ประวัติที่บันทึกไว้แล้วไม่ถูกเขียนใหม่ย้อนหลัง)
+    mismatch = _currency_mismatch(facts)
+    if mismatch:
+        market_cap_stmt = _scalar(facts, "Market Cap (สกุลงบ)")
+        if market_cap_stmt:
+            market_cap, mismatch = market_cap_stmt, False
+
     return SimpleNamespace(
         # ตรวจสกุลเงินจาก 'ป้ายหน่วย' ของ Fact ไม่ใช่จาก object ต้นทาง — path นี้ต้องทำงานกับ
         # facts ที่อ่านจาก DB ตอน backfill ด้วย ซึ่งไม่มี object ให้ถามแล้ว. แถวเก่าที่ยังติดป้าย
         # 'USD' ทั้งคู่จะได้ False = พฤติกรรมเดิมเป๊ะ (ไม่ไปรื้อประวัติ) ส่วนแถวใหม่จะจับได้เอง
-        currency_mismatch=_currency_mismatch(facts),
+        currency_mismatch=mismatch,
         free_cash_flow=fcf,
         market_cap=market_cap,
         revenue=_scalar(facts, "Revenue"),
@@ -543,7 +555,13 @@ def no_valuation_reason(obj, dcf: dict | None = None) -> tuple[str, bool]:
     ทุกครั้งจากการมีตรรกะเดียวกันเขียนไว้สองที่.
     """
     if getattr(obj, "currency_mismatch", False):
-        return "งบกับราคาคนละสกุลเงิน — คำนวณ EV/reverse-DCF ไม่ได้", False
+        # Phase 45: ตอนนี้แปลงสกุลได้แล้วถ้ามีอัตราแลกเปลี่ยนบันทึกไว้ — ที่ยังเหลือ mismatch
+        # มีสองสาเหตุที่แยกจาก facts ไม่ออก: ดึงเรตไม่สำเร็จรอบนั้น หรือเป็นแถวที่บันทึกก่อน
+        # Phase 45 (ยังไม่มี Fact เรตเลย). ทั้งสองกรณีคือ **"รอรอบหน้า"** เหมือนกัน จึงเป็น
+        # data_gap=True และข้อความต้องพูดให้ครอบทั้งคู่ ไม่ใช่กล่าวหาว่าการดึงล้มเหลว
+        # (ความต่างเดียวกับที่ Phase 39 แยก "ดึง Market Cap ไม่สำเร็จ" ออกจาก "ประเมินไม่ได้")
+        return ("งบกับราคาคนละสกุลเงิน และรอบนี้ไม่มีอัตราแลกเปลี่ยนบันทึกไว้ — "
+                "รอบวิเคราะห์ถัดไปจะได้คำตอบ ไม่ใช่ข้อสรุปว่าบริษัทนี้ประเมินไม่ได้"), True
     if dcf is None:
         if getattr(obj, "market_cap", None) is None:
             return ("ดึง Market Cap ไม่สำเร็จรอบนี้ — เป็นปัญหาการดึงข้อมูล "

@@ -645,10 +645,17 @@ def reverse_dcf(
     # แล้วให้คะแนนขาราคา 0.0/3 ไปเต็มๆ. TSM รอดมาได้เพราะผลลัพธ์บังเอิญหลุดช่วงที่โมเดลตีความ
     # ได้ (= รอดด้วยโชค ไม่ใช่ด้วยการออกแบบ). ตัวเลขที่คำนวณจากสองสกุลไม่ใช่ตัวเลขที่ผิดนิดหน่อย
     # — มันไม่มีความหมายเลย จึงต้องปฏิเสธ ไม่ใช่ปรับแก้
+    # Phase 45: คนละสกุลไม่ได้แปลว่าจบอีกต่อไป — ถ้าดึงอัตราแลกเปลี่ยนได้ ใช้ market cap ที่
+    # แปลงเป็นสกุลงบแล้ว ทุกอย่างที่เหลือ (net debt/FCF/รายได้) เป็นสกุลงบอยู่แล้ว โมเดลจึง
+    # ทำงานในสกุลเดียวตลอดเส้น. **ดึงเรตไม่ได้ -> ยังปฏิเสธเหมือนเดิมเป๊ะ ไม่มีการเดาเรต**
+    #
+    # ต้องรับได้ทั้งสองพาธ: object จาก provider (mismatch=True + market_cap_stmt) กับ duck ที่
+    # ประกอบจาก facts (มี market_cap แปลงมาแล้วและ mismatch=False) — สองพาธนี้เคยตอบคนละอย่าง
+    # สำหรับหุ้นตัวเดียวกันมาแล้วสองรอบ (33.3 แบงก์, 34 ORCL) จึงต้องเขียนกติกาไว้ที่เดียว
     if getattr(fundamentals, "currency_mismatch", False):
-        return None
-
-    market_cap = fundamentals.market_cap
+        market_cap = getattr(fundamentals, "market_cap_stmt", None)
+    else:
+        market_cap = fundamentals.market_cap
     if market_cap is None or market_cap <= 0:
         return None
 

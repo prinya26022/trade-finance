@@ -817,59 +817,7 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
   padding: 12px; font-size: 12px; line-height: 1.6; overflow-x: auto; color: var(--text);
 }
 
-/* ── Phase 43: กระดานสรุปหน้าแรก ─────────────────────────────────────────────
-   ทุกอย่างในหน่วย "ถ้าราคาวันนี้ 100" — สีบอก **ความเห็นตรงกันของวิธีวัด** ไม่ใช่ดี/แย่
-   (ช่วงกว้างไม่ได้แปลว่าหุ้นแย่ แปลว่าเรายังไม่รู้ว่ามันโตเท่าไร) */
-.bd { margin: 0 0 22px; }
-.bd-head {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 8px;
-}
-.bd-table td { vertical-align: top; }
-.bd-main { font-size: 18px; font-weight: 700; color: var(--fg); font-variant-numeric: tabular-nums; }
-.bd-open td { background: var(--panel-2); }
 
-.bd-bar { position: relative; height: 22px; min-width: 160px; }
-.bd-track { position: absolute; left: 0; right: 0; top: 9px; height: 3px; background: var(--border); }
-.bd-now { position: absolute; top: 0; bottom: 0; left: 40%; width: 2px; background: var(--fg); opacity: 0.5; }
-.bd-span { position: absolute; top: 7px; height: 7px; min-width: 4px; background: var(--green); opacity: 0.65; }
-.bd-span.cross { background: var(--amber); }
-.bd-mark { position: absolute; top: 2px; height: 17px; width: 2px; background: var(--fg); }
-
-.bd-verdict {
-  display: inline-block; font-size: 11.5px; font-weight: 700;
-  padding: 1px 7px; border: 1px solid transparent; white-space: nowrap;
-}
-.bv-cheap  { color: var(--green); border-color: var(--green); }
-.bv-exp    { color: var(--muted); border-color: var(--border); }
-.bv-strad  { color: var(--amber); border-color: var(--amber); }
-.bv-capped { color: var(--red);   border-color: var(--red); }
-.bv-na     { color: var(--muted); border-color: var(--border); opacity: 0.75; }
-
-.bd-more {
-  margin-left: 6px; font-size: 11.5px; font-weight: 600; padding: 1px 7px; cursor: pointer;
-  background: transparent; color: var(--accent); border: 1px solid var(--border); border-radius: 3px;
-}
-.bd-more:hover { background: var(--panel-2); }
-.bd-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-.bd-cands { margin-top: 7px; border-collapse: collapse; font-size: 12px; width: 100%; }
-.bd-cands td { padding: 2px 8px 2px 0; color: var(--muted); border: none; }
-.bd-cands td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.bd-cands .used td { color: var(--fg); font-weight: 700; }
-.bd-cands .dropped td { opacity: 0.55; text-decoration: line-through var(--border); }
-.bd-chip {
-  margin-left: 5px; font-size: 9.5px; font-weight: 700; padding: 0 4px;
-  border: 1px solid var(--border); border-radius: 3px; text-decoration: none;
-  display: inline-block; color: var(--muted);
-}
-.bd-note { margin: 9px 0 0; font-size: 12.5px; line-height: 1.7; color: var(--muted); }
-
-/* Phase 44: "ราคานี้ขออะไร" — สีบอกน้ำหนักของข้อเรียกร้อง ไม่ได้บอกว่าหุ้นดี/แย่
-   (ข้อเรียกร้องหนักไม่ได้แปลว่าทำไม่ได้ แปลว่าต้องเอาไปเทียบกับขนาดตลาดจริงก่อนเชื่อ) */
-.bd-asks { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.35; }
-.bd-asks-sub { font-size: 11px; color: var(--muted); font-weight: 400; }
-.bd-asks-easy { color: var(--green); }
-.bd-asks-heavy { color: var(--amber); font-weight: 700; }
 
 /* Phase 44: "ราคานี้เรียกร้องให้บริษัทใหญ่แค่ไหน" — วางข้อเรียกร้องของตลาดกับของเราข้างกัน
    เพราะเลขเดี่ยวๆ ไม่มีอะไรให้เทียบ ซึ่งเป็นปัญหาเดิมที่ฟีเจอร์นี้ถูกสร้างมาแก้ */
@@ -887,3 +835,121 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
 .rc-main { font-size: 17px; font-weight: 700; color: var(--fg); font-variant-numeric: tabular-nums; }
 .rc-easy { color: var(--green); font-size: 15px; }
 .rc-sub { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ═══ กระดานสรุปหน้าแรก (Phase 43, จัดหน้าใหม่ 46) ═══════════════════════════
+   หลักการ: ให้มี "ของที่ดึงสายตา" ต่อแถวแค่ชิ้นเดียว (เลขราคาที่คำนวณได้) ที่เหลือเบาลง
+   ทั้งหมด — เดิม 7 คอลัมน์เข้มเท่ากันจนอ่านไม่รู้ว่าควรมองอะไรก่อน.
+   สีบอก **ความเห็นตรงกันของวิธีวัด** ไม่ได้บอกว่าหุ้นดี/แย่ (ช่วงกว้างไม่ได้แปลว่าหุ้นแย่
+   แปลว่าเรายังไม่รู้ว่ามันโตเท่าไร) */
+.bd { margin: 0 0 26px; }
+.bd-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 6px 16px; margin-bottom: 12px;
+}
+.bd-title { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.bd-stats { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); }
+.bd-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+.bd-sep { width: 1px; height: 11px; background: var(--border); }
+
+/* ตัวกรอง — active affordance หลักของกระดาน */
+.bd-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.bd-chip {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  font-size: 12.5px; font-weight: 600; padding: 5px 11px; border-radius: 999px;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border); transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.bd-chip:hover { color: var(--text); border-color: var(--blue); }
+.bd-chip:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.bd-chip.on { background: rgba(88,166,255,.12); color: var(--blue); border-color: rgba(88,166,255,.45); }
+.bd-chip-n {
+  font-size: 11px; font-variant-numeric: tabular-nums; opacity: .75;
+  padding: 0 5px; border-radius: 999px; background: var(--panel-2);
+}
+.bd-chip.on .bd-chip-n { background: rgba(88,166,255,.18); }
+
+.bd-wrap { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+.bd-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.bd-table th, .bd-table td { padding: 11px 14px; text-align: left; vertical-align: middle; }
+.bd-table thead th {
+  /* ไม่ทำ sticky: .table-scroll ตั้ง overflow ไว้ ซึ่งสร้างกล่องเลื่อนของตัวเอง —
+     sticky จะเกาะกับกล่องนั้นแทนที่จะเกาะหน้าจอ = โค้ดที่ดูเหมือนทำงานแต่ไม่ทำ */
+  font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted); background: var(--panel-2);
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.bd-table thead th:first-child { border-top-left-radius: 12px; }
+.bd-table thead th:last-child { border-top-right-radius: 12px; }
+.bd-table td.num, .bd-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* เส้นคั่นบางๆ แยก "คุณภาพ" / "ราคา" / "คำตัดสิน" ออกจากกันโดยไม่ต้องใช้หัวข้อกลุ่ม */
+.bd-div { border-left: 1px solid var(--border); }
+.bd-barcol { width: 190px; }
+
+.bd-row { cursor: pointer; border-top: 1px solid var(--border); transition: background .1s ease; }
+.bd-row:hover { background: var(--panel-2); }
+.bd-row:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.bd-row.is-open { background: var(--panel-2); }
+
+.bd-tk { font-weight: 700; font-size: 14.5px; letter-spacing: .02em; color: var(--text); text-decoration: none; }
+.bd-tk:hover { color: var(--blue); text-decoration: underline; }
+/* บรรทัดรองทุกที่ในกระดานใช้คลาสเดียวกัน — ความสม่ำเสมอทำให้กวาดสายตาลงคอลัมน์ได้เร็ว */
+.bd-when { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; font-variant-numeric: tabular-nums; }
+.bd-score { font-size: 15px; font-weight: 700; color: var(--text); }
+.bd-of { font-size: 11.5px; color: var(--muted); }
+.bd-main { font-size: 21px; font-weight: 700; color: var(--text); line-height: 1.15; }
+.bd-dash { color: var(--muted); opacity: .5; }
+
+.bd-bar { position: relative; height: 22px; min-width: 160px; }
+.bd-track { position: absolute; left: 0; right: 0; top: 9px; height: 3px; background: var(--border); border-radius: 2px; }
+.bd-now { position: absolute; top: 0; bottom: 0; left: 40%; width: 2px; background: var(--text); opacity: .45; }
+.bd-span { position: absolute; top: 7px; height: 7px; min-width: 4px; border-radius: 3px; background: var(--green); opacity: .7; }
+.bd-span.cross { background: var(--amber); }
+.bd-mark { position: absolute; top: 2px; height: 17px; width: 2px; background: var(--text); border-radius: 1px; }
+
+.bd-asks { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.3; }
+.bd-asks-sub { font-size: 11px; color: var(--muted); font-weight: 400; }
+.bd-asks-easy { color: var(--green); }
+.bd-asks-heavy { color: var(--amber); font-weight: 700; }
+
+.bd-verdict {
+  display: inline-block; font-size: 11.5px; font-weight: 700; white-space: nowrap;
+  padding: 2px 9px; border-radius: 999px; border: 1px solid transparent;
+}
+.bv-cheap  { color: var(--green); background: rgba(63,185,80,.12);  border-color: rgba(63,185,80,.35); }
+.bv-exp    { color: var(--muted); background: var(--panel-2);       border-color: var(--border); }
+.bv-strad  { color: var(--amber); background: rgba(210,153,34,.12); border-color: rgba(210,153,34,.35); }
+.bv-capped { color: var(--red);   background: rgba(248,81,73,.10);  border-color: rgba(248,81,73,.3); }
+.bv-na     { color: var(--muted); border-color: var(--border); opacity: .7; }
+.bd-caret {
+  display: inline-block; margin-left: 8px; color: var(--muted); font-size: 13px;
+  transition: transform .15s ease;
+}
+.bd-caret.up { transform: rotate(180deg); }
+
+/* แผงที่กางออก — คำอธิบายยาวๆ ย้ายมาอยู่ที่นี่แทนที่จะเบียดอยู่ในแถว */
+.bd-panel-row td { padding: 0; border-top: 1px solid var(--border); }
+.bd-panel {
+  padding: 14px 16px 16px; background: var(--bg);
+  display: flex; flex-direction: column; gap: 11px; align-items: flex-start;
+}
+.bd-why { margin: 0; font-size: 13.5px; color: var(--text); max-width: 70ch; line-height: 1.7; }
+.bd-cands { border-collapse: collapse; font-size: 12.5px; min-width: 340px; }
+.bd-cands th {
+  padding: 3px 14px 5px 0; text-align: left; font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.bd-cands td { padding: 4px 14px 4px 0; color: var(--muted); }
+.bd-cands th.num, .bd-cands td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bd-cands .used td { color: var(--text); font-weight: 700; }
+.bd-cands .dropped td { opacity: .5; text-decoration: line-through var(--border); }
+.bd-tag {
+  margin-left: 6px; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 4px;
+  border: 1px solid var(--border); color: var(--muted); text-decoration: none; display: inline-block;
+}
+.bd-tag.on { color: var(--blue); border-color: rgba(88,166,255,.45); }
+.bd-open-link { font-size: 12.5px; font-weight: 600; color: var(--blue); text-decoration: none; }
+.bd-open-link:hover { text-decoration: underline; }
+
+.bd-empty { margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+.bd-note { margin: 10px 2px 0; font-size: 12.5px; line-height: 1.75; color: var(--muted); }
