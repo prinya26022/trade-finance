@@ -111,6 +111,26 @@ def _asks(reality: dict | None) -> dict | None:
     }
 
 
+def _close_call(divergence: dict | None) -> dict | None:
+    """แถวที่คำตอบแขวนอยู่บนเลข 15 ที่เราตั้งเอง มากกว่าบนความจริงของธุรกิจ (Phase 48).
+
+    ทำไมต้องขึ้นถึงหน้ากระดาน ไม่ใช่ซ่อนไว้ในหน้า ticker: ธง SUSTAINABLE_DIVERGES เปลี่ยน
+    **วิธีคำนวณทั้งวิธี** (standard lens -> growth lens) ไม่ใช่แค่หักคะแนน — AAPL ห่างเส้น
+    แค่ 2.26pp แล้วได้ 0.0/3 ถ้าอีกฝั่งของเส้นจะได้ ~2.81/3. ตัวเลขที่ต่างกันขนาดนั้นเพราะ
+    2.26pp ต้องบอกคนอ่านตั้งแต่แถวแรกที่เห็น ไม่ใช่ตอนกดเข้าไปดูสามชั้น
+
+    คืน None เมื่อไม่เฉียด — ไม่เตือนทุกแถวจนคำเตือนหมดความหมาย"""
+    if not divergence or not divergence.get("borderline"):
+        return None
+    return {
+        "margin_pp": divergence["margin_pp"],
+        "distance_pp": divergence["worst_distance_pp"],
+        "trigger_pp": divergence["trigger_pp"],
+        "flagged": divergence["diverges"],
+        "ref": divergence["worst_ref"],
+    }
+
+
 def build_row(row: dict, risk_free_pct: float = FALLBACK_RISK_FREE_PCT,
               now: datetime | None = None) -> dict:
     """แถวเดียวของกระดาน จากแถว analyses หนึ่งแถว (ไม่แตะ network).
@@ -133,6 +153,8 @@ def build_row(row: dict, risk_free_pct: float = FALLBACK_RISK_FREE_PCT,
         "lens": None, "verdict": "none", "note": "ยังคำนวณราคาไม่ได้",
         "asks": None,
         "candidates": [],
+        # Phase 48: การตัดสินที่เฉียดเส้น 15pp ต้องเห็นได้ ไม่ใช่ซ่อนอยู่ในธงที่ขึ้น/ไม่ขึ้น
+        "close_call": None,
     }
     if not facts:
         out["note"] = "แถวนี้ไม่มีข้อมูลงบเก็บไว้"
@@ -154,6 +176,7 @@ def build_row(row: dict, risk_free_pct: float = FALLBACK_RISK_FREE_PCT,
 
     agreement = dcf.get("agreement")
     reality = (dcf.get("reality") or {}).get("market")
+    div = dcf.get("divergence")
     at_100 = _at_100(dcf["fair"]["discount_pct"])
     lo, hi = _accepted_range(agreement)
     verdict, note = _verdict(agreement, at_100)
@@ -162,6 +185,7 @@ def build_row(row: dict, risk_free_pct: float = FALLBACK_RISK_FREE_PCT,
         verdict=verdict, note=note,
         # Phase 44: ข้อเรียกร้องเดียวกันในหน่วยที่เถียงได้ — "ราคานี้ขอให้รายได้โตกี่เท่า"
         asks=_asks(reality),
+        close_call=_close_call(div),
         candidates=[
             {"label": c["label"], "growth": c["growth"], "at_100": _at_100(c["discount_pct"]),
              "used": c["used"], "rejected": c["rejected"], "capped": c["capped"]}

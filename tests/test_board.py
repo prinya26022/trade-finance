@@ -8,7 +8,8 @@ import pytest
 from datetime import datetime, timedelta
 
 from src.agent.board import (
-    STALE_AFTER_DAYS, _age_days, _at_100, _verdict, build_board, build_row, summary,
+    STALE_AFTER_DAYS, _age_days, _at_100, _close_call, _verdict, build_board, build_row,
+    summary,
 )
 
 
@@ -319,3 +320,20 @@ def test_the_board_stamps_every_row_with_its_age_so_the_ui_never_recomputes_it()
     by_ticker = {r["ticker"]: r for r in board}
     assert (by_ticker["FRESH"]["age_days"], by_ticker["FRESH"]["stale"]) == (1, False)
     assert (by_ticker["OLD"]["age_days"], by_ticker["OLD"]["stale"]) == (30, True)
+
+
+# ---------- เฉียดเส้น 15pp (Phase 48) ----------
+
+def test_a_row_that_is_not_close_to_the_line_says_nothing_at_all():
+    """เตือนทุกแถว = คำเตือนหมดความหมาย. GOOGL ห่างเส้น 11.8pp ไม่ต้องมีใครมาบอกอะไร."""
+    assert _close_call(None) is None
+    assert _close_call({"borderline": False, "margin_pp": -11.81}) is None
+
+
+def test_a_close_call_carries_which_side_of_the_line_it_landed_on():
+    """เฉียดแล้วติด กับ เฉียดแล้วรอด นำไปสู่การอ่านคนละแบบ — เก็บ flagged ไว้เสมอ."""
+    cc = _close_call({"borderline": True, "margin_pp": 2.26, "worst_distance_pp": 17.26,
+                      "trigger_pp": 15.0, "diverges": True, "worst_ref": "revenue"})
+
+    assert cc == {"margin_pp": 2.26, "distance_pp": 17.26, "trigger_pp": 15.0,
+                  "flagged": True, "ref": "revenue"}

@@ -6,6 +6,7 @@
 - นำเข้าซ้ำ = ทับ ไม่ใช่เพิ่มแถว (งานที่ทำด้วยมือ ทำซ้ำง่ายมาก)
 """
 import json
+from datetime import datetime
 
 import pytest
 
@@ -14,7 +15,12 @@ from src.agent.compare import compare_period
 from src.agent.summarize import Summary, WeakPoint, build_prompt, data_block
 from src.domain.interfaces import Fact, NewsItem, PriceSnapshot
 
-PERIOD = "2026-08"
+# ต้องเป็น "เดือนปัจจุบัน" ไม่ใช่ค่าคงที่ (แก้ 2026-09-01): compare_period ที่ไม่มี analysis_id
+# ผูกไว้ จะถอยไปหาแถว Gemini ที่ run_at[:7] ตรงกับ period — แต่ save_analysis ประทับ run_at
+# ด้วยเวลาปัจจุบันเสมอ. ค่าคงที่ "2026-08" จึงจับคู่ได้เฉพาะตอนที่รันเทสต์อยู่ในเดือนสิงหาคม
+# และพังทุกวันที่ 1 ของเดือนถัดไป — เทสต์ที่เขียวเพราะบังเอิญอยู่ในเดือนที่ถูกต้อง คือเทสต์ที่
+# ไม่ได้ทดสอบอะไรเลยใน 11 เดือนที่เหลือ (เจอจริงตอน CI รันวันที่ 2026-09-01)
+PERIOD = datetime.now().strftime("%Y-%m")
 
 PRICE = {"ticker": "DUOL", "price": 100.0, "currency": "USD", "as_of": "2026-08-01"}
 NEWS = [{"title": "Duolingo beats earnings estimates", "url": "u",

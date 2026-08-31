@@ -677,6 +677,14 @@ export type BoardRow = {
   ticker: string;
   run_at: string | null; // วันที่ของแถวที่เอาข้อมูลมา — ตัวที่แช่แข็งไว้จะเก่ากว่าตัวอื่นมาก
   age_days: number | null; // อายุของแถวเป็นวัน (คำนวณฝั่ง server ให้ตรงกับที่ summary นับ)
+  // Phase 48: null = ไม่ได้เฉียดเส้น. มีค่า = คำตอบของแถวนี้แขวนอยู่บน threshold ที่เราตั้งเอง
+  close_call: {
+    margin_pp: number; // + = ติดธง, − = รอดมาได้
+    distance_pp: number;
+    trigger_pp: number;
+    flagged: boolean;
+    ref: string; // "revenue" | "fcf" — ฝั่งที่ตัดสิน
+  } | null;
   stale: boolean; // เกิน stale_after_days แล้ว = ราคาที่ใช้คำนวณไม่ใช่ราคาปัจจุบัน
   score: number | null;
   max: number | null;

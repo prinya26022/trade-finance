@@ -1874,6 +1874,71 @@ A sticky header was written and then removed rather than left in: `.table-scroll
 which makes the header stick to *that* box rather than the viewport -- code that looks like it works
 and does not.
 
+## Phase 47 -- the board was quoting month-old prices in the same typeface as yesterday's
+
+`CVX` sat on the front page reading `ราคา 100 -> 22`, computed from a market cap **27 days old**,
+in the same bold 21px as `AMZN` from yesterday. The only difference was an 11px grey line under the
+ticker. The header counted them together as `ตัวเลขใช้ได้ 11`.
+
+The cause turned out **not** to be a bug: seven of seventeen tickers are `frozen` and re-analysed
+every 30 days on purpose, to keep the Gemini free-tier quota for names actually being held or
+watched. That part is right. What was wrong is that the board never said so.
+
+- `age_days` / `stale` computed **server-side** per row (`STALE_AFTER_DAYS = 7`, the line that
+  separates tickers inside the daily rotation from ones that are not). The UI no longer derives
+  age from `run_at` -- a browser in another timezone could otherwise render "6 วันก่อน" on a row
+  the header had already counted as stale, and the page would contradict itself.
+- `summary` gains `usable_fresh` and `stale`. **Stale rows are not removed from `usable`** -- hiding
+  what is hard to assess is the thing Phase 29 and Phase 34 each fixed once already. This labels.
+- A row whose date will not parse is treated as stale, not fresh: over-warning is visible, false
+  freshness is not.
+- Stale rows are **not** dimmed (dimming is hiding by another name). They get an amber badge and a
+  dotted underline beneath the price, so the eye ties the warning to the number it qualifies.
+
+Also fixed here, found by the calendar rolling over mid-session: `tests/test_handoff.py` pinned
+`PERIOD = "2026-08"` while `save_analysis` stamps `run_at` with the current time, and
+`compare_period` falls back to matching `run_at[:7] == period`. The test passed only during August
+and failed on the 1st of every following month. A test that is green because the wall clock happens
+to agree with it is not testing anything for the other eleven months.
+
+## Phase 48 -- the last cliff in the scoring, made visible instead of moved
+
+Phase 42 deferred the `DIVERGENCE_TRIGGER_PP` question with an explicit note that it needed its own
+A/B. Run across all 459 stored rows where the distance is computable, at nine thresholds:
+
+| trigger | rows flagged | rows whose /3 changes vs 15 | mean /3 |
+|---|---|---|---|
+| 8pp | 323 | 60 | 1.173 |
+| 10-13pp | 248 | 18 | 1.294 |
+| **15pp (current)** | **211** | **0** | **1.344** |
+| 18-20pp | 189 | 1 | 1.351 |
+| 25pp | 152 | 10 | 1.402 |
+
+**The conclusion is that the number should not move.** Lowering it to 8 to catch MSFT (distance
+9.78pp) also drags in SBUX, MA and TSLA (8.26-8.42) which show no evidence of a broken estimate, and
+pulls the whole board's valuation leg down. Raising it to 18 un-flags AAPL and hands it 0.0 -> 2.81
+on a company compounding revenue at 1.81%/yr -- exactly the failure Phase 42 was built to prevent.
+The snapshot of today's 15 names *looks* like it has a clean empty band around 15pp; across the full
+history that band is not there -- MSFT lives at 9-10 and 13-14, META at 14-15 and 17-18.
+
+What is actually wrong is that this is a **binary cliff, and an invisible one**. Audit fix 19.3
+converted all eight fundamental criteria from cliffs to graded degrees precisely because a number
+moving slightly should not flip a whole criterion. This one could not be converted: it is not a
+scoring criterion but a **route** (standard lens vs growth lens), and half-routing produces an anchor
+blended from two methods, which has no provenance to check -- against the rule the whole project
+runs on.
+
+So it is reported instead of removed. `divergence_detail()` returns the distance, which reference
+decided it, the signed `margin_pp` (+ = flagged, − = survived), and `borderline` when the answer sits
+within 3pp of the line **on either side** -- surviving narrowly matters as much as failing narrowly,
+since both mean the answer hangs on a constant we chose. It touches no flag and no route, so no row's
+score changes.
+
+On live data exactly two rows are borderline, and both are consequential: **AAPL at +2.26pp**, which
+is why it scores 0.0/3 instead of ~2.81, and **META at +2.53pp**, which crossed the line on
+2026-08-11 (14.12 -> 17.53) and silently switched valuation method. META's score happened not to move
+because it was capped at 3.0 on both sides. Next time there is no reason to expect that luck.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

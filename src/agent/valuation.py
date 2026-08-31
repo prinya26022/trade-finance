@@ -398,6 +398,63 @@ def _diverges(sustainable_pct: float, revenue_cagr: float | None,
     )
 
 
+# ห่างจากเส้น DIVERGENCE_TRIGGER_PP ไม่เกินเท่านี้ = "เฉียด" — ต้องบอกคนอ่าน (Phase 48)
+BORDERLINE_PP = 3.0
+
+# ป้ายอ้างอิงของแต่ละฝั่ง — ใช้ชื่อเดียวกับที่ ANCHOR_LABELS ใช้ เพื่อไม่ให้คนอ่านต้องแปลสองรอบ
+_REF_LABELS = {"revenue": "รายได้โตจริง (CAGR)", "fcf": "FCF โตจริง (CAGR)"}
+
+
+def divergence_detail(sustainable_pct: float | None, revenue_cagr: float | None,
+                      fcf_cagr: float | None) -> dict | None:
+    """ธง SUSTAINABLE_DIVERGES ตัดสินด้วยระยะเท่าไร และ **เฉียดเส้นแค่ไหน** — รายงานล้วน
+    ไม่ตัดสินใจอะไรเอง (ไม่แตะ flags/route จึงไม่เปลี่ยนคะแนนของแถวไหนเลย)
+
+    **ทำไมต้องมี (A/B 2026-09 บน 459 แถวที่คำนวณระยะได้):** เกณฑ์นี้เป็น binary cliff
+    ตัวสุดท้ายที่เหลืออยู่ในระบบคะแนน — audit fix 19.3 แปลงเกณฑ์พื้นฐานทั้ง 8 ข้อจาก cliff
+    เป็น graded ไปแล้วด้วยเหตุผลว่าตัวเลขขยับนิดเดียวไม่ควรพลิกทั้งเกณฑ์ แต่ข้อนี้แปลงไม่ได้
+    เพราะมันไม่ใช่ "เกณฑ์ให้คะแนน" แต่เป็น **การเลือกเส้นทาง** (standard lens vs growth lens)
+    ซึ่งเลือกครึ่งทางไม่ได้ — anchor ที่ผสมสองวิธีเข้าด้วยกันจะไม่มีที่มาให้ตรวจสอบ ซึ่งขัดกับ
+    หลัก "ทุกตัวเลขต้องบอกที่มาได้" ของโปรเจกต์นี้
+
+    เมื่อลบ cliff ไม่ได้ ก็ต้อง **ทำให้มันมองเห็นได้** แทน: META เดินอยู่ที่ 14.12pp มา 24 วัน
+    แล้ววันที่ 2026-08-11 ขยับเป็น 17.53pp ข้ามเส้น 15 — ระบบเปลี่ยนวิธีคำนวณทั้งวิธีจาก
+    standard เป็น growth lens โดยหน้าจอไม่มีอะไรบอกว่านี่คือการตัดสินที่เฉียดฉิว
+    (คะแนนบังเอิญไม่ขยับเพราะชนเพดาน 3.0 อยู่แล้วทั้งสองฝั่ง — ครั้งหน้าอาจไม่โชคดีแบบนี้)
+    """
+    if sustainable_pct is None:
+        return None
+    refs = []
+    for key, val in (("revenue", revenue_cagr), ("fcf", fcf_cagr)):
+        if val is None:
+            continue
+        refs.append({
+            "key": key, "label": _REF_LABELS[key], "value": round(val, 2),
+            "distance_pp": round(abs(sustainable_pct - val), 2),
+            # ทิศทางขัดกันเป็นเงื่อนไขคนละชนิดกับ "ห่างเป็นตัวเลข" — ระยะทางอธิบายมันไม่ได้
+            "direction_conflict": bool(sustainable_pct < 0 and val > 10.0),
+        })
+    if not refs:
+        return None
+
+    worst = max(refs, key=lambda r: r["distance_pp"])
+    conflict = any(r["direction_conflict"] for r in refs)
+    margin = round(worst["distance_pp"] - DIVERGENCE_TRIGGER_PP, 2)
+    return {
+        "sustainable_pct": sustainable_pct,
+        "refs": refs,
+        "worst_ref": worst["key"],
+        "worst_distance_pp": worst["distance_pp"],
+        "trigger_pp": DIVERGENCE_TRIGGER_PP,
+        # + = ติดธง, − = รอดมาได้ (ตัวเลขเดียวที่บอกทั้ง 'ผลลัพธ์' และ 'เฉียดแค่ไหน')
+        "margin_pp": margin,
+        "diverges": conflict or worst["distance_pp"] > DIVERGENCE_TRIGGER_PP,
+        # ทิศทางขัดกันคือเกณฑ์เชิงประเภท ไม่ใช่เชิงระยะ — เรียกว่า 'เฉียด' ไม่ได้
+        "borderline": (not conflict) and abs(margin) <= BORDERLINE_PP,
+        "direction_conflict": conflict,
+    }
+
+
 def valuation_guard(
     fcf_base: float | None, nopat: float | None, revenue: float | None,
     capex: float | None, da: float | None, nwc_change: float | None,
@@ -606,6 +663,8 @@ class ReverseDcfResult:
     note: str | None = None           # เหตุผลเวลาคำนวณไม่ได้ (fcf ติดลบ/นอกขอบเขต/ข้อมูลขาด)
     # หน้าต่างข้อมูลที่ anchor มาจาก — metadata ล้วน ไม่เข้าคะแนน (ดู _anchor_window)
     anchor_window: dict | None = None
+    # ระยะห่างจากเส้น SUSTAINABLE_DIVERGES + เฉียดแค่ไหน — metadata ล้วน (ดู divergence_detail)
+    divergence: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -625,6 +684,7 @@ class ReverseDcfResult:
             "fcf_base": self.fcf_base,
             "note": self.note,
             "anchor_window": self.anchor_window,
+            "divergence": self.divergence,
         }
 
 
@@ -690,11 +750,16 @@ def reverse_dcf(
         fcf_base, nopat, revenue, capex, da, nwc_change, roic, historical_cagr,
         fcf_cagr=fcf_cagr_ref,
     )
+    # อินพุตชุดเดียวกับที่ guard เพิ่งใช้ตัดสิน — คำนวณซ้ำเพื่อ *รายงาน* ระยะ ไม่ได้ตัดสินใหม่
+    # (ถ้าสองอันนี้ให้คำตอบไม่ตรงกันเมื่อไหร่ เทสต์ test_the_reported_verdict_never_disagrees_
+    # with_the_flag_that_was_actually_raised จะจับได้ทันที)
+    divergence = divergence_detail(sustainable, historical_cagr, fcf_cagr_ref)
 
     base_result = dict(
         historical_cagr=historical_cagr, wacc=round(wacc * 100, 2), beta_used=round(beta_used, 2),
         terminal_growth=round(terminal_growth * 100, 2), years=years,
         ev=round(ev, 2), fcf_base=round(fcf_base, 2) if fcf_base is not None else None, flags=flags,
+        divergence=divergence,
     )
 
     if route == "NA":

@@ -248,6 +248,17 @@ export default function Board({ data }: { data: BoardResponse }) {
                       <td colSpan={6}>
                         <div className="bd-panel">
                           <p className="bd-why">{r.note}</p>
+                          {r.close_call && (
+                            <p className="bd-why bd-why-close">
+                              <b>เฉียดเส้น {r.close_call.margin_pp > 0 ? "มาแค่" : "ไปแค่"} {Math.abs(r.close_call.margin_pp).toFixed(1)}pp</b> —{" "}
+                              {r.close_call.ref === "fcf" ? "FCF ที่โตจริง" : "รายได้ที่โตจริง"}ห่างจาก
+                              ตัวเลขโครงสร้าง {r.close_call.distance_pp.toFixed(1)}pp ส่วนเส้นที่ระบบใช้ตัดสินอยู่ที่{" "}
+                              {r.close_call.trigger_pp.toFixed(0)}pp ผลคือระบบ
+                              {r.close_call.flagged ? "ไม่เชื่อ" : "ยังเชื่อ"}ตัวเลขโครงสร้างของตัวนี้ —{" "}
+                              <b>ถ้าอยู่อีกฝั่งของเส้น ราคาที่คำนวณได้จะมาจากวิธีคนละวิธี</b> เส้นนี้เราตั้งเอง
+                              ไม่ใช่ความจริงของธุรกิจ จึงต้องบอกเมื่อคำตอบแขวนอยู่บนมัน
+                            </p>
+                          )}
                           {r.stale && (
                             <p className="bd-why bd-why-stale">
                               ตัวเลขทั้งบรรทัดนี้มาจากรอบวิเคราะห์เมื่อ <b>{ago(r.age_days)}</b>

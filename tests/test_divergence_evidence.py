@@ -9,7 +9,9 @@ guard เดิมเทียบ sustainable_growth กับ **revenue CAGR** 
 """
 import pytest
 
-from src.agent.valuation import DIVERGENCE_TRIGGER_PP, _diverges, valuation_guard
+from src.agent.valuation import (
+    BORDERLINE_PP, DIVERGENCE_TRIGGER_PP, _diverges, divergence_detail, valuation_guard,
+)
 
 # ค่าที่ทำให้ sustainable คำนวณได้เป็นบวกและไม่ติดธงอื่น (nopat margin สูงพอ, reinvestment บวก)
 OK_INPUTS = dict(fcf_base=1.0e9, nopat=2.0e9, revenue=1.0e10,
@@ -75,3 +77,75 @@ def test_fcf_evidence_is_optional_so_old_callers_behave_exactly_as_before():
 
     assert (route_a, flags_a, sus_a) == (route_b, flags_b, sus_b)
     assert "SUSTAINABLE_DIVERGES" in flags_a
+
+
+# ---------- เส้น 15pp เฉียดแค่ไหน (Phase 48) ----------
+#
+# A/B ทั้ง 459 แถวที่คำนวณระยะได้ สรุปว่า **ไม่ควรขยับเลข 15**: ลดเหลือ 8 เพื่อให้ MSFT
+# (ห่าง 9.78) ติดธง จะลาก SBUX/MA/TSLA (8.26–8.42) ติดไปด้วยทั้งที่ไม่มีหลักฐานว่าพัง และ
+# กดคะแนนขาราคาเฉลี่ยทั้งกระดานจาก 1.344 เหลือ 1.173; เพิ่มเป็น 18 จะปลดธง AAPL แล้วยกจาก
+# 0.0 เป็น 2.81 ซึ่งคือเคสที่ Phase 42 กันไว้ตั้งแต่แรก
+#
+# ที่แก้ได้จริงคือ **cliff ตัวนี้มองไม่เห็น**: META เดินที่ 14.12pp มา 24 วันแล้วขยับเป็น
+# 17.53pp ข้ามเส้น ระบบสลับ lens ทั้งวิธีโดยหน้าจอไม่บอกว่านี่คือการตัดสินที่เฉียดฉิว
+
+
+def test_the_margin_says_both_the_verdict_and_how_close_it_was():
+    """margin_pp บวก = ติดธง, ลบ = รอด, และขนาดของมันคือ 'เฉียดแค่ไหน' — เลขตัวเดียวตอบสองคำถาม
+    เพราะถ้าแยกเป็นสองฟิลด์ คนอ่านจะเห็นแค่ผลลัพธ์แล้วไม่กดดูระยะ (ซึ่งเป็นสิ่งที่เกิดขึ้นจริง)"""
+    over = divergence_detail(19.0, revenue_cagr=1.0, fcf_cagr=18.0)   # ห่างสุด 18.0
+    under = divergence_detail(19.0, revenue_cagr=12.0, fcf_cagr=18.0)  # ห่างสุด 7.0
+
+    assert (over["worst_distance_pp"], over["margin_pp"], over["diverges"]) == (18.0, 3.0, True)
+    assert (under["worst_distance_pp"], under["margin_pp"], under["diverges"]) == (7.0, -8.0, False)
+
+
+def test_the_reference_that_decided_it_is_named_not_just_the_distance():
+    """'ห่าง 18pp' ตอบไม่ได้ว่าอะไรค้าน — รายได้ค้านกับ FCF ค้านนำไปสู่คำถามคนละข้อ."""
+    d = divergence_detail(19.0, revenue_cagr=1.0, fcf_cagr=18.0)
+
+    assert d["worst_ref"] == "revenue"
+    assert [r["key"] for r in d["refs"]] == ["revenue", "fcf"]
+    assert {r["key"]: r["distance_pp"] for r in d["refs"]} == {"revenue": 18.0, "fcf": 1.0}
+
+
+@pytest.mark.parametrize("worst_ref_value, expect_borderline", [
+    (19.0 - (DIVERGENCE_TRIGGER_PP + BORDERLINE_PP - 0.5), True),   # เกินเส้นนิดเดียว
+    (19.0 - (DIVERGENCE_TRIGGER_PP - BORDERLINE_PP + 0.5), True),   # เกือบถึงเส้น
+    (19.0 - (DIVERGENCE_TRIGGER_PP + BORDERLINE_PP + 2.0), False),  # เกินไปไกล
+    (19.0 - (DIVERGENCE_TRIGGER_PP - BORDERLINE_PP - 2.0), False),  # ห่างเส้นสบายๆ
+])
+def test_borderline_covers_both_sides_of_the_line_not_just_the_flagged_side(
+        worst_ref_value, expect_borderline):
+    """เฉียดแล้วรอด อันตรายพอๆ กับเฉียดแล้วติด — ทั้งคู่แปลว่าคำตอบแขวนอยู่บนเลข 15 ที่เราตั้งเอง
+    ไม่ใช่บนความจริงของธุรกิจ (AAPL +2.26 ติดธงแล้วได้ 0.0/3 คือฝั่งหนึ่ง, MSFT −5.22 คืออีกฝั่ง)"""
+    d = divergence_detail(19.0, revenue_cagr=worst_ref_value, fcf_cagr=19.0)
+
+    assert d["borderline"] is expect_borderline
+
+
+def test_a_direction_conflict_is_never_called_a_close_call():
+    """sustainable ติดลบขณะอดีตโตสองหลัก = ขัดกันเชิงทิศทาง เป็นเกณฑ์เชิงประเภท ไม่ใช่เชิงระยะ
+    — เรียกว่า 'เฉียด' ไม่ได้ ต่อให้ตัวเลขระยะบังเอิญตกใกล้เส้น 15 พอดี"""
+    d = divergence_detail(-1.0, revenue_cagr=13.0, fcf_cagr=None)   # ห่าง 14.0 = ใกล้เส้นมาก
+
+    assert d["direction_conflict"] is True
+    assert d["diverges"] is True          # ติดธงเพราะทิศทาง ไม่ใช่เพราะระยะ (14.0 < 15)
+    assert d["borderline"] is False
+
+
+def test_the_reported_verdict_never_disagrees_with_the_flag_that_was_actually_raised():
+    """divergence_detail คำนวณซ้ำจากอินพุตชุดเดียวกับ guard — ถ้าวันไหนสองอันนี้ตอบไม่ตรงกัน
+    แปลว่าหน้าจอกำลังอธิบายการตัดสินใจที่ระบบไม่ได้ทำ ซึ่งแย่กว่าไม่อธิบายเลย"""
+    cases = [
+        (19.0, 1.0, 18.0), (19.0, 18.0, 1.0), (19.0, 18.0, 17.0),
+        (-1.0, 13.0, None), (5.0, None, 5.5), (30.0, 2.0, 100.0),
+    ]
+    for sus, rev, fcf in cases:
+        detail = divergence_detail(sus, rev, fcf)
+        assert detail["diverges"] is _diverges(sus, rev, fcf), (sus, rev, fcf)
+
+
+def test_no_reference_to_argue_with_means_no_report_rather_than_a_false_all_clear():
+    assert divergence_detail(None, revenue_cagr=10.0, fcf_cagr=10.0) is None
+    assert divergence_detail(19.0, revenue_cagr=None, fcf_cagr=None) is None
