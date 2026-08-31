@@ -676,6 +676,8 @@ export type BoardVerdict =
 export type BoardRow = {
   ticker: string;
   run_at: string | null; // วันที่ของแถวที่เอาข้อมูลมา — ตัวที่แช่แข็งไว้จะเก่ากว่าตัวอื่นมาก
+  age_days: number | null; // อายุของแถวเป็นวัน (คำนวณฝั่ง server ให้ตรงกับที่ summary นับ)
+  stale: boolean; // เกิน stale_after_days แล้ว = ราคาที่ใช้คำนวณไม่ใช่ราคาปัจจุบัน
   score: number | null;
   max: number | null;
   tier: string | null;
@@ -708,7 +710,16 @@ export type BoardRow = {
 
 export type BoardResponse = {
   rows: BoardRow[];
-  summary: { total: number; priced: number; usable: number; cheap: number; unreliable: number };
+  summary: {
+    total: number;
+    priced: number;
+    usable: number;
+    usable_fresh: number; // usable ที่ข้อมูลยังสด — ส่วนต่างจาก usable คือแถวที่ต้องอ่านแบบมีเงื่อนไข
+    stale: number; // แถวที่ *มีราคา* แต่ข้อมูลเก่า
+    stale_after_days: number;
+    cheap: number;
+    unreliable: number;
+  };
 };
 
 // Phase 44: "ถ้า FCF ต้องโตเท่านี้ บริษัทต้องใหญ่แค่ไหน" — ไม่ใช่คำพยากรณ์:

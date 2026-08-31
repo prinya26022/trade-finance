@@ -34,6 +34,8 @@ const FILTERS = [
   { key: "usable", label: "ตัวเลขใช้ได้", match: (r: BoardRow) => r.verdict === "cheap" || r.verdict === "expensive" },
   { key: "unsure", label: "ยังตัดสินใจแทนไม่ได้", match: (r: BoardRow) => ["straddles", "capped", "single"].includes(r.verdict) },
   { key: "none", label: "ยังไม่มีราคา", match: (r: BoardRow) => r.verdict === "none" || r.verdict === "bank" },
+  // กรองได้ ไม่ใช่เรียงได้ — ดูว่าแถวไหนกำลังพูดจากราคาเก่า เป็นคำถามที่ตอบเองไม่ได้ถ้าไม่แยกออกมาดู
+  { key: "stale", label: "ข้อมูลเก่า", match: (r: BoardRow) => r.stale && r.at_100 != null },
 ] as const;
 
 type FilterKey = (typeof FILTERS)[number]["key"];
@@ -42,9 +44,11 @@ type FilterKey = (typeof FILTERS)[number]["key"];
 const SCALE = 250;
 const pos = (v: number) => `${Math.max(0, Math.min(100, (v / SCALE) * 100))}%`;
 
-function ago(runAt: string | null): string {
-  if (!runAt) return "";
-  const days = Math.floor((Date.now() - new Date(runAt).getTime()) / 86400000);
+/* อายุมาจาก server (age_days) ไม่ใช่คำนวณจาก run_at ฝั่ง client — ไม่งั้นนาฬิกา/timezone
+   ของเบราว์เซอร์อาจให้คำตอบคนละอย่างกับตัวเลข stale ที่หัวกระดานนับไว้ แล้วหน้าเดียวกัน
+   จะเถียงกันเอง (แถวขึ้น "6 วันก่อน" แต่ถูกนับเป็นเก่า) */
+function ago(days: number | null): string {
+  if (days == null) return "ไม่รู้วันที่";
   if (days <= 0) return "วันนี้";
   if (days === 1) return "เมื่อวาน";
   return `${days} วันก่อน`;
@@ -113,7 +117,18 @@ export default function Board({ data }: { data: BoardResponse }) {
           </Tip>
         </h2>
         <div className="bd-stats">
-          <span><b>{summary.usable}</b> ตัวเลขใช้ได้</span>
+          {/* เดิมบรรทัดนี้เขียนแค่ "11 ตัวเลขใช้ได้" ซึ่งรวมแถวที่คำนวณจากราคาเมื่อ 27 วันก่อน
+              เข้ากับแถวเมื่อวานเป็นเลขเดียว = หัวกระดานอ้างความสดที่ไม่มีจริง. แยกให้เห็น
+              แต่ไม่ตัดออกจากยอดรวม — ซ่อนของที่ประเมินยากคือสิ่งที่ Phase 29/34 แก้มาแล้ว */}
+          <span><b>{summary.usable_fresh}</b> ตัวเลขใช้ได้</span>
+          {summary.stale > 0 && (
+            <>
+              <span className="bd-sep" />
+              <Tip def={`แถวที่มีราคาคำนวณได้ แต่รอบวิเคราะห์ล่าสุดเก่ากว่า ${summary.stale_after_days} วัน — ส่วนใหญ่คือตัวที่พักไว้ (frozen) ซึ่งระบบตั้งใจวิเคราะห์แค่ทุก 30 วันเพื่อประหยัดโควตา ไม่ใช่ความผิดพลาด. นับแยกเพราะราคาก่อนงบออกกับราคาหลังงบออกเปลี่ยนการตัดสินใจคนละแบบ`}>
+                <span className="bd-stat-stale"><b>{summary.stale}</b> ข้อมูลเก่า</span>
+              </Tip>
+            </>
+          )}
           <span className="bd-sep" />
           <span><b>{summary.unreliable}</b> ยังตัดสินใจแทนไม่ได้</span>
           <span className="bd-sep" />
@@ -182,8 +197,15 @@ export default function Board({ data }: { data: BoardResponse }) {
                       >
                         {r.ticker}
                       </Link>
-                      {/* ตัวที่แช่แข็ง/รอบเดือนเก่ากว่าตัวอื่นหลายสัปดาห์ ต้องเห็นว่าเลขมาจากวันไหน */}
-                      <span className="bd-when">{ago(r.run_at)}</span>
+                      {/* ตัวที่แช่แข็ง/รอบเดือนเก่ากว่าตัวอื่นหลายสัปดาห์ ต้องเห็นว่าเลขมาจากวันไหน
+                          เก่าจริง = ป้ายที่มีสี ไม่ใช่ตัวเทา 11px ที่แพ้เลขราคา 21px ที่มันกำกับอยู่ */}
+                      {r.stale ? (
+                        <Tip def={`แถวนี้คำนวณจากราคาและงบของรอบวิเคราะห์เมื่อ ${ago(r.age_days)} ไม่ใช่ราคาวันนี้ — ตัวที่พักไว้ (frozen) ระบบตั้งใจวิเคราะห์แค่ทุก 30 วันเพื่อประหยัดโควตา. อ่านได้ แต่ถ้ามีงบออกหรือราคาวิ่งแรงหลังจากวันนั้น ตัวเลขบรรทัดนี้ยังไม่รู้เรื่องนั้น`}>
+                          <span className="bd-stale">⏳ {ago(r.age_days)}</span>
+                        </Tip>
+                      ) : (
+                        <span className="bd-when">{ago(r.age_days)}</span>
+                      )}
                     </td>
                     <td className="num">
                       {r.score == null ? (
@@ -201,7 +223,7 @@ export default function Board({ data }: { data: BoardResponse }) {
                         <span className="bd-dash">—</span>
                       ) : (
                         <>
-                          <span className="bd-main">{r.at_100}</span>
+                          <span className={`bd-main ${r.stale ? "is-stale" : ""}`}>{r.at_100}</span>
                           {r.lo_100 != null && r.hi_100 != null && (
                             <span className="bd-when">
                               {r.lo_100 === r.hi_100 ? `${r.lo_100}` : `${r.lo_100}–${r.hi_100}`}
@@ -226,6 +248,13 @@ export default function Board({ data }: { data: BoardResponse }) {
                       <td colSpan={6}>
                         <div className="bd-panel">
                           <p className="bd-why">{r.note}</p>
+                          {r.stale && (
+                            <p className="bd-why bd-why-stale">
+                              ตัวเลขทั้งบรรทัดนี้มาจากรอบวิเคราะห์เมื่อ <b>{ago(r.age_days)}</b>
+                              {r.run_at ? ` (${r.run_at.slice(0, 10)})` : ""} — ราคาที่ใช้คำนวณคือราคา
+                              ของวันนั้น ไม่ใช่วันนี้ ถ้ามีงบออกหรือราคาวิ่งแรงหลังจากนั้น ตัวเลขนี้ยังไม่รู้
+                            </p>
+                          )}
                           {r.candidates.length > 0 && (
                             <table className="bd-cands">
                               <thead>

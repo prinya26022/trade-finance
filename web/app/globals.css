@@ -933,6 +933,31 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
   display: flex; flex-direction: column; gap: 11px; align-items: flex-start;
 }
 .bd-why { margin: 0; font-size: 13.5px; color: var(--text); max-width: 70ch; line-height: 1.7; }
+
+/* ── ข้อมูลเก่า (Phase 47) ─────────────────────────────────────────────────
+   ปัญหาที่แก้: อายุแถวเคยเป็นตัวเทา 11px อยู่ใต้ชื่อหุ้น ส่วนราคาที่มันกำกับเป็นตัวหนา 21px
+   สายตาจึงเห็นแต่ตัวเลข ไม่เห็นว่ามันมาจากเมื่อ 27 วันก่อน. ป้ายนี้เลยต้องมีสีของตัวเอง
+   และเลขที่มันกำกับต้องถูกทำให้ "ยังไม่จบ" ด้วย underline จุด — ให้ตาเชื่อมสองอย่างเข้าหากัน
+   ตั้งใจไม่ทำให้ทั้งแถวจางลง: แถวเก่ายังเป็นข้อมูลที่ใช้ได้ แค่ต้องอ่านแบบมีเงื่อนไข
+   การทำให้จางคือการซ่อนแบบอ้อมๆ ซึ่งเป็นสิ่งที่ Phase 29/34 แก้มาแล้วสองรอบ */
+.bd-stale {
+  display: inline-block; margin-top: 2px; padding: 0 5px;
+  font-size: 10.5px; font-weight: 600; line-height: 16px; border-radius: 4px;
+  color: var(--amber); background: rgba(210,153,34,.13);
+  border: 1px solid rgba(210,153,34,.32);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.bd-main.is-stale {
+  text-decoration: underline dotted rgba(210,153,34,.7);
+  text-underline-offset: 5px; text-decoration-thickness: 2px;
+}
+.bd-stat-stale { color: var(--amber); }
+.bd-stat-stale b { color: var(--amber); }
+.bd-why-stale {
+  margin-top: 8px; padding-left: 10px; font-size: 12.5px; color: var(--muted);
+  border-left: 2px solid rgba(210,153,34,.45);
+}
+.bd-why-stale b { color: var(--amber); }
 .bd-cands { border-collapse: collapse; font-size: 12.5px; min-width: 340px; }
 .bd-cands th {
   padding: 3px 14px 5px 0; text-align: left; font-size: 10.5px; font-weight: 600;

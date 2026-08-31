@@ -5,7 +5,11 @@
 """
 import pytest
 
-from src.agent.board import _at_100, _verdict, build_board, build_row, summary
+from datetime import datetime, timedelta
+
+from src.agent.board import (
+    STALE_AFTER_DAYS, _age_days, _at_100, _verdict, build_board, build_row, summary,
+)
 
 
 def _cand(at, *, used=False, rejected=False, capped=False, label=None):
@@ -185,11 +189,11 @@ def test_the_as_of_date_travels_with_the_row():
 
 def test_the_summary_counts_how_many_numbers_are_actually_usable():
     board = [
-        {"at_100": 118, "verdict": "cheap"},
-        {"at_100": 73, "verdict": "expensive"},
-        {"at_100": 116, "verdict": "straddles"},
-        {"at_100": 31, "verdict": "capped"},
-        {"at_100": None, "verdict": "none"},
+        {"at_100": 118, "verdict": "cheap", "stale": False},
+        {"at_100": 73, "verdict": "expensive", "stale": False},
+        {"at_100": 116, "verdict": "straddles", "stale": False},
+        {"at_100": 31, "verdict": "capped", "stale": False},
+        {"at_100": None, "verdict": "none", "stale": False},
     ]
 
     s = summary(board)
@@ -240,3 +244,78 @@ def test_a_row_with_no_price_has_no_demand_either():
     row = build_row({"ticker": "OLD", "run_at": "2026-01-01", "health": {}, "facts": []})
 
     assert row["asks"] is None
+
+
+# ---------- ข้อมูลเก่า (Phase 47) ----------
+#
+# ทำไมต้องมีชุดนี้: ticker สถานะ frozen วิเคราะห์แค่ทุก 30 วันโดยตั้งใจ (ประหยัดโควตา Gemini)
+# แต่กระดานเคยวาดแถวที่คำนวณจากราคาเมื่อ 27 วันก่อนด้วยน้ำหนักเท่าแถวเมื่อวานเป๊ะ — ตัวเลข
+# ที่ถูกต้องแต่เก่า ถูกนำเสนอเป็นตัวเลขที่ถูกต้องและสด ซึ่งเป็นคนละคำกล่าวอ้าง
+
+NOW = datetime(2026, 8, 30, 12, 0, 0)
+
+
+def _aged(days: int) -> str:
+    return (NOW - timedelta(days=days)).isoformat()
+
+
+def test_age_is_counted_in_whole_days_and_never_goes_negative():
+    assert _age_days(_aged(0), NOW) == 0
+    assert _age_days(_aged(27), NOW) == 27
+    # แถวที่บันทึกด้วยนาฬิกาที่เร็วกว่าเครื่องที่อ่าน ไม่ควรกลายเป็นอายุติดลบ
+    assert _age_days((NOW + timedelta(hours=6)).isoformat(), NOW) == 0
+
+
+def test_a_row_with_no_usable_date_is_treated_as_old_not_as_fresh():
+    """เดาว่าสดไว้ก่อนคือโหมดพังที่เงียบ — เตือนเกินจำเป็นเห็นได้ ส่วนความสดปลอมมองไม่เห็น."""
+    assert _age_days(None, NOW) is None
+    assert _age_days("ไม่ใช่วันที่", NOW) is None
+
+    row = build_row({"ticker": "X", "run_at": None, "health": {}, "facts": []}, now=NOW)
+
+    assert row["age_days"] is None
+    assert row["stale"] is True
+
+
+@pytest.mark.parametrize("days, expect_stale", [
+    (0, False),
+    (STALE_AFTER_DAYS - 1, False),
+    (STALE_AFTER_DAYS, True),      # เส้นแบ่งอยู่ที่ ">= " ไม่ใช่ "> "
+    (27, True),
+])
+def test_the_staleness_line_falls_where_the_daily_run_stops_covering_a_ticker(days, expect_stale):
+    row = build_row({"ticker": "CVX", "run_at": _aged(days), "health": {}, "facts": []}, now=NOW)
+
+    assert row["age_days"] == days
+    assert row["stale"] is expect_stale
+
+
+def test_an_old_row_is_labelled_but_never_dropped_from_the_usable_count():
+    """Phase 29/34 แก้เรื่อง 'ซ่อนของที่ประเมินยาก' มาแล้วสองรอบ — ตรงนี้จึงติดป้าย ไม่ใช่กรองทิ้ง.
+    usable ยังนับครบ 3 เหมือนเดิม ส่วน usable_fresh คือตัวที่พูดได้ว่าสดจริง"""
+    board = [
+        {"at_100": 113, "verdict": "cheap", "stale": False},
+        {"at_100": 77, "verdict": "expensive", "stale": False},
+        {"at_100": 22, "verdict": "expensive", "stale": True},    # CVX 27 วัน
+        {"at_100": None, "verdict": "none", "stale": True},       # ไม่มีราคาให้หลอกใคร
+    ]
+
+    s = summary(board)
+
+    assert s["usable"] == 3            # ไม่ถูกตัดออก
+    assert s["usable_fresh"] == 2      # แต่แยกออกได้
+    assert s["stale"] == 1             # นับเฉพาะแถวที่ *มีราคา* และเก่า
+    assert s["stale_after_days"] == STALE_AFTER_DAYS
+
+
+def test_the_board_stamps_every_row_with_its_age_so_the_ui_never_recomputes_it():
+    """ถ้าหน้าเว็บคำนวณอายุเองจาก run_at แถวอาจขึ้น '6 วันก่อน' ขณะที่หัวกระดานนับเป็นเก่าแล้ว
+    (คนละ timezone/นาฬิกา) — หน้าเดียวกันเถียงกันเอง จึงส่ง age_days มาจาก server ตัวเดียว"""
+    board = build_board(rows=[
+        {"ticker": "FRESH", "run_at": _aged(1), "health": {}, "facts": []},
+        {"ticker": "OLD", "run_at": _aged(30), "health": {}, "facts": []},
+    ], now=NOW)
+
+    by_ticker = {r["ticker"]: r for r in board}
+    assert (by_ticker["FRESH"]["age_days"], by_ticker["FRESH"]["stale"]) == (1, False)
+    assert (by_ticker["OLD"]["age_days"], by_ticker["OLD"]["stale"]) == (30, True)
