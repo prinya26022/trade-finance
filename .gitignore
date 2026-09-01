@@ -26,6 +26,8 @@ data/sec_facts_cache/
 data/risk_free_rate_cache.json
 # Phase 45: เรตค่าเงินก็เป็น cache รายวันแบบเดียวกัน — ค่าตลาด ไม่ใช่ข้อมูลของโปรเจกต์
 data/fx_cache.json
+# Phase 49: สแนปช็อต yfinance ของเรดาร์ AI-capex (TTL 6 ชม.) — คำนวณใหม่ได้เสมอ
+data/aicapex_cache.json
 data/screener_cache.json
 data/price_cache.json
 # ไฟล์ที่ export ไปแปะในแชท + คำตอบที่ได้กลับมา (Phase 33) — สร้างใหม่ได้จาก DB/providers
@@ -47,3 +49,4 @@ logs/
 Thumbs.db
 .idea/
 *.swp
+

@@ -1,0 +1,68 @@
+name: AI Capex Radar
+
+# เรดาร์ห่วงโซ่การเงินของการสร้าง AI datacenter — ตอบว่า "เงื่อนไขที่ต้องเป็นจริงก่อน
+# ฟองสบู่จะแตก ตอนนี้เป็นจริงไปกี่ข้อ" ไม่ใช่ "จะแตกเมื่อไหร่" (อันหลังเดาเอาทั้งนั้น)
+#
+# แยกจาก daily-report.yml และ macro-radar.yml สามเหตุผล:
+#  1. ไม่เรียก Gemini เลย — ไม่กินโควตา LLM ที่ daily-report ต้องใช้
+#  2. คนละช่อง Discord (DISCORD_WEBHOOK_URL_AICAPEX) เพราะเป็นเรื่องเชิงโครงสร้าง
+#     ไม่ใช่ข่าวรายวัน — ตั้ง notification แยกได้ตามความสำคัญจริง
+#  3. state อยู่ใน data/aicapex.db แยกไฟล์ ถ้าใช้ DB ร่วมกับ workflow อื่นจะชน commit กัน
+
+on:
+  schedule:
+    # 22:30 UTC = 05:30 น. ไทย — หลังตลาดสหรัฐปิด (16:00 ET / 21:00 UTC) ราคาปิดจึงนิ่งแล้ว
+    # จันทร์-เสาร์ UTC = ครอบวันทำการสหรัฐครบ (ศุกร์เย็น ET ตกเป็นเสาร์ UTC)
+    - cron: "30 22 * * 1-6"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aicapex-radar
+  cancel-in-progress: false
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    # yfinance ค้างไม่ timeout เองเวลาโดน rate-limit จาก IP ของ runner ที่ใช้ร่วมกันเยอะ
+    # (บทเรียนเดียวกับ daily-report.yml) — ตั้งเพดานกันกินโควตา Actions เปล่าๆ
+    timeout-minutes: 15
+    env:
+      TZ: Asia/Bangkok
+      # แยกช่อง (แนะนำ) — ไม่ตั้งจะ fallback ไป DISCORD_WEBHOOK_URL; ไม่มีเลยก็ข้ามเงียบๆ
+      DISCORD_WEBHOOK_URL_AICAPEX: ${{ secrets.DISCORD_WEBHOOK_URL_AICAPEX }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the radar and post to Discord
+        run: python -c "from src.aicapex.notify import send_aicapex_report; send_aicapex_report()"
+
+      - name: Persist radar state back to the repo (only if changed)
+        run: |
+          git config user.name "trade-finance-bot"
+          git config user.email "actions@users.noreply.github.com"
+          # เหตุผลเดียวกับ macro-radar.yml: ถ้าดึง yfinance ล้มเหลวทั้งหมด store.record() อาจ
+          # ไม่เคยถูกเรียก -> ไฟล์ไม่ถูกสร้าง -> 'git add -f' path ที่ไม่มีจริงจะทำให้ job แดง
+          # ทั้งที่ไม่ใช่ความผิดพลาดที่ต้อง fail (แค่ไม่มีอะไรให้บันทึกรอบนี้)
+          if [ ! -f data/aicapex.db ]; then
+            echo "[aicapex] data/aicapex.db ไม่ถูกสร้างรอบนี้ (ดึงข้อมูลไม่สำเร็จ ดู log ด้านบน) — ข้าม commit"
+            exit 0
+          fi
+          # runner ล้างสดทุกครั้ง -> ตั้ง merge driver ใหม่ ไม่งั้น pull ด้านล่างชนที่ไฟล์ DB
+          python scripts/merge_db.py install
+          git add -f data/aicapex.db
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: aicapex radar state $(date -u +%Y-%m-%d)"
+            git pull --rebase --autostash origin main || true
+            git push
+          fi

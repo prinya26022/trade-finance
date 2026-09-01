@@ -1939,6 +1939,58 @@ is why it scores 0.0/3 instead of ~2.81, and **META at +2.53pp**, which crossed 
 2026-08-11 (14.12 -> 17.53) and silently switched valuation method. META's score happened not to move
 because it was capped at 3.0 on both sides. Next time there is no reason to expect that luck.
 
+## Phase 49 -- AI-capex radar: counting the conditions instead of predicting the date
+
+Prompted by a question about whether a burst AI-financing bubble would take a global index fund
+down with it. The honest answer is that the timing is unknowable, but the *mechanism* is
+observable -- so the feature counts falsifiable conditions rather than forecasting an event.
+
+Grounded in the BIS 2026 Annual Report (28 June), which named an AI capex bust and circular
+financing among the three biggest risks to global financial stability, and pointed at two
+mechanisms: hyperscalers whose free cash flow has fallen behind capex, and a levered layer that
+borrows at 12-15% against GPUs whose residual value is disputed, with loans rated on the
+*customer's* credit rather than the borrower's.
+
+Seven signals, each a number a person can argue with, over a universe split by **role in the chain**
+rather than by size, ordered by which layer should crack first:
+
+| signal | today | line |
+|---|---|---|
+| hyperscalers with negative quarterly FCF | **2 of 4** (AMZN −18.2B, GOOGL −5.9B) | 1 / 2 |
+| capex ÷ depreciation charge | **4.16x** (GOOGL 6.32x) | 2.0 / 3.5 |
+| debt ÷ equity, worst borrower | **7.39x** (CoreWeave 35.15B on 4.76B) | 3.0 / 5.0 |
+| levered-layer debt growth | **+24.7% in one quarter** | 10 / 20 |
+| levered basket vs S&P, 60d | **−28.8pp** | −15 / −25 |
+| high-yield vs investment-grade credit, 60d | +2.45pp — **clear** | −2 / −5 |
+| power names vs S&P, 60d | −10.9pp — **clear** | −15 / −25 |
+
+Five of seven are already true. The split that matters: **equity markets are punishing the levered
+layer hard while credit markets are not** -- and credit is where this would actually break.
+
+Design decisions that follow the project's existing rules rather than inventing new ones:
+
+- **No composite bubble score.** "Risk 63%" is false precision no one can argue with; "5 of 7
+  conditions, here they are" can be argued one line at a time.
+- **Every threshold is ours, so every threshold reports its margin** -- the Phase 48 lesson applied
+  before the cliff had a chance to hide. `margin` is normalised so `+` always means *worse*, even
+  for signals that point the other way, and `borderline` fires within 10% of the line on either side.
+- **Blind spots ship with every report, not in a docstring.** GPU rental rates (the most direct
+  signal and one we do not have), neocloud utilisation, contract renewals, private-credit terms,
+  and whether the same GPU is pledged twice -- which even the BIS lists as invisible.
+- **Missing data becomes "unmeasurable" with a reason, and `unknown` ranks above `ok`** so a blind
+  radar never reads as an all-clear.
+- **A basket skips missing members rather than scoring them flat**, which would quietly pull it
+  toward zero exactly when it should be loudest.
+- Daily to its own Discord channel (`DISCORD_WEBHOOK_URL_AICAPEX`), headlined by *what changed*
+  rather than a restatement -- a report that repeats itself daily gets scrolled past within a week,
+  and then so does the day it matters.
+
+State lives in its own `data/aicapex.db` (a shared DB would collide with the other workflows'
+commits), with history kept separately from current state because "has been in alert for 60 days"
+and "is in alert" are different facts, and the second cannot answer the first.
+
+27 tests, all offline -- the network lives entirely in `fetch.py` so every signal is a pure function.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice
