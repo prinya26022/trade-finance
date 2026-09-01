@@ -129,16 +129,15 @@ def capex_vs_depreciation(data: dict) -> Signal:
         rows.append({"ticker": t, "name": name, "ratio": round(capex / da, 2),
                      "capex_b": round(capex / 1e9, 1), "da_b": round(da / 1e9, 1)})
     if not rows:
-        return Signal("capex_vs_da", "จ่ายล่วงหน้าเกินค่าเสื่อมที่บันทึกไว้", UNKNOWN, None, "เท่า",
+        return Signal("capex_vs_da", "จ่ายลงทุนล้ำค่าเสื่อม", UNKNOWN, None, "เท่า",
                       2.0, 3.5, "ดึง capex/ค่าเสื่อมไม่ได้", [], "ไม่มีข้อมูลงบกระแสเงินสด")
 
     avg = round(sum(r["ratio"] for r in rows) / len(rows), 2)
     worst = max(rows, key=lambda r: r["ratio"])
-    return Signal("capex_vs_da", "จ่ายล่วงหน้าเกินค่าเสื่อมที่บันทึกไว้",
+    return Signal("capex_vs_da", "จ่ายลงทุนล้ำค่าเสื่อม",
                   _state(avg, 2.0, 3.5, True), avg, "เท่า", 2.0, 3.5,
-                  f"กลุ่มนี้จ่ายลงทุนเฉลี่ย {avg} เท่าของค่าเสื่อมที่บันทึกอยู่ "
-                  f"(สูงสุด {worst['name']} {worst['ratio']} เท่า) — "
-                  f"ค่าเสื่อมในอนาคตต้องโตประมาณเท่านี้จึงจะตามทัน", rows)
+                  f"ค่าเสื่อมในอนาคตต้องโตราว {avg} เท่าถึงจะตามทันเงินที่จ่ายวันนี้ "
+                  f"(หนักสุด {worst['name']} {worst['ratio']} เท่า)", rows)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -161,14 +160,13 @@ def neocloud_leverage(data: dict) -> Signal:
         rows.append({"ticker": t, "name": name, "ratio": round(debt / eq, 2),
                      "debt_b": round(debt / 1e9, 2), "equity_b": round(eq / 1e9, 2)})
     if not rows:
-        return Signal("neocloud_leverage", "หนี้เทียบทุนของชั้นที่กู้มาซื้อชิป", UNKNOWN, None,
+        return Signal("neocloud_leverage", "หนี้ต่อทุน รายที่แย่สุด", UNKNOWN, None,
                       "เท่า", 3.0, 5.0, "ดึงงบดุลไม่ได้", [], "ไม่มีข้อมูลงบดุล")
 
     worst = max(rows, key=lambda r: r["ratio"])
-    return Signal("neocloud_leverage", "หนี้เทียบทุนของชั้นที่กู้มาซื้อชิป",
+    return Signal("neocloud_leverage", "หนี้ต่อทุน รายที่แย่สุด",
                   _state(worst["ratio"], 3.0, 5.0, True), worst["ratio"], "เท่า", 3.0, 5.0,
-                  f"{worst['name']} มีหนี้ {worst['debt_b']}B ต่อทุน {worst['equity_b']}B "
-                  f"= {worst['ratio']} เท่า (สูงสุดในกลุ่ม)", rows)
+                  f"{worst['name']} หนี้ {worst['debt_b']}B ต่อทุน {worst['equity_b']}B", rows)
 
 
 def neocloud_debt_growth(data: dict) -> Signal:
@@ -192,15 +190,14 @@ def neocloud_debt_growth(data: dict) -> Signal:
         rows.append({"ticker": t, "name": name, "debt_b": round(a / 1e9, 2),
                      "prev_b": round(b / 1e9, 2), "qoq_pct": round((a / b - 1) * 100, 1)})
     if not rows or prev <= 0:
-        return Signal("neocloud_debt_growth", "หนี้ของชั้นที่กู้ โตเร็วแค่ไหน", UNKNOWN, None,
+        return Signal("neocloud_debt_growth", "หนี้ทั้งชั้นโตต่อไตรมาส", UNKNOWN, None,
                       "%/ไตรมาส", 10.0, 20.0, "ดึงงบดุลย้อนหลังไม่พอ", [],
                       "ต้องมีอย่างน้อย 2 ไตรมาส")
 
     qoq = round((now / prev - 1) * 100, 1)
-    return Signal("neocloud_debt_growth", "หนี้ของชั้นที่กู้ โตเร็วแค่ไหน",
+    return Signal("neocloud_debt_growth", "หนี้ทั้งชั้นโตต่อไตรมาส",
                   _state(qoq, 10.0, 20.0, True), qoq, "%/ไตรมาส", 10.0, 20.0,
-                  f"หนี้รวมทั้งชั้นไปจาก {round(prev / 1e9, 1)}B เป็น {round(now / 1e9, 1)}B "
-                  f"ในไตรมาสเดียว ({qoq:+.1f}%)", rows)
+                  f"ทั้งชั้นจาก {round(prev / 1e9, 1)}B เป็น {round(now / 1e9, 1)}B ในไตรมาสเดียว", rows)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -218,11 +215,11 @@ def credit_stress(data: dict, days: int = 60) -> Signal:
     hyg = _pct_change(_closes(data, "HYG"), days)
     lqd = _pct_change(_closes(data, "LQD"), days)
     if hyg is None or lqd is None:
-        return Signal("credit_stress", "ตลาดเครดิตเริ่มตึงหรือยัง", UNKNOWN, None, "pp",
+        return Signal("credit_stress", "ส่วนต่างเครดิต", UNKNOWN, None, "pp",
                       -2.0, -5.0, "ดึงราคา HYG/LQD ไม่ได้", [], "ไม่มีราคา HYG หรือ LQD")
 
     spread = round(hyg - lqd, 2)
-    return Signal("credit_stress", "ตลาดเครดิตเริ่มตึงหรือยัง",
+    return Signal("credit_stress", "ส่วนต่างเครดิต",
                   _state(spread, -2.0, -5.0, False), spread, "pp", -2.0, -5.0,
                   f"ใน {days} วันทำการ เครดิตอ่อนทำได้ {spread:+.2f}pp เทียบเครดิตแข็ง "
                   f"(HYG {hyg:+.2f}% vs LQD {lqd:+.2f}%)",
@@ -238,12 +235,12 @@ def levered_vs_market(data: dict, days: int = 60) -> Signal:
     basket = _basket_change(data, LEVERED, days)
     spy = _pct_change(_closes(data, "SPY"), days)
     if basket is None or spy is None:
-        return Signal("levered_vs_market", "ชั้นที่กู้เงิน โดนเทเทียบตลาดแค่ไหน", UNKNOWN, None,
+        return Signal("levered_vs_market", "ตะกร้าชั้นที่กู้ เทียบตลาด", UNKNOWN, None,
                       "pp", -15.0, -25.0, "ดึงราคาไม่ได้", [], "ไม่มีราคาตะกร้าหรือ SPY")
 
     rel = round(basket - spy, 2)
     rows = [{"ticker": t, "pct": _pct_change(_closes(data, t), days)} for t in LEVERED]
-    return Signal("levered_vs_market", "ชั้นที่กู้เงิน โดนเทเทียบตลาดแค่ไหน",
+    return Signal("levered_vs_market", "ตะกร้าชั้นที่กู้ เทียบตลาด",
                   _state(rel, -15.0, -25.0, False), rel, "pp", -15.0, -25.0,
                   f"ใน {days} วันทำการ ตะกร้านี้ {basket:+.1f}% เทียบตลาด {spy:+.1f}% "
                   f"= {rel:+.1f}pp", rows)
@@ -257,12 +254,12 @@ def power_vs_market(data: dict, days: int = 60) -> Signal:
     basket = _basket_change(data, POWER, days)
     spy = _pct_change(_closes(data, "SPY"), days)
     if basket is None or spy is None:
-        return Signal("power_vs_market", "กลุ่มไฟฟ้ายังเชื่อการสร้างจริงไหม", UNKNOWN, None,
+        return Signal("power_vs_market", "กลุ่มไฟฟ้า เทียบตลาด", UNKNOWN, None,
                       "pp", -15.0, -25.0, "ดึงราคาไม่ได้", [], "ไม่มีราคาตะกร้าหรือ SPY")
 
     rel = round(basket - spy, 2)
     rows = [{"ticker": t, "pct": _pct_change(_closes(data, t), days)} for t in POWER]
-    return Signal("power_vs_market", "กลุ่มไฟฟ้ายังเชื่อการสร้างจริงไหม",
+    return Signal("power_vs_market", "กลุ่มไฟฟ้า เทียบตลาด",
                   _state(rel, -15.0, -25.0, False), rel, "pp", -15.0, -25.0,
                   f"ใน {days} วันทำการ ตะกร้าไฟฟ้า {basket:+.1f}% เทียบตลาด {spy:+.1f}% "
                   f"= {rel:+.1f}pp", rows)
@@ -270,6 +267,45 @@ def power_vs_market(data: dict, days: int = 60) -> Signal:
 
 SIGNALS = (hyperscaler_fcf, capex_vs_depreciation, neocloud_leverage,
            neocloud_debt_growth, credit_stress, levered_vs_market, power_vs_market)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# บทของเรื่อง — เพื่อให้รายงานเป็น "เรื่องที่เดินไปข้างหน้า" ไม่ใช่ checklist 7 ข้อ
+#
+# ทำไมต้องจัดกลุ่ม: 5 ข้อที่ติดอยู่ตอนนี้พูดเรื่องเดียวกันหมด (สภาพของลูกหนี้) ส่วน 2 ข้อ
+# ที่ยังเขียวพูดคนละเรื่อง — ถ้าเรียงเป็นรายการเดียว 7 บรรทัด ทุกข้อจะดูน้ำหนักเท่ากัน
+# ทั้งที่ "ลูกหนี้ตึง" กับ "เจ้าหนี้เลิกให้กู้" ห่างกันคนละโลก
+# ─────────────────────────────────────────────────────────────────────────────
+CHAPTERS = (
+    ("borrower", "ลูกหนี้ตึงแค่ไหน"),
+    ("equity", "ตลาดหุ้นตีราคาใหม่หรือยัง"),
+    ("credit", "เจ้าหนี้ขยับหรือยัง"),
+    ("demand", "ความต้องการจริงยังอยู่ไหม"),
+)
+
+CHAPTER_OF = {
+    "hyperscaler_fcf": "borrower",
+    "capex_vs_da": "borrower",
+    "neocloud_leverage": "borrower",
+    "neocloud_debt_growth": "borrower",
+    "levered_vs_market": "equity",
+    "credit_stress": "credit",
+    "power_vs_market": "demand",
+}
+
+# **ตัวชี้ขาด** — ไม่ใช่ทุกสัญญาณมีน้ำหนักเท่ากัน และการแกล้งว่าเท่ากันคือการโกหกชนิดหนึ่ง
+#
+# อีก 6 ข้อวัด "ลูกหนี้อยู่ในสภาพไหน" ซึ่งเป็นสภาพที่อยู่แบบนั้นได้เป็นปีโดยไม่มีอะไรเกิดขึ้น
+# ตราบใดที่ยังรีไฟแนนซ์ได้. ข้อนี้ข้อเดียววัด "เจ้าหนี้ยังเต็มใจให้กู้ต่อไหม" ซึ่งเป็นตัวแปร
+# ที่เปลี่ยน 'งบดุลน่ากังวล' ให้กลายเป็น 'ผิดนัดชำระหนี้จริง' — หนี้ 51B ไม่ใช่ปัญหาจนกว่า
+# จะต่ออายุไม่ได้
+#
+# หลักฐานสนับสนุนจากข้อมูลเอง (ย้อนหลัง 400 วันทำการ): ตะกร้าชั้นที่กู้ร่วงจาก +134pp
+# เหนือตลาด มาเป็น −29pp — กลับหัว 163pp — โดยไม่มีอะไรระเบิด เพราะเครดิตไม่เคยขยับเลย
+# (แย่สุดทั้งปี −3.07pp เทียบเส้นเตือน −5)
+DECISIVE = "credit_stress"
+DECISIVE_WHY = ("อีก 6 ข้อวัดว่าลูกหนี้อยู่ในสภาพไหน ซึ่งอยู่แบบนั้นได้เป็นปีถ้ายังกู้ต่อได้ "
+                "ข้อนี้วัดว่าเจ้าหนี้ยังยอมให้กู้ต่อไหม")
 
 
 def worst_state(signals) -> str:

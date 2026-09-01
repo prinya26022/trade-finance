@@ -6,14 +6,14 @@
 - margin ต้องอ่านทางเดียวกันทุกสัญญาณ ('+ = แย่ลง') แม้สัญญาณจะกลับทิศกัน
 - มุมอับต้องเดินทางไปกับรายงานทุกฉบับ
 """
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from src.aicapex import radar, signals as sig, store
 from src.aicapex.fetch import TickerData
-from src.aicapex.notify import format_report
+from src.aicapex.notify import _distance, _gauge, format_report
 
 
 def _closes(start: float, end: float, n: int = 80) -> list[tuple[str, float]]:
@@ -323,3 +323,102 @@ def test_the_report_never_collapses_into_a_single_bubble_score(tmp_path):
     assert not hasattr(r, "score")
     assert "เงื่อนไข" in r.summary_line()
     assert str(len(r.signals)) in r.summary_line()
+
+
+# ---------- รูปแบบข้อความ: สิ่งที่ทำให้อ่านต่อ (แก้ 2026-09 หลังฟีดแบ็ก "อ่านลำบาก") ----------
+
+def test_the_decisive_signal_is_stated_before_any_of_the_others():
+    """ฉบับแรกเปิดด้วยรายการ 7 ข้อน้ำหนักเท่ากันหมด คนอ่านต้องประกอบข้อสรุปเอง — ซึ่งแปลว่า
+    ส่วนใหญ่จะไม่ประกอบ. ข้อเครดิตข้อเดียวสำคัญกว่าอีก 6 ข้อรวมกัน เพราะมันคือตัวที่เปลี่ยน
+    'งบดุลน่ากังวล' ให้เป็น 'ผิดนัดชำระจริง' — จึงต้องอยู่เหนือรายการ ไม่ใช่ลำดับที่ 5"""
+    text = format_report(radar.build_report(data=_sample_data(), previous={}))
+    head = text.split("**1.")[0]          # ทุกอย่างก่อนบทแรก
+
+    assert "ตัวชี้ขาด" in head
+    assert "ส่วนต่างเครดิต" in head
+
+
+def test_the_gauge_groups_colours_so_it_reads_before_the_words_do():
+    """สีที่สลับกันไปมาต้องนับทีละอัน ส่วนสีที่จับกลุ่มอ่านได้ทันที"""
+    signals = [sig.Signal("a", "x", sig.OK, 1, "", 1, 2, ""),
+               sig.Signal("b", "x", sig.ALERT, 1, "", 1, 2, ""),
+               sig.Signal("c", "x", sig.OK, 1, "", 1, 2, ""),
+               sig.Signal("d", "x", sig.ALERT, 1, "", 1, 2, "")]
+
+    assert _gauge(signals) == "🔴🔴🟢🟢"
+
+
+def test_every_signal_belongs_to_exactly_one_chapter():
+    """สัญญาณที่ตกหล่นจากบทจะหายไปจากรายงานเงียบๆ — เพิ่มสัญญาณใหม่แล้วลืมจัดบท
+    คือวิธีที่ง่ายที่สุดที่จะทำให้เรดาร์ตาบอดโดยไม่มีใครรู้"""
+    keys = {fn({}).key for fn in sig.SIGNALS}
+
+    assert keys == set(sig.CHAPTER_OF)
+    assert set(sig.CHAPTER_OF.values()) <= {k for k, _ in sig.CHAPTERS}
+
+
+def test_the_decisive_key_names_a_signal_that_actually_exists():
+    """ถ้าเปลี่ยนชื่อ key แล้วลืมแก้ DECISIVE พาดหัวจะหายไปเงียบๆ ทั้งที่เป็นบรรทัดสำคัญสุด"""
+    assert sig.DECISIVE in {fn({}).key for fn in sig.SIGNALS}
+
+
+def test_a_count_signal_does_not_claim_a_distance_to_the_line():
+    """'เกินเส้นมา 1 ราย' ไม่มีความหมาย — บริษัทเป็นจำนวนเต็ม จะเฉียดเส้นครึ่งบริษัทไม่ได้"""
+    counted = sig.Signal("k", "l", sig.ALERT, 2, "ราย", 1, 2, "")
+    measured = sig.Signal("k", "l", sig.ALERT, 4.16, "เท่า", 2.0, 3.5, "")
+
+    assert _distance(counted) == ""
+    assert "เกินเส้นมา" in _distance(measured)
+
+
+def test_blind_spots_collapse_on_quiet_days_but_open_when_something_changed():
+    """5 บรรทัดเดิมทุกวันคือตัวที่ฝึกให้คนเลื่อนผ่าน — แล้ววันที่มีของจริงก็จะโดนเลื่อนผ่านด้วย
+    แต่ตัดทิ้งไม่ได้เพราะเป็นส่วนหนึ่งของความซื่อสัตย์ จึงย่อวันเงียบ กางวันที่คนจะอ่านจริง"""
+    quiet = radar.build_report(data=_sample_data(),
+                               previous={s.key: {"state": s.state, "value": s.value}
+                                         for s in radar.build_report(data=_sample_data(),
+                                                                     previous={}).signals})
+    tuesday, monday = date(2026, 9, 1), date(2026, 8, 31)
+
+    assert "กางเต็มทุกวันจันทร์" in format_report(quiet, today=tuesday)
+    assert "ค่าเช่า GPU" in format_report(quiet, today=monday)          # วันจันทร์กางเต็ม
+
+
+def test_a_day_with_a_state_change_always_shows_the_full_blind_spots():
+    """วันที่สถานะเปลี่ยนคือวันที่คนจะอ่านจริง — ต้องเห็นข้อจำกัดครบตอนกำลังจะตัดสินใจ"""
+    changed = radar.build_report(data=_sample_data(),
+                                 previous={"hyperscaler_fcf": {"state": "alert", "value": 3}})
+    assert changed.changes, "ฉากทดสอบต้องมีการเปลี่ยนสถานะจริง"
+
+    assert "ค่าเช่า GPU" in format_report(changed, today=date(2026, 9, 1))   # อังคาร แต่กางเต็ม
+
+
+def _measurable_data() -> dict:
+    """ฉากที่วัดได้ครบพอให้มีระยะห่างเส้นจริง — ต่างจาก _sample_data ที่ตั้งใจให้ขาดบางส่วน"""
+    return {**_sample_data(),
+            "HYG": _td("HYG", closes=_closes(100, 102)),
+            "LQD": _td("LQD", closes=_closes(100, 100)),
+            "CRWV": _td("CRWV", total_debt_q=[35.15e9, 29.82e9], equity_q=[4.76e9],
+                        closes=_closes(100, 75))}
+
+
+def test_an_unmeasurable_decisive_signal_is_never_reported_as_having_flipped():
+    """บั๊กที่เทสต์ชุดนี้จับได้ (2026-09): เดิมเขียน `if ok -> เขียว else -> พลิกแล้ว` ทำให้
+    วันไหนดึงราคา HYG/LQD ไม่ได้ พาดหัวจะขึ้น 🚨 เต็มจอทั้งที่ไม่มีอะไรเกิดขึ้น
+    สัญญาณเตือนเท็จบนบรรทัดสำคัญที่สุด คือวิธีเร็วที่สุดที่จะทำให้คนเลิกเชื่อทั้งฉบับ"""
+    blind = {k: v for k, v in _sample_data().items() if k not in ("HYG", "LQD")}
+
+    text = format_report(radar.build_report(data=blind, previous={}))
+
+    assert "พลิกแล้ว" not in text
+    assert "วัดไม่ได้รอบนี้" in text
+    assert "ไม่ใช่ 'ยังปลอดภัย'" in text     # ไม่รู้ ต้องไม่ถูกอ่านเป็นปลอดภัย
+
+
+def test_the_report_never_prints_a_raw_threshold_as_a_bare_number():
+    """'(เส้นที่ 2)' เป็นหน่วยของเครื่องมือ ไม่ใช่หน่วยที่คนใช้ตัดสินใจ — กฎเดียวกับที่
+    เจ้าของตั้งไว้ตอน Phase 43 หลังอ่านรายงานฉบับแรกแล้วไม่เข้าใจ"""
+    text = format_report(radar.build_report(data=_measurable_data(), previous={}))
+
+    assert "เส้นที่" not in text
+    assert "ห่างเส้น" in text or "เกินเส้นมา" in text
