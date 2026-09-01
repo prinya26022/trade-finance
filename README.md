@@ -118,13 +118,13 @@ rules** rather than evidence about the company.
 
 Python 3.12+ · FastAPI · SQLite · pytest · Next.js 15 · Gemini via `google-genai`.
 
-621 tests, **fully offline** — no test reaches yfinance, SEC or an LLM, and the whole suite runs in
+648 tests, **fully offline** — no test reaches yfinance, SEC or an LLM, and the whole suite runs in
 ~8 seconds. GitHub Actions runs it on every push, plus a daily analysis job that commits its own
 results back to the repo.
 
 ```bash
 pip install -r requirements.txt
-python -m pytest                                   # 621 tests, offline
+python -m pytest                                   # 648 tests, offline
 uvicorn src.api.main:app --port 8000               # API
 cd web && npm install && npm run dev               # UI on :3000
 ```
