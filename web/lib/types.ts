@@ -747,3 +747,52 @@ export type RequiredScale = {
   // margin ที่ถูกกดอยู่กลับมาชนเพดานอย่างเดียวก็พอ ไม่ต้องโตรายได้เลย (AMZN 0.4% -> ทำได้)
   margin_alone_enough: boolean;
 };
+
+// ── Phase 49: เรดาร์ห่วงโซ่การเงิน AI ──────────────────────────────────────
+// "เงื่อนไขที่ต้องเป็นจริงก่อนฟองสบู่จะแตก ตอนนี้เป็นจริงไปกี่ข้อ" ไม่ใช่ "จะแตกเมื่อไหร่"
+export type AicapexState = "ok" | "watch" | "alert" | "unknown";
+
+export type AicapexSignal = {
+  key: string;
+  label: string;
+  state: AicapexState;
+  value: number | null;
+  unit: string;
+  watch_at: number | null;
+  alert_at: number | null;
+  margin: number | null;   // + = ข้ามเส้นไปทางที่แย่แล้ว (normalize ทุกสัญญาณให้อ่านทางเดียวกัน)
+  borderline: boolean;     // คำตอบแขวนอยู่บนเกณฑ์ที่เราตั้งเอง
+  detail: string;
+  missing: string | null;  // ทำไมถึงวัดไม่ได้ — ต้องบอก ไม่ใช่เงียบ
+  rows: Record<string, unknown>[];
+  chapter: string | null;
+  decisive: boolean;       // ไม่ใช่ทุกสัญญาณมีน้ำหนักเท่ากัน
+  previous_value: number | null;
+  delta: number | null;
+};
+
+export type AicapexReport = {
+  run_at: string;
+  overall: AicapexState;
+  first_run: boolean;
+  summary: string;
+  counts: { total: number; triggered: number; alert: number; watch: number; unknown: number };
+  decisive_key: string;
+  decisive_why: string;
+  chapters: { key: string; title: string }[];
+  signals: AicapexSignal[];
+  changes: { key: string; label: string; before: AicapexState; after: AicapexState; worsened: boolean }[];
+  blind_spots: string[];
+};
+
+export type AicapexHistoryPoint = { state: AicapexState; value: number | null; recorded_at: string };
+
+export type AicapexResponse = {
+  available: boolean;
+  reason?: string;
+  how?: string;
+  age_days?: number | null;
+  stale?: boolean;
+  report: AicapexReport | null;
+  history?: Record<string, AicapexHistoryPoint[]>;
+};

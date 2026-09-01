@@ -422,3 +422,68 @@ def test_the_report_never_prints_a_raw_threshold_as_a_bare_number():
 
     assert "เส้นที่" not in text
     assert "ห่างเส้น" in text or "เกินเส้นมา" in text
+
+
+# ---------- รายงานที่หน้าเว็บอ่าน (Phase 49.2) ----------
+
+def test_the_web_payload_carries_the_chapter_and_the_decisive_flag():
+    """หน้าเว็บต้องไม่ต้องรู้เรื่องโดเมนเองว่าข้อไหนสำคัญกว่า — ถ้าให้ frontend ตัดสิน
+    ความสำคัญเอง วันที่แก้ลำดับความสำคัญใน backend หน้าเว็บจะเงียบๆ ไม่ตาม"""
+    r = radar.build_report(data=_sample_data(), previous={})
+    payload = r.to_dict()
+
+    decisive = [s for s in payload["signals"] if s["decisive"]]
+    assert [s["key"] for s in decisive] == [sig.DECISIVE]
+    assert all(s["chapter"] for s in payload["signals"])
+    assert payload["blind_spots"], "มุมอับต้องเดินทางไปกับ payload ด้วย ไม่ใช่แค่ข้อความ Discord"
+
+
+def test_the_payload_says_whether_each_number_moved_since_last_run():
+    """'-28.78 pp' ตัวเดียวอ่านแล้วไม่รู้ว่าดีขึ้นหรือแย่ลง ซึ่งเป็นคำถามแรกที่คนถามเสมอ"""
+    prev = {"hyperscaler_fcf": {"state": "watch", "value": 1.0}}
+
+    payload = radar.build_report(data=_sample_data(), previous=prev).to_dict(prev)
+    fcf = next(s for s in payload["signals"] if s["key"] == "hyperscaler_fcf")
+
+    # _sample_data ให้ทั้ง 4 รายมี FCF เป็นบวก -> นับได้ 0 ราย จาก 1 รายรอบก่อน = ดีขึ้น 1
+    assert fcf["previous_value"] == 1.0
+    assert (fcf["value"], fcf["delta"]) == (0, -1.0)
+
+
+def test_a_signal_with_no_previous_value_reports_no_delta_rather_than_zero():
+    """delta = 0 แปลว่า 'วัดแล้วไม่ขยับ' ส่วน None แปลว่า 'ยังไม่เคยวัด' — คนละเรื่อง
+    ถ้าปนกัน หน้าเว็บจะเขียน 'ไม่ขยับ' ให้กับสัญญาณที่เพิ่งเห็นครั้งแรก"""
+    payload = radar.build_report(data=_sample_data(), previous={}).to_dict({})
+
+    assert all(s["delta"] is None for s in payload["signals"])
+
+
+def test_the_stored_report_is_the_same_one_that_went_to_discord(tmp_path):
+    """เว็บกับ Discord ต้องพูดตรงกันเสมอ — ถ้าเว็บดึงข้อมูลเองคนละรอบ ตัวเลขสองที่จะต่างกัน
+    แล้วไม่มีใครรู้ว่าอันไหนจริง ซึ่งแย่กว่าไม่มีหน้าเว็บ"""
+    db = tmp_path / "aicapex.db"
+    report = radar.build_report(data=_sample_data(), previous={})
+
+    store.save_report(report.to_dict(), db_path=db)
+    saved = store.latest_report(db_path=db)
+
+    assert saved is not None
+    assert saved["run_at"] == report.run_at
+    assert [s["key"] for s in saved["signals"]] == [s.key for s in report.signals]
+
+
+def test_the_web_is_told_plainly_when_the_radar_has_never_run(tmp_path):
+    """หน้าว่างที่ไม่มีคำอธิบาย อ่านได้เหมือน 'ทุกอย่างปกติ' ซึ่งเป็นคำกล่าวอ้างที่เราไม่มีสิทธิ์พูด"""
+    assert store.latest_report(db_path=tmp_path / "never-run.db") is None
+
+
+def test_history_comes_back_oldest_first_so_a_trend_line_reads_left_to_right(tmp_path):
+    db = tmp_path / "aicapex.db"
+    base = datetime(2026, 8, 1, 9, 0, 0)
+    for i, v in enumerate([1.0, 2.0, 3.0]):
+        store.record([sig.Signal("k1", "l", sig.OK, v, "", 3.0, 5.0, "")],
+                     db_path=db, now=base + timedelta(days=i))
+
+    pts = store.history_for("k1", db_path=db)
+
+    assert [p["value"] for p in pts] == [1.0, 2.0, 3.0]

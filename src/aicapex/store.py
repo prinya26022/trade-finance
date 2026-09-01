@@ -9,6 +9,7 @@ self-init ทุก read/write (บทเรียนที่ทำซ้ำม
 
 **state ต้องอยู่รอดข้ามรัน** ไม่งั้นทุกรอบจะเป็น 'รอบแรก' แล้วไม่มีวันตรวจเจอการเปลี่ยนแปลงเลย
 """
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -45,6 +46,19 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_hist_key ON signal_history(key, recorded_at)")
+        # รายงานเต็มฉบับล่าสุด — หน้าเว็บอ่านจากตรงนี้ **ไม่ดึง yfinance เอง**
+        #
+        # ทำไมไม่ให้หน้าเว็บคำนวณสด: ต้องดึง 18 ticker (ราคา + งบกระแสเงินสด + งบดุล) ซึ่งใช้
+        # เวลาเป็นนาทีตอน cache หมดอายุ — เปิดหน้าแรกแล้วค้างหนึ่งนาทีคือฟีเจอร์ที่ไม่มีใครใช้
+        # และยังทำให้ตัวเลขบนเว็บกับตัวเลขที่ส่งเข้า Discord ไม่ตรงกันได้ด้วย (คนละรอบดึง)
+        # เก็บฉบับที่ส่งจริงไว้แล้วให้เว็บอ่าน = เว็บกับ Discord พูดตรงกันเสมอ และเร็ว
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS report_snapshot (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_at      TEXT NOT NULL,
+                payload     TEXT NOT NULL
+            )
+        """)
         conn.commit()
     finally:
         if own:
@@ -108,3 +122,51 @@ def days_in_state(key: str, state: str, db_path: Path | None = None) -> int | No
             break
         oldest_same = datetime.fromisoformat(r["recorded_at"])
     return (newest - oldest_same).days
+
+
+def save_report(payload: dict, db_path: Path | None = None) -> None:
+    """เก็บรายงานเต็มฉบับที่เพิ่งคำนวณ ให้หน้าเว็บอ่านได้โดยไม่ต้องดึงข้อมูลเอง."""
+    conn = sqlite3.connect(db_path or DB_PATH)
+    try:
+        init_db(conn)
+        conn.execute("INSERT INTO report_snapshot (run_at, payload) VALUES (?,?)",
+                     (payload.get("run_at", ""), json.dumps(payload, ensure_ascii=False)))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def latest_report(db_path: Path | None = None) -> dict | None:
+    """รายงานฉบับล่าสุด — None ถ้ายังไม่เคยรันเลย (หน้าเว็บต้องบอกตรงๆ ว่ายังไม่มี
+    ไม่ใช่โชว์หน้าว่างที่อ่านได้เหมือน 'ทุกอย่างปกติ')."""
+    conn = sqlite3.connect(db_path or DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        init_db(conn)
+        row = conn.execute(
+            "SELECT payload FROM report_snapshot ORDER BY id DESC LIMIT 1").fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    try:
+        return json.loads(row["payload"])
+    except ValueError:
+        return None
+
+
+def history_for(key: str, limit: int = 30, db_path: Path | None = None) -> list[dict]:
+    """ค่าย้อนหลังของสัญญาณหนึ่งตัว เรียงเก่า -> ใหม่.
+
+    ทำไมต้องมีบนหน้าเว็บ: "-28.78 pp" ตัวเดียวอ่านแล้วไม่รู้ว่าดีขึ้นหรือแย่ลง ซึ่งเป็น
+    คำถามแรกที่คนถามเสมอ. ตัวเลขที่ไม่มีอดีตให้เทียบคือภาพนิ่ง ไม่ใช่สัญญาณ"""
+    conn = sqlite3.connect(db_path or DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        init_db(conn)
+        rows = conn.execute(
+            "SELECT state, value, recorded_at FROM signal_history WHERE key=? "
+            "ORDER BY recorded_at DESC LIMIT ?", (key, limit)).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in reversed(rows)]

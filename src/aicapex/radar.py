@@ -64,6 +64,30 @@ class Report:
     def measurable(self) -> list:
         return [s for s in self.signals if s.state != "unknown"]
 
+    def to_dict(self, previous: dict | None = None) -> dict:
+        prev = previous or {}
+        return {
+            "run_at": self.run_at,
+            "overall": self.overall,
+            "first_run": self.first_run,
+            "summary": self.summary_line(),
+            "counts": {
+                "total": len(self.signals),
+                "triggered": len(self.triggered),
+                "alert": sum(1 for s in self.signals if s.state == "alert"),
+                "watch": sum(1 for s in self.signals if s.state == "watch"),
+                "unknown": sum(1 for s in self.signals if s.state == "unknown"),
+            },
+            "decisive_key": sig.DECISIVE,
+            "decisive_why": sig.DECISIVE_WHY,
+            "chapters": [{"key": k, "title": t} for k, t in sig.CHAPTERS],
+            "signals": [signal_to_dict(s, (prev.get(s.key) or {}).get("value"))
+                        for s in self.signals],
+            "changes": [{"key": c.key, "label": c.label, "before": c.before,
+                         "after": c.after, "worsened": c.worsened} for c in self.changes],
+            "blind_spots": list(BLIND_SPOTS),
+        }
+
     def summary_line(self) -> str:
         n_alert = sum(1 for s in self.signals if s.state == "alert")
         n_watch = sum(1 for s in self.signals if s.state == "watch")
@@ -72,6 +96,22 @@ class Report:
         if n_unknown:
             parts.append(f"{n_unknown} วัดไม่ได้")
         return f"{len(self.signals)} เงื่อนไข: " + " · ".join(parts)
+
+
+def signal_to_dict(s, previous_value: float | None = None) -> dict:
+    """Signal -> dict สำหรับ API/DB. `previous_value` มาจากรอบก่อน เพื่อให้หน้าเว็บตอบ
+    'ดีขึ้นหรือแย่ลง' ได้โดยไม่ต้องคำนวณเอง (และไม่ต้องเดาทิศทางของแต่ละสัญญาณ)."""
+    delta = None
+    if s.value is not None and previous_value is not None:
+        delta = round(s.value - previous_value, 2)
+    return {
+        "key": s.key, "label": s.label, "state": s.state, "value": s.value, "unit": s.unit,
+        "watch_at": s.watch_at, "alert_at": s.alert_at, "margin": s.margin,
+        "borderline": s.borderline, "detail": s.detail, "missing": s.missing,
+        "rows": s.rows, "chapter": sig.CHAPTER_OF.get(s.key),
+        "decisive": s.key == sig.DECISIVE,
+        "previous_value": previous_value, "delta": delta,
+    }
 
 
 def _diff(current: list, previous: dict[str, dict]) -> list[Change]:
@@ -103,6 +143,9 @@ def scan(db_path: Path | None = None) -> Report:
 
     รอบแรกจะไม่มี changes เลยโดยธรรมชาติ (ไม่มีอะไรให้เทียบ) — ติดธง first_run ไว้เพื่อให้
     ปลายทางไม่ตีความว่า 'ทุกอย่างนิ่ง' ทั้งที่ความจริงคือ 'ยังไม่รู้'"""
-    report = build_report()
+    previous = store.previous_states()
+    report = build_report(previous=previous)
     store.record(report.signals, db_path=db_path)
+    # เก็บฉบับเต็มไว้ให้หน้าเว็บอ่าน — เว็บกับ Discord จะพูดตรงกันเสมอเพราะมาจากรอบเดียวกัน
+    store.save_report(report.to_dict(previous), db_path=db_path)
     return report

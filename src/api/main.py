@@ -9,6 +9,7 @@ Next.js dashboard จะ fetch จากที่นี่.
 ดู docs อัตโนมัติที่  http://localhost:8000/docs
 """
 import os
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,6 +39,9 @@ from src.agent.scorecard import scorecard
 from src.macro.radar import dashboard as macro_dashboard, status as macro_status
 from src.macro.geonews import fetch_geopolitical
 from src.macro.altseason import eth_btc_momentum
+from src.aicapex.store import (
+    history_for as aicapex_history, latest_report as latest_aicapex_report,
+)
 from src.thesis.store import get_thesis, set_thesis, delete_thesis
 from src.decisions.store import log_decision, list_decisions
 
@@ -361,6 +365,39 @@ def get_macro(horizon_days: int = 1):
         # ไม่มีข่าวจริงๆ และตอนที่ระบบดึงข้อมูลไม่ได้มาหลายวัน — แถบนี้แยกสองอย่างนั้นออกจากกัน
         "status": [s.as_dict() for s in macro_status()],
     }
+
+
+@app.get("/api/aicapex")
+def get_aicapex():
+    """Phase 49 — เรดาร์ห่วงโซ่การเงิน AI: "เงื่อนไขที่ต้องเป็นจริงก่อนฟองสบู่จะแตก ตอนนี้
+    เป็นจริงไปกี่ข้อ" (ไม่ใช่ "จะแตกเมื่อไหร่" ซึ่งเดาเอาทั้งนั้น).
+
+    **อ่านจากรายงานฉบับที่บันทึกไว้ ไม่ดึง yfinance เอง** — สองเหตุผล:
+    (1) ต้องดึง 18 ticker พร้อมงบการเงิน ซึ่งใช้เวลาเป็นนาทีตอน cache หมดอายุ หน้าแรกจะค้าง
+    (2) ถ้าเว็บดึงเองคนละรอบกับที่ส่ง Discord ตัวเลขสองที่จะไม่ตรงกัน แล้วไม่มีใครรู้ว่าอันไหนจริง
+
+    ยังไม่เคยรันเลย -> คืน available=false พร้อมวิธีสั่งรัน (ไม่ใช่หน้าว่างที่ดูเหมือนปกติดี)."""
+    payload = latest_aicapex_report()
+    if not payload:
+        return {"available": False,
+                "reason": "ยังไม่เคยรันเรดาร์รอบไหนเลย",
+                "how": "รัน `python -c \"from src.aicapex.notify import send_aicapex_report; "
+                       "send_aicapex_report()\"` หรือรอรอบอัตโนมัติ 05:30 น.",
+                "report": None}
+
+    # อายุของรายงาน — หลักเดียวกับ Phase 47: ตัวเลขที่ถูกต้องแต่เก่า ต้องไม่ถูกวาดเหมือน
+    # ตัวเลขที่ถูกต้องและสด เพราะเป็นคนละคำกล่าวอ้าง
+    age_days = None
+    try:
+        age_days = max(0, (datetime.now() - datetime.fromisoformat(payload["run_at"])).days)
+    except (KeyError, TypeError, ValueError):
+        pass
+
+    # ค่าย้อนหลังต่อสัญญาณ — "-28.78 pp" ตัวเดียวอ่านแล้วไม่รู้ว่าดีขึ้นหรือแย่ลง
+    history = {s["key"]: aicapex_history(s["key"], limit=30)
+               for s in payload.get("signals", [])}
+    return {"available": True, "age_days": age_days, "stale": age_days is None or age_days >= 2,
+            "report": payload, "history": history}
 
 
 # ---- thesis / invalidation (Phase 5, ต่อสายเข้า UI ครั้งแรกที่ Phase 27) ----

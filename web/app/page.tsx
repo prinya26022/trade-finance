@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { getAnalyses, getWatchlist, getChanges, getPortfolio, getHealthTrends, getBoard } from "@/lib/api";
-import type { Analysis, WatchlistItem, ChangeReport, Portfolio, HealthTrends, BoardResponse } from "@/lib/types";
+import { getAnalyses, getWatchlist, getChanges, getPortfolio, getHealthTrends, getBoard, getAicapex } from "@/lib/api";
+import type { Analysis, WatchlistItem, ChangeReport, Portfolio, HealthTrends, BoardResponse, AicapexResponse } from "@/lib/types";
 import Dashboard from "./dashboard";
 import Board from "./board";
+import Aicapex from "./aicapex";
 
 // server component: ดึงจาก FastAPI ตอน render (no-store = สดเสมอ)
 export const dynamic = "force-dynamic";
@@ -25,15 +26,19 @@ export default async function Home() {
   let portfolio: Portfolio = EMPTY_PORTFOLIO;
   let healthTrends: HealthTrends = {};
   let board: BoardResponse | null = null;
+  let aicapex: AicapexResponse | null = null;
   let error: string | null = null;
   try {
-    [analyses, watchlist, changes, portfolio, healthTrends, board] = await Promise.all([
+    [analyses, watchlist, changes, portfolio, healthTrends, board, aicapex] = await Promise.all([
       getAnalyses(),
       getWatchlist(),
       getChanges(),
       getPortfolio(),
       getHealthTrends(),
       getBoard(),
+      // เรดาร์อ่านจากรายงานที่บันทึกไว้ ไม่ดึง yfinance เอง จึงเร็วพอจะอยู่บนหน้าแรก
+      // ล้มเหลวก็ไม่ควรทำให้ทั้งหน้าพัง — เป็นข้อมูลประกอบ ไม่ใช่แกนหลักของหน้านี้
+      getAicapex().catch(() => null),
     ]);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
@@ -65,6 +70,9 @@ export default async function Home() {
         <>
         {/* กระดานสรุปอยู่บนสุด: ตอบ "ตัวไหนน่าสนใจ" ก่อนที่จะต้องเลื่อนอ่านการ์ดทีละตัว */}
         {board && board.rows.length > 0 && <Board data={board} />}
+        {/* เรดาร์อยู่ใต้กระดาน: กระดานตอบ "ตัวไหนน่าสนใจ" ส่วนเรดาร์ตอบ "พื้นหลังที่หุ้น
+            เกือบทั้ง watchlist ยืนอยู่ กำลังเปลี่ยนไหม" — คนละคำถาม อ่านเรียงกันได้ */}
+        {aicapex && <Aicapex data={aicapex} />}
         <Dashboard
           analyses={analyses}
           watchlist={watchlist}

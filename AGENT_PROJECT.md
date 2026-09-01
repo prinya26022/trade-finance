@@ -1991,6 +1991,38 @@ and "is in alert" are different facts, and the second cannot answer the first.
 
 27 tests, all offline -- the network lives entirely in `fetch.py` so every signal is a pure function.
 
+## Phase 49.2 -- the radar on the front page, reading in the order it should be read
+
+Two rules decided the shape of this more than any styling choice.
+
+**The page never fetches.** `/api/aicapex` reads the report snapshot the daily run stored, rather
+than calling yfinance itself. Two reasons: pulling 18 tickers with financials takes minutes when the
+cache is cold, and a front page that hangs is a feature nobody uses; and if the web fetched on its
+own schedule, the numbers on screen and the numbers in Discord would disagree with no way to tell
+which was real. Storing the report that actually went out means both always speak from the same run.
+The snapshot carries its own age, and a stale one is marked in amber -- the Phase 47 rule applied
+again.
+
+**Importance is computed in the backend, not the frontend.** `decisive` and `chapter` ship in the
+payload. If the frontend decided which signal mattered, changing that judgement in Python would
+leave the page quietly out of step.
+
+The reading order is deliberate, and it is the fix for the "hard to read, not compelling" feedback:
+
+1. **A colour strip** -- status before the brain starts reading words.
+2. **The decisive signal** -- if only one line gets read it must be this one, not whichever
+   condition happens to sort first. `unknown` gets its own wording: *not "still safe" but "we don't
+   know"*, which is a different claim.
+3. **Four chapters** in the order damage would actually travel (borrower → equity → credit → demand),
+   not a flat list of seven equal-weight boxes.
+4. **Per-signal detail behind a click** -- the underlying rows are there for whoever wants to dig.
+
+One honesty fix found while looking at the rendered page: the sparkline drew a flat line from five
+records that were all written the same day, which reads as "steady for a while" when the truth is
+"no time has passed yet". It now refuses to draw until three distinct days exist.
+
+6 more tests (663 total). The suite is still fully offline.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

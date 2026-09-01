@@ -986,3 +986,95 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
 
 .bd-empty { margin: 14px 0 0; font-size: 13px; color: var(--muted); }
 .bd-note { margin: 10px 2px 0; font-size: 12.5px; line-height: 1.75; color: var(--muted); }
+
+/* ══ Phase 49: เรดาร์ห่วงโซ่การเงิน AI ═══════════════════════════════════════
+   ลำดับสายตาที่ตั้งใจ: แถบสี -> ตัวชี้ขาด -> บท -> รายละเอียด (ซ่อนหลังคลิก)
+   ปัญหาที่แก้จากฉบับ Discord แรก: 7 ข้อน้ำหนักเท่ากันหมด บังคับให้คนอ่านประกอบ
+   ข้อสรุปเอง ซึ่งแปลว่าจะไม่ประกอบ — ที่นี่ลำดับความสำคัญจึงถูกวาดออกมาเป็นภาพ */
+.ac { margin: 22px 0 8px; padding: 18px 18px 14px; background: var(--panel);
+      border: 1px solid var(--border); border-radius: 12px; }
+.ac-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.ac-title { margin: 0; font-size: 16px; font-weight: 700; color: var(--text); }
+.ac-when { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* เก่าแล้วต้องเห็น — หลักเดียวกับกระดานหุ้น (Phase 47): ตัวเลขที่ถูกต้องแต่เก่า
+   ต้องไม่ถูกวาดเหมือนตัวเลขที่ถูกต้องและสด เพราะเป็นคนละคำกล่าวอ้าง */
+.ac-when.is-stale { color: var(--amber); font-weight: 600; }
+.ac-empty { margin: 10px 0 0; font-size: 13px; color: var(--muted); line-height: 1.7; }
+.ac-empty code { display: inline-block; margin-top: 6px; padding: 4px 7px; font-size: 11.5px;
+                 background: var(--panel-2); border-radius: 5px; color: var(--blue); }
+
+/* แถบสี — อ่านได้ก่อนสมองเริ่มอ่านตัวหนังสือ */
+.ac-gauge { display: flex; align-items: center; gap: 4px; margin: 12px 0 14px;
+            font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+.ac-gauge b { color: var(--text); margin-left: 6px; font-variant-numeric: tabular-nums; }
+.ac-pip { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+.ac-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+.ac-dot-alert, .ac-pip.ac-dot-alert { background: var(--red); }
+.ac-dot-watch, .ac-pip.ac-dot-watch { background: var(--amber); }
+.ac-dot-ok, .ac-pip.ac-dot-ok { background: var(--green); }
+.ac-dot-unknown, .ac-pip.ac-dot-unknown { background: var(--muted); opacity: .55; }
+
+/* ตัวชี้ขาด — ไม่ใช่ทุกสัญญาณน้ำหนักเท่ากัน และการแกล้งว่าเท่ากันคือการโกหกชนิดหนึ่ง */
+.ac-decisive { margin: 0 0 14px; padding: 11px 13px; border-radius: 9px;
+               border-left: 3px solid var(--green); background: rgba(63,185,80,.07); }
+.ac-dec-alert, .ac-dec-watch { border-left-color: var(--red); background: rgba(248,81,73,.08); }
+.ac-dec-unknown { border-left-color: var(--muted); background: rgba(139,148,167,.08); }
+.ac-dec-top { font-size: 13.5px; color: var(--text); }
+.ac-dec-dist { color: var(--muted); font-weight: 400; }
+.ac-dec-why { margin: 5px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.65; }
+
+.ac-change { margin: 0 0 6px; font-size: 12.5px; color: var(--text); }
+.ac-change.ac-quiet { color: var(--muted); }
+.ac-worse { color: var(--red); font-weight: 600; }
+.ac-better { color: var(--green); font-weight: 600; }
+.ac-flat { color: var(--muted); }
+
+/* บท — เรียงตามลำดับที่ความเสียหายจะเดินจริง ไม่ใช่ตามความรุนแรง */
+.ac-chapter { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px;
+              font-size: 13px; font-weight: 700; color: var(--text); }
+.ac-chapter-n { display: inline-flex; align-items: center; justify-content: center;
+                width: 19px; height: 19px; border-radius: 50%; font-size: 11px;
+                background: var(--panel-2); color: var(--muted); flex: none; }
+.ac-chapter-hit { margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--muted);
+                  font-variant-numeric: tabular-nums; }
+.ac-star { color: var(--amber); font-size: 12px; }
+
+.ac-sig { border-top: 1px solid var(--border); padding: 9px 0 8px; }
+.ac-sig-head { display: flex; align-items: center; gap: 9px; width: 100%; padding: 0;
+               background: none; border: 0; color: inherit; text-align: left;
+               font: inherit; cursor: pointer; flex-wrap: wrap; }
+.ac-sig-head:disabled { cursor: default; }
+.ac-sig-head:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 4px; }
+.ac-sig-label { font-size: 13px; color: var(--text); font-weight: 600; }
+.ac-sig-val { font-size: 14px; font-weight: 700; color: var(--text);
+              font-variant-numeric: tabular-nums; }
+.ac-spark { color: var(--muted); opacity: .8; }
+.ac-spark polyline { stroke: currentColor; }
+.ac-sig-meta { margin-left: auto; display: flex; align-items: center; gap: 10px;
+               font-size: 11.5px; color: var(--muted); }
+/* เฉียดเส้น = คำตอบแขวนอยู่บนเกณฑ์ที่เราตั้งเอง ไม่ใช่บนความจริงของธุรกิจ (บทเรียน Phase 48) */
+.ac-close { color: var(--blue); font-weight: 600; }
+.ac-caret { color: var(--muted); font-size: 12px; transition: transform .15s; }
+.ac-caret.up { transform: rotate(180deg); }
+.ac-sig-why { margin: 5px 0 0 18px; font-size: 12px; color: var(--muted); line-height: 1.65;
+              max-width: 78ch; }
+
+.ac-rows { margin: 8px 0 2px 18px; overflow-x: auto; }
+.ac-rows table { border-collapse: collapse; font-size: 11.5px; }
+.ac-rows td { padding: 3px 12px 3px 0; white-space: nowrap; }
+.ac-cell-k { color: var(--muted); margin-right: 5px; }
+.ac-cell-v { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.ac-blind-toggle { margin: 16px 0 0; padding: 0; background: none; border: 0; cursor: pointer;
+                   font: inherit; font-size: 12px; color: var(--muted); }
+.ac-blind-toggle:hover { color: var(--blue); }
+.ac-blind { margin: 8px 0 0; padding-left: 20px; font-size: 12px; color: var(--muted);
+            line-height: 1.75; max-width: 78ch; }
+.ac-note { margin: 14px 0 0; padding-top: 11px; border-top: 1px solid var(--border);
+           font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+.ac-note b { color: var(--text); }
+
+@media (max-width: 620px) {
+  .ac-sig-meta { margin-left: 0; width: 100%; }
+  .ac-spark { display: none; }
+}
