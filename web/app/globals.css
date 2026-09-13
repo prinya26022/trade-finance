@@ -1078,3 +1078,47 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
   .ac-sig-meta { margin-left: 0; width: 100%; }
   .ac-spark { display: none; }
 }
+
+/* ══ Phase 50: เรดาร์ผูกกับพอร์ต ════════════════════════════════════════════
+   จงใจไม่มีเลข "% ที่เกี่ยวกับ AI" ก้อนเดียว — ห่วงโซ่นี้ไม่ได้เจ็บทางเดียวกันหมด
+   ฝั่งขายของให้การก่อสร้างรายได้หาย ฝั่งจ่ายค่าคอมพิวต์ต้นทุนถูกลง สองเลขจึงต้องแยกกัน
+   และวางคู่กันให้เห็นพร้อมกัน ไม่ใช่หักลบกันจนเหลือเลขเดียวที่ไม่มีความหมาย */
+.ac-exp { margin-top: 18px; padding-top: 4px; }
+.ac-exp-bars { display: flex; gap: 26px; flex-wrap: wrap; margin: 4px 0 14px; }
+.ac-exp-stat { display: flex; flex-direction: column; gap: 1px; }
+.ac-exp-num { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums;
+              line-height: 1.1; }
+.ac-exp-cap { font-size: 11.5px; color: var(--muted); }
+.ac-exp-cap b { color: var(--text); }
+.ac-dir-hurt { color: var(--red); }
+.ac-dir-helped { color: var(--green); }
+.ac-dir-none { color: var(--muted); }
+.ac-dir-unknown { color: var(--amber); }
+
+.ac-exp-list { list-style: none; margin: 0; padding: 0; }
+.ac-exp-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+              padding: 7px 0; border-top: 1px solid var(--border); font-size: 12px; }
+.ac-exp-dir { flex: none; min-width: 62px; font-size: 10.5px; font-weight: 700;
+              padding: 1px 6px; border-radius: 4px; text-align: center;
+              background: var(--panel-2); }
+.ac-exp-tk { font-size: 13px; color: var(--text); }
+.ac-exp-w { font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
+.ac-exp-lv { color: var(--muted); }
+/* ข้อเท็จจริง vs ความเห็น — ต้องต่างกันด้วยตา ไม่ใช่ต่างกันแค่ในคำ เพราะตารางที่ดูน่าเชื่อ
+   เท่ากันหมดจะทำให้การตัดสินใจของเราถูกอ่านเป็นข้อมูล */
+.ac-exp-fact { font-size: 10px; padding: 1px 5px; border-radius: 3px; flex: none;
+               color: var(--blue); background: rgba(88,166,255,.12); }
+.ac-exp-opinion { font-size: 10px; padding: 1px 5px; border-radius: 3px; flex: none;
+                  color: var(--amber); background: rgba(210,153,34,.12); }
+.ac-exp-why { flex-basis: 100%; color: var(--muted); font-size: 11.5px; line-height: 1.6;
+              padding-left: 70px; max-width: 82ch; }
+.ac-exp-watched { margin-top: 6px; }
+.ac-exp-none, .ac-exp-warn { margin: 8px 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.ac-exp-warn { color: var(--amber); }
+.ac-exp-caveats { margin: 12px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--muted);
+                  line-height: 1.7; max-width: 82ch; }
+
+@media (max-width: 620px) {
+  .ac-exp-why { padding-left: 0; }
+  .ac-exp-bars { gap: 18px; }
+}

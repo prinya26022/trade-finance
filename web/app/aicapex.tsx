@@ -16,8 +16,104 @@
    ส่วน "5 ใน 7 ข้อ และนี่คือรายชื่อ" เถียงได้ทีละข้อ */
 
 import { Fragment, useState } from "react";
-import type { AicapexHistoryPoint, AicapexResponse, AicapexSignal, AicapexState } from "@/lib/types";
+import type {
+  AicapexHistoryPoint, AicapexResponse, AicapexSignal, AicapexState,
+  Exposure, ExposureDirection, ExposureLevel, ExposureRow,
+} from "@/lib/types";
 import { Tip } from "@/lib/glossary";
+
+const LEVEL_LABEL: Record<ExposureLevel, string> = {
+  measured: "เรดาร์วัดตัวนี้โดยตรง",
+  sells_into: "ขายของให้การก่อสร้าง",
+  buys_from: "เป็นผู้จ่ายค่าคอมพิวต์",
+  unrelated: "ไม่มีกลไกเชื่อมชัดเจน",
+  unclassified: "ยังไม่ได้จัดกลุ่ม",
+};
+const DIR_CLASS: Record<ExposureDirection, string> = {
+  hurt: "ac-dir-hurt", helped: "ac-dir-helped", none: "ac-dir-none", unknown: "ac-dir-unknown",
+};
+const DIR_WORD: Record<ExposureDirection, string> = {
+  hurt: "เจ็บ", helped: "ได้ประโยชน์", none: "ไม่ขยับ", unknown: "ไม่รู้",
+};
+const LEVEL_ORDER: ExposureLevel[] = ["measured", "sells_into", "unclassified", "buys_from", "unrelated"];
+
+function ExposureRowLine({ r }: { r: ExposureRow }) {
+  return (
+    <li className="ac-exp-row">
+      <span className={`ac-exp-dir ${DIR_CLASS[r.direction]}`}>{DIR_WORD[r.direction]}</span>
+      <b className="ac-exp-tk">{r.ticker}</b>
+      {r.weight != null && <span className="ac-exp-w">{r.weight}%</span>}
+      <span className="ac-exp-lv">{LEVEL_LABEL[r.level]}</span>
+      {/* ข้อเท็จจริง vs ความเห็น ต้องแยกให้เห็นทุกแถว — ไม่งั้นตารางจะดูน่าเชื่อเท่ากันหมด
+          ทั้งที่ครึ่งหนึ่งเป็นการตัดสินใจของเราที่เถียงได้ (หลักเดียวกับ Phase 48) */}
+      <span className={r.objective ? "ac-exp-fact" : "ac-exp-opinion"}>
+        {r.objective ? "ข้อเท็จจริง" : "ความเห็น"}
+      </span>
+      <span className="ac-exp-why">{r.reason}</span>
+    </li>
+  );
+}
+
+/* "ถ้า capex ของ hyperscaler หด เงินของฉันโดนแค่ไหน" — คำถามที่เปลี่ยนการตัดสินใจจริง
+   ต่างจากเรดาร์ด้านบนซึ่งตอบเรื่องของโลก
+
+   **จงใจไม่รวมเป็น "% ที่เกี่ยวกับ AI" ก้อนเดียว** เพราะห่วงโซ่นี้ไม่ได้เจ็บทางเดียวกันหมด:
+   ฝั่งที่ขายของให้การก่อสร้างจะรายได้หาย ส่วนฝั่งที่จ่ายค่าคอมพิวต์จะต้นทุนถูกลง
+   การบวกสองอย่างนี้เข้าด้วยกันกลบข้อมูลที่สำคัญที่สุดทิ้ง */
+function ExposureBlock({ e }: { e: Exposure }) {
+  const [open, setOpen] = useState(false);
+  const h = e.holdings;
+  const watched = [...e.watchlist.rows].sort(
+    (a, b) => LEVEL_ORDER.indexOf(a.level) - LEVEL_ORDER.indexOf(b.level));
+
+  return (
+    <div className="ac-exp">
+      <h3 className="ac-chapter">
+        <span className="ac-chapter-n">฿</span>
+        แล้วมันเกี่ยวอะไรกับเงินของคุณ
+      </h3>
+
+      <div className="ac-exp-bars">
+        <div className="ac-exp-stat">
+          <span className="ac-exp-num ac-dir-hurt">{h.hurt_pct}%</span>
+          <span className="ac-exp-cap">ของพอร์ตที่<b>เจ็บ</b>ถ้า capex หด</span>
+        </div>
+        <div className="ac-exp-stat">
+          <span className="ac-exp-num ac-dir-helped">{h.helped_pct}%</span>
+          <span className="ac-exp-cap">ต้นทุน<b>ถูกลง</b>ถ้า capex หด</span>
+        </div>
+        {h.unclassified_pct > 0 && (
+          <div className="ac-exp-stat">
+            <span className="ac-exp-num ac-dir-unknown">{h.unclassified_pct}%</span>
+            <span className="ac-exp-cap">ยัง<b>ไม่ได้จัดกลุ่ม</b></span>
+          </div>
+        )}
+      </div>
+
+      {h.rows.length === 0 ? (
+        <p className="ac-exp-none">ยังไม่มีโพซิชันที่ถืออยู่ — ตัวเลขด้านบนจึงยังไม่มีความหมาย</p>
+      ) : (
+        <ul className="ac-exp-list">{h.rows.map((r) => <ExposureRowLine key={r.ticker} r={r} />)}</ul>
+      )}
+
+      {h.positions_without_weight.length > 0 && (
+        <p className="ac-exp-warn">
+          ไม่ได้ใส่จำนวนหุ้นไว้ จึงคิดน้ำหนักไม่ได้: {h.positions_without_weight.join(", ")}
+          {" "}— ตัวเลข % ด้านบนไม่ได้นับตัวเหล่านี้
+        </p>
+      )}
+
+      <button className="ac-blind-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        {open ? "▾" : "▸"} ที่จับตาอยู่แต่ยังไม่ได้ถือ ({watched.length})
+      </button>
+      {open && <ul className="ac-exp-list ac-exp-watched">
+        {watched.map((r) => <ExposureRowLine key={r.ticker} r={r} />)}
+      </ul>}
+
+      <ul className="ac-exp-caveats">{e.caveats.map((c) => <li key={c}>{c}</li>)}</ul>
+    </div>
+  );
+}
 
 const DOT: Record<AicapexState, string> = {
   alert: "ac-dot-alert", watch: "ac-dot-watch", ok: "ac-dot-ok", unknown: "ac-dot-unknown",
@@ -222,6 +318,10 @@ export default function Aicapex({ data }: { data: AicapexResponse | null }) {
           </Fragment>
         );
       })}
+
+      {/* Phase 50: เรดาร์ด้านบนตอบเรื่องของโลก บล็อกนี้ตอบว่ามันเกี่ยวอะไรกับเงินของคุณ
+          วางไว้หลังบททั้งสี่ เพราะต้องรู้ก่อนว่าห่วงโซ่ตึงตรงไหน ถึงจะอ่านตัวเลขนี้ออก */}
+      {data.exposure && <ExposureBlock e={data.exposure} />}
 
       {/* มุมอับ: ย่อไว้ แต่กดดูได้เสมอ — เรดาร์ที่ไม่บอกว่ามีมุมอับ อันตรายกว่าไม่มีเรดาร์ */}
       <button className="ac-blind-toggle" onClick={() => setShowBlind((v) => !v)}

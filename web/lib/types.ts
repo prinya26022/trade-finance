@@ -795,4 +795,37 @@ export type AicapexResponse = {
   stale?: boolean;
   report: AicapexReport | null;
   history?: Record<string, AicapexHistoryPoint[]>;
+  exposure?: Exposure | null;
+};
+
+// ── Phase 50: เรดาร์ผูกกับพอร์ต — "แล้วมันเกี่ยวอะไรกับเงินของฉัน" ──────────
+// level "measured" เท่านั้นที่เป็นข้อเท็จจริง (เช็คสมาชิกใน universe ของเรดาร์)
+// ที่เหลือเป็นความเห็นของเรา จึงต้องมี reason กำกับทุกตัวเพื่อให้เถียงได้ทีละตัว
+export type ExposureLevel = "measured" | "sells_into" | "buys_from" | "unrelated" | "unclassified";
+export type ExposureDirection = "hurt" | "helped" | "none" | "unknown";
+
+export type ExposureRow = {
+  ticker: string;
+  level: ExposureLevel;
+  objective: boolean;      // true = ข้อเท็จจริง, false = ความเห็นของเรา
+  layer: string | null;
+  reason: string;
+  direction: ExposureDirection;
+  weight?: number | null;
+  market_value?: number | null;
+  status?: string;
+};
+
+export type Exposure = {
+  holdings: {
+    total_value: number | null;
+    hurt_pct: number;           // % ของพอร์ตที่เสียหายถ้า capex หด (ไม่ใช่ "% ที่เกี่ยวกับ AI")
+    helped_pct: number;
+    unclassified_pct: number;
+    positions_without_weight: string[];
+    rows: ExposureRow[];
+  };
+  watchlist: { rows: ExposureRow[] };
+  counts: Record<string, number>;
+  caveats: string[];
 };

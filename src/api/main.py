@@ -42,6 +42,7 @@ from src.macro.altseason import eth_btc_momentum
 from src.aicapex.store import (
     history_for as aicapex_history, latest_report as latest_aicapex_report,
 )
+from src.aicapex.exposure import build_exposure
 from src.thesis.store import get_thesis, set_thesis, delete_thesis
 from src.decisions.store import log_decision, list_decisions
 
@@ -396,8 +397,18 @@ def get_aicapex():
     # ค่าย้อนหลังต่อสัญญาณ — "-28.78 pp" ตัวเดียวอ่านแล้วไม่รู้ว่าดีขึ้นหรือแย่ลง
     history = {s["key"]: aicapex_history(s["key"], limit=30)
                for s in payload.get("signals", [])}
+
+    # Phase 50: เรดาร์ตอบว่า "โลกตึงแค่ไหน" ส่วนตรงนี้ตอบ "แล้วมันเกี่ยวอะไรกับเงินของฉัน"
+    # ส่งมาด้วยกันใน payload เดียวเพราะต้องอ่านคู่กันถึงจะมีความหมาย — แยก endpoint เมื่อไหร่
+    # หน้าเว็บจะมีสองสถานะโหลดที่ไม่ตรงกันได้ แล้ววันหนึ่งจะโชว์เรดาร์วันนี้คู่กับพอร์ตเมื่อวาน
+    try:
+        exposure = build_exposure(portfolio_edge(), [dict(r) for r in list_all()])
+    except Exception as e:      # พอร์ตพังไม่ควรทำให้เรดาร์หายไปทั้งอัน
+        print(f"[aicapex] คำนวณความเกี่ยวข้องกับพอร์ตไม่ได้: {type(e).__name__}")
+        exposure = None
+
     return {"available": True, "age_days": age_days, "stale": age_days is None or age_days >= 2,
-            "report": payload, "history": history}
+            "report": payload, "history": history, "exposure": exposure}
 
 
 # ---- thesis / invalidation (Phase 5, ต่อสายเข้า UI ครั้งแรกที่ Phase 27) ----

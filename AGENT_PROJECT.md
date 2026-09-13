@@ -2023,6 +2023,42 @@ records that were all written the same day, which reads as "steady for a while" 
 
 6 more tests (663 total). The suite is still fully offline.
 
+## Phase 50 -- the radar, tied to actual money
+
+Phase 49 answers a question about the world: how strained is the AI build-out's financing. This
+answers the one that changes a decision: **what does that have to do with my money.**
+
+The hard part was not arithmetic. Deciding which ticker sits where in the chain is a **judgement,
+not a number pulled from a filing** -- and a table of judgements that looks like a table of facts is
+worse than no table. So the two are separated in the data itself:
+
+- `measured` is **objective**: the ticker is in the radar's own universe, so its financials are
+  literally an input to a signal. Set membership, no interpretation.
+- everything else is **our opinion**, and each entry carries a one-sentence reason that travels all
+  the way to the screen, where it renders with an amber "ความเห็น" tag next to a blue "ข้อเท็จจริง"
+  one. You can disagree with any single row without discarding the table.
+
+**Direction matters more than size, so the two directions are never added together.** If hyperscaler
+capex contracts, the chain does not hurt uniformly: whoever *sells into* the build-out loses revenue,
+while whoever *pays for compute* gets a cost cut. Collapsing both into one "% exposed to AI" throws
+away the most useful thing in the answer. The tests assert that no such combined number exists.
+
+That distinction produces the finding that matters here: the watchlist is 11 tech names deep into
+one theme, but **the only position actually held is DUOL, which is on the paying side.** Real
+exposure to a capex bust today is **0% hurt / 100% helped** — the opposite of what the watchlist's
+shape suggests. Concentration risk is a property of what you own, not what you watch, so holdings
+and watchlist are counted separately and never summed.
+
+An unclassified ticker resolves to `unclassified`, never to `unrelated`: "haven't looked" and
+"looked and found nothing" are different claims, and conflating them means a newly added ticker
+silently reads as safe. SPCX sits there today because I could not establish what it does.
+
+The exposure ships inside the existing `/api/aicapex` payload rather than a second endpoint -- two
+endpoints means two load states, and eventually a page showing today's radar beside yesterday's
+portfolio.
+
+21 tests (684 total), still fully offline.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice
