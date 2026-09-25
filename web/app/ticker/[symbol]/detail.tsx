@@ -143,6 +143,13 @@ export default function TickerDetail({
           <Tip def={BADGES[s.valuation_view]}>
             <span className={`badge b-${s.valuation_view}`}>{s.valuation_view}</span>
           </Tip>
+          {a.valuation_conflict && (
+            <Tip def={`${a.valuation_conflict.note}. ไม่ได้แปลว่าฝั่งไหนถูก แต่แปลว่าอย่าอ่านป้ายเดียวแล้วจบ — เลื่อนลงไปดูเหตุผลของทั้งสองฝั่ง`}>
+              <span className={`badge b-conflict-${a.valuation_conflict.level}`}>
+                {a.valuation_conflict.level === "opposite" ? "⚠ ขัดกับเครื่องยนต์" : "ต่างจากเครื่องยนต์"}
+              </span>
+            </Tip>
+          )}
           <Tip def={BADGES[s.sentiment]}>
             <span className={`badge b-${s.sentiment}`}>{s.sentiment}</span>
           </Tip>
@@ -193,6 +200,27 @@ export default function TickerDetail({
 
       {/* ---- Friendly verdict ---- */}
       {s.beginner_summary && <p className="verdict">{s.beginner_summary}</p>}
+
+      {/* ---- Phase 51: ป้ายราคาของ LLM ต้องมาพร้อมเหตุผล ----
+           วัดจากประวัติจริง: ป้ายนี้เปลี่ยน 127 ครั้งจาก 780 คู่วัน และ 88% ของการเปลี่ยน
+           เกิดตอนคะแนนเครื่องยนต์ไม่ขยับเลย — ต้นเหตุคือมันเคยเป็น enum เปล่าที่ไม่ต้อง
+           รับผิดชอบกับอะไร. วางเหตุผลไว้ติดกับกล่องขัดแย้ง เพื่อให้อ่านสองฝั่งพร้อมกันได้ */}
+      {(s.valuation_reason || a.valuation_conflict) && (
+        <div className={`vw-box${a.valuation_conflict ? ` vw-${a.valuation_conflict.level}` : ""}`}>
+          <div className="section-title" style={{ margin: "0 0 4px" }}>
+            ป้ายราคาจาก LLM: <b>{s.valuation_view}</b>
+            {a.valuation_conflict && (
+              <span className="vw-vs"> · เครื่องยนต์ให้ {a.valuation_conflict.engine_score}/3 = {a.valuation_conflict.engine_view}</span>
+            )}
+          </div>
+          {s.valuation_reason
+            ? <GlossaryText text={s.valuation_reason} />
+            : <p className="vw-missing">
+                แถวนี้วิเคราะห์ก่อนที่ระบบจะบังคับให้ต้องเขียนเหตุผล — ป้ายด้านบนจึงไม่มีที่มา
+                ให้ตรวจสอบ ต่างจากคะแนนของเครื่องยนต์ที่บันทึกวิธีคิดไว้ครบ
+              </p>}
+        </div>
+      )}
 
       {/* ---- Phase 20.2: แตกคะแนนสุขภาพให้อ่านออก (พื้นฐาน X/8 + ราคา Y/3) ---- */}
       {a.health && <HealthBreakdown health={a.health} sentiment={s.sentiment} facts={facts} />}

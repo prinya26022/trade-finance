@@ -44,6 +44,7 @@ def _reply_summary(**over) -> dict:
         strength_reasons=["ROIC 76.1% สูงกว่าต้นทุนเงินทุนมาก"],
         weak_points=[{"area": "Valuation", "detail": "ราคาสะท้อนการเติบโตไปมากแล้ว"}],
         valuation_view="expensive",
+        valuation_reason="ตลาด price การเติบโตไว้ต่ำกว่าที่ข้อมูลย้อนหลังรองรับ",
         thesis_relevant_news=[],
         key_news=["Duolingo beats earnings estimates"],
         what_to_watch=["Gross Margin"],

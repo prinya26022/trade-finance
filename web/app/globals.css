@@ -1122,3 +1122,23 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
   .ac-exp-why { padding-left: 0; }
   .ac-exp-bars { gap: 18px; }
 }
+
+/* ══ Phase 51: ป้ายราคาของ LLM vs เครื่องยนต์ ═══════════════════════════════
+   วัดได้ว่าป้ายนี้เปลี่ยน 127 ครั้งจาก 780 คู่วัน และ 88% ของการเปลี่ยนเกิดตอนคะแนน
+   เครื่องยนต์ไม่ขยับเลย — ปัญหาไม่ใช่ว่า LLM ผิด แต่คือความเห็นกับการคำนวณถูกวาดด้วย
+   น้ำหนักเท่ากันโดยไม่มีอะไรบอกว่ามันเถียงกันอยู่ */
+.badge.b-conflict-opposite {
+  background: rgba(248,81,73,.15); color: var(--red); border: 1px solid rgba(248,81,73,.4);
+}
+.badge.b-conflict-off_by_one {
+  background: rgba(210,153,34,.13); color: var(--amber); border: 1px solid rgba(210,153,34,.32);
+}
+.vw-box {
+  margin: 12px 0; padding: 10px 12px; border-radius: 8px;
+  background: var(--panel-2); border-left: 3px solid var(--border); font-size: 13px;
+  line-height: 1.7; color: var(--text);
+}
+.vw-box.vw-opposite { border-left-color: var(--red); }
+.vw-box.vw-off_by_one { border-left-color: var(--amber); }
+.vw-vs { font-weight: 400; color: var(--muted); }
+.vw-missing { margin: 0; color: var(--muted); font-size: 12.5px; }

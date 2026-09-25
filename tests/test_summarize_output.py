@@ -13,6 +13,7 @@ def _summary(**over) -> Summary:
         strength_reasons=["ROIC 76.1% สูงมาก"],
         weak_points=[WeakPoint(area="Valuation", detail="PEG 2.5 ตลาดคาดหวังสูง")],
         valuation_view="fair",
+        valuation_reason="ตลาด price การเติบโตไว้ต่ำกว่าที่ข้อมูลย้อนหลังรองรับ",
         thesis_relevant_news=[],
         key_news=["Duolingo beats earnings estimates"],   # verbatim อังกฤษ = ปกติ ไม่ใช่ของเสีย
         what_to_watch=["Gross Margin ที่ลดลง"],

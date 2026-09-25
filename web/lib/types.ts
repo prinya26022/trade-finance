@@ -9,6 +9,8 @@ export type Summary = {
   strength_reasons: string[];
   weak_points: WeakPoint[];
   valuation_view: "cheap" | "fair" | "expensive" | "unclear";
+  // Phase 51: บังคับให้ LLM ต้องเขียนเหตุผลของป้ายราคา (แถวเก่ากว่านั้นไม่มี field นี้)
+  valuation_reason?: string;
   thesis_relevant_news: string[];
   key_news: string[];
   what_to_watch: string[];
@@ -16,6 +18,16 @@ export type Summary = {
   confidence: number;
   thesis_assessment?: string; // Phase 5: AI ประเมินว่าข้อมูลวันนี้ยังหนุน thesis เดิมไหม ("" ถ้าไม่ได้ตั้ง thesis)
   beginner_summary?: string; // optional: แถวเก่าก่อน Phase 2.5 จะไม่มี field นี้
+};
+
+// Phase 51: ป้ายราคาของ LLM ขัดกับคะแนนของเครื่องยนต์หรือเปล่า — คำนวณตอนอ่านฝั่ง API
+// จึงมีผลย้อนหลังกับทุกแถวที่เก็บไว้แล้ว. null = ไม่ขัด หรือเทียบไม่ได้ (เครื่องยนต์คำนวณไม่ได้)
+export type ValuationConflict = {
+  llm_view: "cheap" | "fair" | "expensive";
+  engine_view: "cheap" | "fair" | "expensive";
+  engine_score: number;
+  level: "opposite" | "off_by_one"; // opposite = อย่างน้อยหนึ่งฝั่งผิดแน่
+  note: string;
 };
 
 // ตัวเลขงบดิบ 1 จุด (label เช่น "Operating Margin", period เช่น "FY2024" | "TTM")
@@ -348,6 +360,7 @@ export type Analysis = {
   extraction: ExtractionResult | null;
   xbrl_accuracy: number | null; // Phase 12: เทียบกับ SEC XBRL จริง (ground truth อิสระจาก yfinance)
   xbrl: ExtractionResult | null;
+  valuation_conflict?: ValuationConflict | null; // Phase 51
   facts: Fact[]; // ตัวเลขงบดิบหลายปี (ว่างถ้าแถวเก่าก่อน Phase 3) — ใช้ทำกราฟ trend
   health_score: number | null; // denormalized ไว้ query/sort เร็ว (เหมือน extraction_accuracy)
   health: PersistedHealth | null; // None = แถวเก่าก่อน Phase 10 -> frontend fallback คำนวณสด

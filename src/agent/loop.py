@@ -40,9 +40,27 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
         facts = []
         print(f"[warn] fundamentals failed: {e}")
 
+    # Phase 51: ย้าย risk-free + reverse-DCF ขึ้นมา **ก่อน** เรียก LLM
+    #
+    # เดิมสองอย่างนี้คำนวณหลัง summarize() แปลว่า LLM ตอบ valuation_view โดยไม่เคยเห็นผลการ
+    # คำนวณของระบบเลย ทั้งที่ระบบคำนวณได้อยู่แล้วในรอบเดียวกัน — สองชั้นจึงพูดคนละเรื่องได้
+    # อิสระ วัดจริงจาก 597 แถวพบขัดกันชัดเจน 11.4% และป้ายพลิกไปมา 88% ของครั้งที่พลิก
+    # เกิดตอนคะแนนเครื่องยนต์ไม่ขยับเลย
+    #
+    # อินพุตเหมือนเดิมเป๊ะ (fundamentals_obj + risk_free_pct) แค่เรียกเร็วขึ้น — ผลลัพธ์เชิง
+    # ตัวเลขจึงไม่เปลี่ยน สิ่งที่เปลี่ยนคือ LLM ได้เห็นมันก่อนตอบ
+    risk_free_pct = get_risk_free_rate_pct() if asset_type == "stock" else 4.0
+    valuation = None
+    if asset_type == "stock" and fundamentals_obj is not None:
+        try:
+            valuation = reverse_dcf(fundamentals_obj, risk_free_pct=risk_free_pct)
+        except Exception as e:
+            print(f"[warn] reverse-dcf failed: {e}")
+
     thesis = get_thesis(ticker)                        # Phase 5: ถ้ามี thesis -> ให้ LLM รู้บริบท
     summary = summarize(price, news, facts, thesis=thesis["thesis"] if thesis else None,
-                        asset_type=asset_type)          # crypto ใช้ framework/prompt คนละชุด
+                        asset_type=asset_type,          # crypto ใช้ framework/prompt คนละชุด
+                        valuation=valuation)            # ให้เห็นคำตัดสินของเครื่องยนต์ก่อนตอบ
     grounding = check_grounding(summary, price, news)
     grounding["facts"] = check_facts_grounding(summary, facts)
 
@@ -68,10 +86,6 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
             print(f"[warn] xbrl accuracy eval failed: {e}")
     grounding["xbrl"] = xbrl
 
-    # risk-free rate (พันธบัตร 10 ปี ณ วันรัน, cache 1 วัน) — ล็อกค่าเดียวใช้ร่วมกันทุก
-    # ticker ในรอบนี้ ทั้ง CAPM WACC ของ health score และ reverse-DCF ด้านล่าง (Phase 18)
-    risk_free_pct = get_risk_free_rate_pct() if asset_type == "stock" else 4.0
-
     # health score (deterministic, ไม่เรียก LLM): ใช้ breaches ของ 'รอบนี้' จาก facts ในมือ
     # ตรงๆ (ไม่ใช่ check_invalidation ที่อ่านจาก DB ซึ่งตอนนี้ยังเป็นแถวของรอบก่อนหน้า)
     # ส่ง facts เข้าไปด้วย (Phase 17/18) -> strength/valuation คำนวณจากตัวเลขจริงล้วน
@@ -80,13 +94,7 @@ def analyze(ticker: str, asset_type: str = "stock", persist: bool = True):
     health = compute_health(summary, breaches, facts, risk_free_pct)
     grounding["health"] = health
 
-    # Phase 15/18: reverse-DCF (deterministic, ไม่เรียก LLM) — หุ้นเท่านั้น (ต้องมี FCF/market cap)
-    valuation = None
-    if asset_type == "stock" and fundamentals_obj is not None:
-        try:
-            valuation = reverse_dcf(fundamentals_obj, risk_free_pct=risk_free_pct)
-        except Exception as e:
-            print(f"[warn] reverse-dcf failed: {e}")
+    # reverse-DCF คำนวณไปแล้วด้านบน (ก่อนเรียก LLM, ดู Phase 51) — ตรงนี้แค่แนบเข้า grounding
     grounding["valuation"] = valuation
 
     if persist:

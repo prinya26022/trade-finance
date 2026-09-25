@@ -69,6 +69,12 @@ class Summary(BaseModel):
     strength_reasons: list[str]      # จุดแข็ง อ้างเมตริกจริง
     weak_points: list[WeakPoint]     # จุดอ่อนแยกเป็นหมวด อ้างเมตริกจริง
     valuation_view: Literal["cheap", "fair", "expensive", "unclear"]
+    # Phase 51: ป้ายราคาต้องมีเหตุผลกำกับเสมอ — วัดจากประวัติจริง 780 คู่วันพบว่าป้ายนี้
+    # เปลี่ยน 127 ครั้ง และ **88% ของการเปลี่ยนเกิดตอนที่คะแนนเครื่องยนต์ไม่ขยับเลย**
+    # (DUOL 23->24 ก.ย.: ราคาขยับ 1.7% ป้ายพลิก cheap -> expensive ขณะเครื่องยนต์ให้ 3.0/3
+    # ทั้งสองวัน). ต้นเหตุคือมันเป็น enum เปล่าที่ไม่ต้องรับผิดชอบกับอะไรเลย — ป้ายที่ต้องเขียน
+    # เหตุผลประกอบจะพลิกไปมาโดยไม่มีสาเหตุได้ยากกว่ามาก และถ้ายังพลิก อย่างน้อยก็ตรวจสอบได้
+    valuation_reason: str
 
     # --- ข่าว: กรอบลงทุนระยะยาว (แยก thesis ออกจาก noise) ---
     thesis_relevant_news: list[str]  # เฉพาะข่าวที่แตะ thesis/invalidation/พื้นฐาน; ถ้าเป็น noise หมด = []
@@ -91,6 +97,7 @@ def _text_fields(summary: Summary) -> list[str]:
     return [
         summary.beginner_summary,
         summary.thesis_assessment,
+        summary.valuation_reason,
         *summary.strength_reasons,
         *summary.what_to_watch,
         *summary.key_news,
@@ -202,7 +209,31 @@ def asset_profile(asset_type: str) -> dict:
     }
 
 
-def data_block(price, news, facts, thesis: str | None = None, asset_type: str = "stock") -> str:
+def engine_price_block(valuation: dict | None) -> str:
+    """คำตัดสินเรื่องราคาของเครื่องยนต์ (reverse-DCF) ในรูปที่ LLM อ่านได้ — ว่างถ้าคำนวณไม่ได้.
+
+    **ทำไมต้องให้ LLM เห็นก่อนตอบ (Phase 51):** เดิม LLM ตอบ `valuation_view` โดยไม่เคยเห็น
+    ผลการคำนวณของระบบเลย ทั้งที่ระบบคำนวณเสร็จอยู่แล้วในรอบเดียวกัน — สองชั้นจึงพูดคนละเรื่อง
+    ได้อิสระ และวัดจริงพบว่าขัดกันชัดเจน 11.4% ของแถวทั้งหมด
+
+    ไม่ได้บังคับให้ LLM เห็นด้วย — บังคับให้ **รู้ว่ากำลังไม่เห็นด้วย** แล้วต้องบอกเหตุผล
+    ความเห็นที่ขัดกับตัวเลขมีค่าได้ ถ้ามันรู้ตัวว่าขัดและอธิบายได้ว่าเพราะอะไร"""
+    if not valuation or valuation.get("score") is None:
+        return ""
+    v = valuation
+    flags = ", ".join(v.get("flags") or []) or "none"
+    return f"""
+## ENGINE VERDICT ON PRICE (deterministic reverse-DCF, already computed this run)
+- Price score: {v['score']} / 3.0  (3.0 = as cheap as this scale goes, 0.0 = as expensive)
+- The market price implies FCF growth of {v.get('implied_growth')}%/yr
+- The model computes {v.get('realistic_growth')}%/yr as realistic from actual history
+- Gap (implied - realistic): {v.get('gap')}pp   (negative = market asks LESS than history supports)
+- Lens: {v.get('lens')}; guard flags: {flags}
+"""
+
+
+def data_block(price, news, facts, thesis: str | None = None, asset_type: str = "stock",
+               valuation: dict | None = None) -> str:
     """ส่วน '## DATA' ของ prompt (ข้อมูลดิบของ ticker เดียว) — แยกจาก framework/task เพราะ
     handoff.py ต้องแปะ framework ครั้งเดียวแล้วตามด้วยบล็อกนี้ทีละตัว (checklist 20KB x หลายตัว
     = แปะไม่ไหว)."""
@@ -225,7 +256,7 @@ Recent news:
 
 {data_header}
 {fact_lines}
-{thesis_block}"""
+{thesis_block}{engine_price_block(valuation)}"""
 
 
 FRAMEWORK_HEADER = "## HOW TO THINK (framework)"
@@ -245,7 +276,19 @@ Judge, from ONLY the data above, whether the fundamentals look STRONG or WEAK an
 - `fundamental_strength`: overall verdict (strong / mixed / weak).
 - `strength_reasons` and `weak_points`: cite the ACTUAL metric values from DATA (e.g.
   "ROIC 82% สูงกว่าต้นทุนเงินทุนมาก"). For multi-year metrics, judge the trend across years.
-- `valuation_view`: cheap / fair / expensive / unclear, from the valuation multiples.
+- `valuation_view`: cheap / fair / expensive / unclear.
+  If an "ENGINE VERDICT ON PRICE" section is present above, that score is the house view and
+  you MUST take a position relative to it. Its scale: 3.0 = cheap, ~1.5 = fair, 0.0 = expensive.
+  You are allowed to disagree with it — but you are NOT allowed to disagree by accident.
+- `valuation_reason`: REQUIRED, 1-2 Thai sentences, NEVER empty. Cite the actual numbers you
+  used. If an ENGINE VERDICT is present, this field must do ONE of two things:
+    (a) AGREE — say which engine number drove it (e.g. "ตลาด price การเติบโตไว้ 9.6%/ปี
+        ต่ำกว่าที่ข้อมูลย้อนหลังรองรับที่ 18.3%/ปี จึงถูก"), or
+    (b) DISAGREE — start with "ไม่ตรงกับเครื่องยนต์:" then say WHICH engine input you think is
+        wrong and why (e.g. a guard flag you think invalidates the anchor, or a multiple the
+        DCF does not capture). "It feels expensive" is not a reason.
+  Do NOT flip this label between runs unless a NUMBER changed — a few percent of price
+  movement is not a reason to move from cheap to expensive.
 - If a metric the framework needs is MISSING from DATA, say so — never guess a number.
 - NEWS (long-term lens): put an item in `thesis_relevant_news` ONLY if it could touch the
   thesis, the invalidation point, the moat, or the fundamentals. Daily price/noise items do
@@ -269,7 +312,8 @@ Judge, from ONLY the data above, whether the fundamentals look STRONG or WEAK an
 """
 
 
-def build_prompt(price, news, facts, thesis: str | None = None, asset_type: str = "stock") -> str:
+def build_prompt(price, news, facts, thesis: str | None = None, asset_type: str = "stock",
+                 valuation: dict | None = None) -> str:
     """prompt ทั้งก้อนที่ส่งให้ LLM — ประกอบจากชิ้นส่วนข้างบน. handoff.py ใช้ชิ้นส่วนเดียวกันนี้
     เรียงใหม่ (framework ครั้งเดียว + DATA ทีละตัว) เพื่อให้ 'ข้อความที่ Claude อ่าน' กับ
     'ข้อความที่ Gemini อ่าน' เป็นต้นฉบับเดียวกัน — ไม่งั้นแก้ prompt ฝั่งเดียวแล้วการเทียบพัง."""
@@ -278,15 +322,17 @@ def build_prompt(price, news, facts, thesis: str | None = None, asset_type: str 
 You are {p['role']}. Analyze ONLY the
 data provided below — do not invent numbers you were not given. Research, not advice.
 {p['asset_note']}
-{data_block(price, news, facts, thesis=thesis, asset_type=asset_type)}
+{data_block(price, news, facts, thesis=thesis, asset_type=asset_type, valuation=valuation)}
 {FRAMEWORK_HEADER}
 {p['framework']}
 
 {TASK_BLOCK}"""
 
 
-def summarize(price, news, facts, thesis: str | None = None, asset_type: str = "stock") -> Summary:
-    prompt = build_prompt(price, news, facts, thesis=thesis, asset_type=asset_type)
+def summarize(price, news, facts, thesis: str | None = None, asset_type: str = "stock",
+              valuation: dict | None = None) -> Summary:
+    prompt = build_prompt(price, news, facts, thesis=thesis, asset_type=asset_type,
+                          valuation=valuation)
 
     # ---- เรียก Gemini (retry+backoff ต่อโมเดล + fallback ข้ามโมเดลถ้าโควตาเต็ม) แล้วบังคับ
     # output ให้ตรง Summary schema (ดู src/agent/llm.py — MODEL_CHAIN) ----

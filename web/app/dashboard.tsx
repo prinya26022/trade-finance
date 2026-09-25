@@ -193,6 +193,16 @@ function AnalysisCard({
         <Tip def={BADGES[s.valuation_view]}>
           <span className={`badge b-${s.valuation_view}`}>{s.valuation_view}</span>
         </Tip>
+        {/* Phase 51: ป้ายนี้มาจาก LLM ส่วนคะแนน /3 มาจากการคำนวณ — วางเคียงกันเฉยๆ โดยไม่บอก
+            ว่ามันเถียงกันอยู่ คือปล่อยให้ความเห็นถูกอ่านเป็นข้อมูล (วัดได้ว่าขัดกัน 11.4%
+            ของแถวทั้งหมด และ 88% ของครั้งที่ป้ายพลิก คะแนนเครื่องยนต์ไม่ขยับเลย) */}
+        {a.valuation_conflict && (
+          <Tip def={`${a.valuation_conflict.note}. ป้ายนี้มาจาก LLM ส่วนคะแนนมาจาก reverse-DCF ที่คำนวณจากตัวเลขจริง — ไม่ได้แปลว่าฝั่งไหนถูก แต่แปลว่าอย่าอ่านป้ายเดียวแล้วจบ`}>
+            <span className={`badge b-conflict-${a.valuation_conflict.level}`}>
+              {a.valuation_conflict.level === "opposite" ? "⚠ ขัดกับเครื่องยนต์" : "ต่างจากเครื่องยนต์"}
+            </span>
+          </Tip>
+        )}
         <Tip def={BADGES[s.sentiment]}>
           <span className={`badge b-${s.sentiment}`}>{s.sentiment}</span>
         </Tip>

@@ -2059,6 +2059,60 @@ portfolio.
 
 21 tests (684 total), still fully offline.
 
+## Phase 51 -- the price label that flipped without a number moving
+
+Found by a plain question: why does DUOL read `strong / expensive`? Measuring before touching
+anything turned a one-ticker question into a system one.
+
+On 2026-09-23 the LLM called DUOL **cheap**; on 09-24 it called the same company **expensive**.
+Between those runs the price moved **1.7%** (147.93 → 150.39), the deterministic engine scored
+**3.0/3 on both days** -- the maximum, i.e. as cheap as that scale goes -- and the health score sat
+unchanged at 9.9 for twelve straight days.
+
+Across the full history:
+
+| | |
+|---|---|
+| consecutive-day pairs | 780 |
+| times `valuation_view` changed | 127 (16%) |
+| **of those, engine score did not move at all** | **112 (88%)** |
+| of those, price also moved >5% | 8 |
+| rows where the two are in direct opposition | 68 of 597 (11.4%) |
+
+The root cause was structural, not a bad model: `valuation_view` was a **bare enum with no reason
+field**, sitting next to numbers whose every step is logged, drawn on screen with equal weight. And
+the LLM had never been shown the engine's answer -- `reverse_dcf` ran *after* `summarize()`, so the
+two layers were free to contradict each other without either knowing.
+
+This is the same failure Phase 19.3.1 caught with sentiment (57.4% of score jumps ≥0.5). The
+difference is that sentiment was inside the score, so someone measured it. This label only ever
+lived on the screen, so it drifted for months unexamined.
+
+**The fix is not to delete the opinion.** A qualitative read that disagrees with a DCF can be
+valuable -- but only if it knows it disagrees and can say why.
+
+- `reverse_dcf` and the risk-free rate are **hoisted above the LLM call**. Identical inputs, same
+  numbers out; the only change is that the model now sees the verdict before answering.
+- The prompt carries an `ENGINE VERDICT ON PRICE` block: the score, implied vs realistic growth, the
+  gap, the lens and the guard flags.
+- `valuation_reason` is now a **required schema field**: agree and name the driving number, or open
+  with "ไม่ตรงกับเครื่องยนต์:" and say which engine input is wrong. "It feels expensive" is not a
+  reason. It joins the garbled-text checks like every other written field.
+- `valuation_conflict` is computed **at read time in the API layer**, so it applies retroactively to
+  all 597 stored rows with no migration, and a future change to the cut points re-reads the whole
+  history at once rather than leaving half of it on the old rule. It lives in the API, not
+  `history/store.py`, because the storage layer should not know the agent's rules.
+- Two levels, because they warrant different reactions: `opposite` (cheap vs expensive -- at least
+  one side is wrong) and `off_by_one` (cheap vs fair -- a difference of view). `unclear` is never
+  flagged: "I can't tell" is an honest answer, and penalising it would punish honesty.
+- Rows written before this phase render the gap in words rather than an empty box: *this row was
+  analysed before the system required a reason.*
+
+Today three names are in direct opposition: **DUOL** (LLM expensive / engine 3.0), **NVDA** and
+**TSM** (LLM cheap / engine 0.0).
+
+18 tests (702 total), offline. `framework_version` moves, which is correct -- the framework changed.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

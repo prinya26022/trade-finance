@@ -36,6 +36,7 @@ from src.agent.invalidation import check_invalidation, check_expectations
 from src.agent.correlation import portfolio_correlation
 from src.agent.claims import extract_claims_with_context
 from src.agent.scorecard import scorecard
+from src.agent.label_check import valuation_conflict
 from src.macro.radar import dashboard as macro_dashboard, status as macro_status
 from src.macro.geonews import fetch_geopolitical
 from src.macro.altseason import eth_btc_momentum
@@ -191,16 +192,32 @@ def delete_freeze(ticker: str):
     return {"ticker": ticker.upper(), "status": "watching"}
 
 
+def _with_conflict(rows: list[dict]) -> list[dict]:
+    """Phase 51: ติดธงแถวที่ป้ายราคาของ LLM ขัดกับคะแนนของเครื่องยนต์.
+
+    คำนวณ **ตอนอ่าน ไม่ใช่ตอนเขียน** โดยตั้งใจ — สองเหตุผล:
+    (1) ได้ผลย้อนหลังกับทุกแถวที่เก็บไว้แล้วทันที ไม่ต้อง migrate อะไรเลย
+    (2) ถ้าวันหลังปรับจุดตัด cheap/expensive ประวัติทั้งหมดจะอ่านด้วยเกณฑ์ใหม่พร้อมกัน
+        ไม่ใช่ครึ่งหนึ่งเป็นเกณฑ์เก่าอีกครึ่งเป็นเกณฑ์ใหม่โดยไม่มีใครรู้
+
+    อยู่ชั้น API ไม่ใช่ใน history/store.py เพราะชั้นเก็บข้อมูลไม่ควรรู้จักกติกาของ agent"""
+    for r in rows:
+        score = (r.get("valuation") or {}).get("score")
+        view = (r.get("summary") or {}).get("valuation_view")
+        r["valuation_conflict"] = valuation_conflict(view, score)
+    return rows
+
+
 @app.get("/api/analyses")
 def get_analyses():
     """ผลวิเคราะห์ล่าสุดของแต่ละ ticker — มุมมองหลักของ dashboard."""
-    return latest_per_ticker()
+    return _with_conflict(latest_per_ticker())
 
 
 @app.get("/api/analyses/{ticker}")
 def get_ticker_history(ticker: str, limit: int = 50):
     """ประวัติการวิเคราะห์ของ ticker เดียว (ไว้ทำ timeline/trend)."""
-    rows = history(ticker, limit=limit)
+    rows = _with_conflict(history(ticker, limit=limit))
     if not rows:
         raise HTTPException(status_code=404, detail=f"no analyses for {ticker}")
     return rows
