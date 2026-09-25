@@ -22,6 +22,34 @@ export type Summary = {
 
 // Phase 51: ป้ายราคาของ LLM ขัดกับคะแนนของเครื่องยนต์หรือเปล่า — คำนวณตอนอ่านฝั่ง API
 // จึงมีผลย้อนหลังกับทุกแถวที่เก็บไว้แล้ว. null = ไม่ขัด หรือเทียบไม่ได้ (เครื่องยนต์คำนวณไม่ได้)
+// Phase 52: สะพาน — ตอบว่า LLM กับเครื่องยนต์แยกกันที่ "ตัวเลขไหน" ไม่ใช่ว่าใครถูก
+// accounting_hits นับเฉพาะขั้นที่พูดถึงตัวเลขในงบ (ขั้น 1-3) ส่วนขั้น 4 เป็นบริบทของโมเดลเรา
+// ซึ่งติดธงกับ 7 ใน 16 ตัว — ถ้านับรวม สะพานจะขึ้นเกือบทุกตัวแล้วไม่มีใครอ่าน
+export type BridgeStep = {
+  key: string;
+  question: string;
+  flagged: boolean;
+  detail: string;
+  means: string;
+};
+
+export type BridgeRung = {
+  label: string;
+  multiple: number;
+  cash_m: number;
+  note: string;
+};
+
+export type Bridge = {
+  steps: BridgeStep[];
+  hits: number;
+  accounting_hits: number;
+  ladder: BridgeRung[];
+  conclusion: string;
+  missing: string[];
+  ebitda_is_derived: boolean;
+};
+
 export type ValuationConflict = {
   llm_view: "cheap" | "fair" | "expensive";
   engine_view: "cheap" | "fair" | "expensive";
@@ -361,6 +389,7 @@ export type Analysis = {
   xbrl_accuracy: number | null; // Phase 12: เทียบกับ SEC XBRL จริง (ground truth อิสระจาก yfinance)
   xbrl: ExtractionResult | null;
   valuation_conflict?: ValuationConflict | null; // Phase 51
+  bridge?: Bridge | null; // Phase 52
   facts: Fact[]; // ตัวเลขงบดิบหลายปี (ว่างถ้าแถวเก่าก่อน Phase 3) — ใช้ทำกราฟ trend
   health_score: number | null; // denormalized ไว้ query/sort เร็ว (เหมือน extraction_accuracy)
   health: PersistedHealth | null; // None = แถวเก่าก่อน Phase 10 -> frontend fallback คำนวณสด

@@ -37,6 +37,7 @@ from src.agent.correlation import portfolio_correlation
 from src.agent.claims import extract_claims_with_context
 from src.agent.scorecard import scorecard
 from src.agent.label_check import valuation_conflict
+from src.agent.bridge import build_bridge
 from src.macro.radar import dashboard as macro_dashboard, status as macro_status
 from src.macro.geonews import fetch_geopolitical
 from src.macro.altseason import eth_btc_momentum
@@ -202,9 +203,21 @@ def _with_conflict(rows: list[dict]) -> list[dict]:
 
     อยู่ชั้น API ไม่ใช่ใน history/store.py เพราะชั้นเก็บข้อมูลไม่ควรรู้จักกติกาของ agent"""
     for r in rows:
-        score = (r.get("valuation") or {}).get("score")
+        valuation = r.get("valuation") or {}
         view = (r.get("summary") or {}).get("valuation_view")
-        r["valuation_conflict"] = valuation_conflict(view, score)
+        conflict = valuation_conflict(view, valuation.get("score"))
+        r["valuation_conflict"] = conflict
+
+        # Phase 52: ธงที่บอกว่า "ขัดกัน" โดยไม่บอกว่าอะไรจะชี้ขาด จะกลายเป็นวอลเปเปอร์
+        # ภายในสองสัปดาห์ — สะพานตอบว่าสองฝั่งแยกกันที่ตัวเลขไหน
+        #
+        # แนบเมื่อ **ขัดกัน หรือ บันไดเองเจอของ** — ไม่ใช่เฉพาะตอนขัดกัน เพราะกรณีที่
+        # อันตรายที่สุดคือสองฝั่งเห็นตรงกันว่า "ถูก" ทั้งที่กำไรสูงกว่า EBITDA อยู่
+        # (ไม่มีใครเถียง จึงไม่มีใครตรวจ)
+        bridge = build_bridge(r.get("facts"), valuation)
+        # นับเฉพาะธงที่เป็นเรื่องตัวเลขในงบ — ธง guard ของโมเดลเองติดกับ 7 ใน 16 ตัว
+        # ถ้าใช้เป็นเงื่อนไขโชว์ สะพานจะขึ้นเกือบทุกตัวแล้วไม่มีใครอ่าน
+        r["bridge"] = bridge if (bridge and (conflict or bridge["accounting_hits"])) else None
     return rows
 
 

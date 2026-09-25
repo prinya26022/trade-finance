@@ -222,6 +222,63 @@ export default function TickerDetail({
         </div>
       )}
 
+      {/* ---- Phase 52: สะพาน — สองฝั่งแยกกันที่ตัวเลขไหน ----
+           ธงที่บอกว่า "ขัดกัน" โดยไม่บอกว่าอะไรจะชี้ขาด จะกลายเป็นวอลเปเปอร์ภายในสองสัปดาห์
+           บล็อกนี้จึงไม่ตัดสินว่าใครถูก แต่กระทบยอดให้เห็นว่าอินพุตตัวไหนทำให้ต่าง */}
+      {a.bridge && (
+        <div className="br-box">
+          <div className="section-title" style={{ margin: "0 0 8px" }}>
+            สองฝั่งแยกกันที่ตรงไหน
+            <span className="br-count">
+              เจอในงบ {a.bridge.accounting_hits}/3
+            </span>
+          </div>
+          <p className="br-conclusion">{a.bridge.conclusion}</p>
+
+          <ol className="br-steps">
+            {a.bridge.steps.map((st) => (
+              <li key={st.key} className={st.flagged ? "br-hit" : "br-clear"}>
+                <span className="br-mark">{st.flagged ? "✗" : "✓"}</span>
+                <div>
+                  <div className="br-q">{st.question}</div>
+                  <div className="br-detail">{st.detail}</div>
+                  <div className="br-means">{st.means}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+
+          {a.bridge.ladder.length > 0 && (
+            <>
+              {/* เลขเดียวกันหารด้วยนิยาม "เงินสด" คนละแบบ ได้คำตัดสินคนละทาง — นี่คือจุดที่
+                  สองฝั่งยืนคนละที่ ไม่ใช่เรื่องใครเก่งกว่าใคร */}
+              <div className="br-ladder-title">ถูกหรือแพง แล้วแต่ว่านับอะไรเป็นเงินสด</div>
+              <table className="br-ladder">
+                <tbody>
+                  {a.bridge.ladder.map((r) => (
+                    <tr key={r.label}>
+                      <td className="br-l-label">{r.label}</td>
+                      <td className="br-l-mult">{r.multiple}x</td>
+                      <td className="br-l-cash">{r.cash_m.toLocaleString()}M</td>
+                      <td className="br-l-note">{r.note}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {(a.bridge.missing.length > 0 || a.bridge.ebitda_is_derived) && (
+            <p className="br-missing">
+              {a.bridge.ebitda_is_derived && "EBITDA เป็นค่าอนุมานจาก EV ÷ (EV/EBITDA) ไม่ใช่ตัวเลขที่บริษัทรายงานตรงๆ"}
+              {a.bridge.missing.length > 0 && (
+                <> · ยังไม่มีข้อมูล: {a.bridge.missing.join(" · ")}</>
+              )}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* ---- Phase 20.2: แตกคะแนนสุขภาพให้อ่านออก (พื้นฐาน X/8 + ราคา Y/3) ---- */}
       {a.health && <HealthBreakdown health={a.health} sentiment={s.sentiment} facts={facts} />}
 

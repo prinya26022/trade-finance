@@ -2113,6 +2113,64 @@ Today three names are in direct opposition: **DUOL** (LLM expensive / engine 3.0
 
 18 tests (702 total), offline. `framework_version` moves, which is correct -- the framework changed.
 
+## Phase 52 -- when two answers disagree, build the bridge instead of picking a side
+
+Phase 51 made disagreement visible and stopped there. A flag that says "these disagree" without
+saying what would settle it becomes wallpaper inside two weeks -- and then the day it matters gets
+scrolled past too. The owner pushed on exactly that: *is being unable to answer good or bad?*
+
+The finance answer is that **disagreement is information; a shrug is not**. Investment committees
+run on a quant screen disagreeing with an analyst -- the disagreement is what triggers work. What is
+unacceptable is disagreement nobody reconciles. So this phase does what a reconciliation actually
+does: find the **input** the two sides part on.
+
+Running that by hand on DUOL produced something better than a method -- it produced an answer:
+
+```
+Operating Income  136M
+EBITDA            150M
+Pretax Income     182M
+Tax Provision    -232M   ← negative: a credit, not a charge
+Net Income        414M   ← 176% ABOVE EBITDA
+```
+
+The gap is a one-off deferred-tax valuation-allowance release. **56% of the P/E denominator is a tax
+credit that never repeats**, which is why P/E 17.8 looked cheap. On the cash side, FCF of 360M
+contains 137M of stock comp and 49M of working-capital inflow, so:
+
+| | |
+|---|---|
+| EV / FCF as reported | **16.8x** ← where the engine stands |
+| EV / FCF ex-SBC | 27.2x |
+| EV / FCF ex-SBC ex-WC | **34.8x** |
+| EV / EBITDA | **31.3x** ← where the LLM stands |
+
+**Neither side was wrong. They were right about different numbers.** The real answer is "cheap on
+cash, but the cash leans on growth continuing, and the earnings-based cheapness is an accounting
+artefact" -- which no single label could have carried.
+
+Shipped as a four-rung ladder, all computable from stored data:
+
+1. Do the multiples agree *with each other*? If not, the earnings figure is suspect.
+2. Is net income above EBITDA? If so, something below the line -- every P/E read is void.
+3. Is FCF above EBITDA? If so, the cash comes partly from SBC add-back or deferred revenue, both of
+   which reverse when growth slows.
+4. Does the engine trust its own anchor? It already writes this down every run.
+
+**Rungs 1-3 are counted separately from rung 4**, and only they gate whether the bridge appears.
+Guard flags fire on 7 of 16 names, so counting rung 4 would have put the bridge on nearly every
+ticker -- recreating the wallpaper problem it exists to solve. With the split it shows on 6 of 17,
+and only DUOL has anything in the accounts.
+
+`Stock Based Compensation` is now collected (it was available in yfinance all along, just never
+read), with derived facts for FCF-ex-SBC and SBC as a share of revenue. For DUOL that is 12% of
+revenue -- the single number that moves the verdict, and the one thing the system was blind to.
+Rows written before this phase say so rather than showing a truncated ladder as if it were complete.
+EBITDA is back-derived from EV ÷ (EV/EBITDA) so the whole history works today, and every output
+says it is derived rather than reported.
+
+18 tests (720 total), offline.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

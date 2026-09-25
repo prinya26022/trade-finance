@@ -1142,3 +1142,32 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
 .vw-box.vw-off_by_one { border-left-color: var(--amber); }
 .vw-vs { font-weight: 400; color: var(--muted); }
 .vw-missing { margin: 0; color: var(--muted); font-size: 12.5px; }
+
+/* ══ Phase 52: สะพาน — สองฝั่งแยกกันที่ตัวเลขไหน ═══════════════════════════
+   ไม่ใช้สีแดงกับขั้นที่ติดธง เพราะมันไม่ใช่ "ข้อผิดพลาด" แต่คือ "จุดที่ต้องรู้ก่อนอ่านคะแนน"
+   สีแดงจะทำให้คนอ่านว่าหุ้นแย่ ทั้งที่ข้อความบอกว่าทั้งสองฝั่งถูกคนละตัวเลข */
+.br-box { margin: 14px 0; padding: 13px 15px; border-radius: 9px; background: var(--panel-2);
+          border: 1px solid var(--border); }
+.br-count { float: right; font-size: 11.5px; font-weight: 600; color: var(--muted);
+            font-variant-numeric: tabular-nums; }
+.br-conclusion { margin: 0 0 12px; font-size: 13px; line-height: 1.75; color: var(--text); }
+.br-steps { list-style: none; margin: 0; padding: 0; }
+.br-steps li { display: flex; gap: 9px; padding: 8px 0; border-top: 1px solid var(--border); }
+.br-mark { flex: none; width: 15px; font-weight: 700; font-size: 13px; }
+.br-hit .br-mark { color: var(--amber); }
+.br-clear .br-mark { color: var(--green); }
+.br-q { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.br-detail { font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums;
+             margin-top: 2px; }
+.br-means { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin-top: 2px;
+            max-width: 80ch; }
+.br-ladder-title { margin: 14px 0 6px; font-size: 12.5px; font-weight: 600; color: var(--text); }
+.br-ladder { width: 100%; border-collapse: collapse; font-size: 12px; }
+.br-ladder td { padding: 4px 8px 4px 0; border-top: 1px solid var(--border); }
+.br-l-label { color: var(--text); }
+.br-l-mult { font-weight: 700; color: var(--text); text-align: right; white-space: nowrap;
+             font-variant-numeric: tabular-nums; }
+.br-l-cash { color: var(--muted); text-align: right; white-space: nowrap;
+             font-variant-numeric: tabular-nums; }
+.br-l-note { color: var(--muted); font-size: 11.5px; }
+.br-missing { margin: 12px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.6; }

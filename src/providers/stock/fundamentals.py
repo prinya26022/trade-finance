@@ -46,6 +46,11 @@ class StockFundamentals(Fundamentals):
     capex: float | None = None               # เข้า reinvestment_rate = (Capex − D&A + ΔNWC) / NOPAT
     depreciation_amortization: float | None = None
     nwc_change: float | None = None          # Change In Working Capital
+    # Phase 52: ค่าตอบแทนเป็นหุ้น — ต้นทุนจริงที่จ่ายด้วยการเจือจางผู้ถือหุ้น ไม่ใช่เงินสด
+    # จึงถูกบวกกลับใน CFO ทำให้ FCF ที่รายงาน "ดูดีกว่าเงินที่เหลือถึงผู้ถือหุ้นจริง"
+    # DUOL: FCF 360M แต่ SBC 137M (12% ของรายได้) — หักแล้วเหลือ 223M ซึ่งเปลี่ยนคำตัดสิน
+    # จาก EV/FCF 16.8x (ถูก) เป็น 27.2x (เริ่มแพง)
+    stock_comp: float | None = None
     nopat: float | None = None               # จาก ROIC calc — เป็นตัวหารของ reinvestment_rate
     invested_capital: float | None = None    # จาก ROIC calc
     beta: float | None = None                # β หุ้น — เข้า CAPM WACC (Rf + β×ERP)
@@ -185,6 +190,7 @@ class StockFundamentals(Fundamentals):
             ("Capex", self.capex, stmt_ccy, self.period),
             ("D&A", self.depreciation_amortization, stmt_ccy, self.period),
             ("NWC Change", self.nwc_change, stmt_ccy, self.period),
+            ("Stock Based Comp", self.stock_comp, stmt_ccy, self.period),
             ("NOPAT", self.nopat, stmt_ccy, self.period),
             ("Invested Capital", self.invested_capital, stmt_ccy, self.period),
             ("Beta", self.beta, "x", self.period),
@@ -272,6 +278,19 @@ class StockFundamentals(Fundamentals):
         #     = ตลาดเองก็คาดว่ากำไรจะลดลง (สัญญาณที่ขัดกับการสรุปว่า 'P/E ต่ำ = ถูก' โดยตรง)
         if self.forward_pe is not None and self.pe is not None:
             out.append(Fact("Forward P/E - P/E", self.forward_pe - self.pe, "x", self.period))
+
+        # (4) Phase 52: เงินสดที่เหลือถึงผู้ถือหุ้นจริง หลังหักค่าตอบแทนเป็นหุ้น
+        #
+        #     SBC ถูกบวกกลับใน CFO เพราะไม่ใช่เงินสด — ถูกต้องตามบัญชี แต่ทำให้ FCF ที่รายงาน
+        #     อ่านว่า "เงินที่เหลือ" ทั้งที่ส่วนหนึ่งถูกจ่ายไปแล้วในรูปหุ้นที่เจือจางคนถืออยู่
+        #     DUOL: FCF 360M − SBC 137M = 223M ซึ่งพลิก EV/FCF จาก 16.8x เป็น 27.2x
+        #     = พลิกคำตัดสินจาก "ถูก" เป็น "เริ่มแพง" ด้วยตัวเลขตัวเดียว
+        fcf_now = (self.cfo + self.capex) if (self.cfo is not None and self.capex is not None) else None
+        if fcf_now is not None and self.stock_comp:
+            out.append(Fact("FCF หัก SBC", fcf_now - abs(self.stock_comp), "USD", self.period))
+        if self.stock_comp and self.revenue:
+            out.append(Fact("SBC % Revenue",
+                            round(abs(self.stock_comp) / self.revenue * 100, 2), "%", self.period))
 
         return out
 
@@ -749,6 +768,7 @@ class StockFundamentalsProvider(FundamentalsProvider):
                 "Reconciled Depreciation", "Depreciation",
             ], cf),
             nwc_change=_first(["Change In Working Capital"], cf),
+            stock_comp=_first(["Stock Based Compensation", "Stock-Based Compensation"], cf),
             nopat=nopat,
             invested_capital=invested_capital,
             beta=float(info["beta"]) if info.get("beta") is not None else None,
