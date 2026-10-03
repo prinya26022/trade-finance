@@ -15,31 +15,15 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from src.wave.analysis import Report  # noqa: E402
 from src.wave.candles import Candle, resample_4h  # noqa: E402
+from src.wave.trend import ema  # noqa: E402  (Pine ta.ema — ที่เดียวทั้งแพ็กเกจ)
 
 BG, GRID, TEXT, MUTED = "#131722", "#2a2e39", "#d1d4dc", "#787b86"
 UP, DOWN = "#26a69a", "#ef5350"
-# EMA ตาม indicator ของผู้ใช้ (สีเดิม) — โชว์แค่ 25/50/200 บนภาพ 4H เพราะ 6 เส้นซ้อนกันอ่านไม่ออก
-EMAS = ((25, "#808000"), (50, "#9c27b0"), (200, "#ffeb3b"))
+# EMA ตาม indicator ของผู้ใช้ (สีเดิม) — 50 กับ 200 ซึ่งเป็นเส้นหลักที่ใช้ตัดสินเทรนด์ D/4H ด้วย
+EMAS = ((50, "#9c27b0"), (200, "#ffeb3b"))
+TREND_COLOR = {"up": UP, "down": DOWN, "mixed": "#fbc02d", "unknown": MUTED}
 SCENARIO_COLOR = {"A": "#42a5f5", "B": "#ff9800", "C": "#ab47bc"}
 SHORT = {"A": "A: i of 5, now ii", "B": "B: 5 done", "C": "C: 4 not done"}
-
-
-def ema(values: list[float], n: int) -> list[float | None]:
-    """EMA แบบ Pine ta.ema: ค่าแรกคือ SMA ของ n ค่าแรก แล้ว alpha = 2/(n+1).
-
-    ผลของค่าเริ่มต้นจางเป็น (1−alpha)^k — EMA 200 จางช้ามาก (หลัง 160 แท่งยังเหลือ ~20%) ถ้าข้อมูล
-    สั้น เส้นจะไม่ตรงกับ TradingView ที่มีประวัติยาวกว่า. ไฟล์ count จึงดึง 1H ย้อน 180 วัน
-    (~1,080 แท่ง 4H) ให้เส้นลืมจุดเริ่มต้นไปแล้วตอนที่อยู่ในภาพ"""
-    out: list[float | None] = [None] * len(values)
-    if len(values) < n:
-        return out
-    cur = sum(values[:n]) / n
-    out[n - 1] = cur
-    a = 2 / (n + 1)
-    for i in range(n, len(values)):
-        cur = a * values[i] + (1 - a) * cur
-        out[i] = cur
-    return out
 
 
 def render_png(rep: Report, hourly: list[Candle]) -> bytes:
@@ -92,6 +76,16 @@ def render_png(rep: Report, hourly: list[Candle]) -> bytes:
 
     last = rep.last
     ax.axhline(last.close, color=MUTED, lw=0.6, ls=":")
+    # แถบเทรนด์ TF ใหญ่ อยู่ "เหนือ" กรอบกราฟ — ในกรอบจะทับป้ายเป้า/เส้นตายที่ขอบขวา
+    for i, t in enumerate(rep.trend):
+        ax.text(0.62 + i * 0.095, 1.012, f"{t.tf} {t.state.upper()}", transform=ax.transAxes,
+                ha="left", va="bottom", fontsize=9, weight="bold", color=BG,
+                bbox=dict(boxstyle="round,pad=0.3", fc=TREND_COLOR[t.state], ec="none"))
+    # เว้นขอบล่าง/บนให้ป้ายคลื่นกับบรรทัดสถานะไม่ทับกัน — รวมทุกเส้นที่วาดไว้ในช่วงด้วย
+    levels = [c.low for c in view] + [c.high for c in view] + [
+        x for sc in rep.scenarios for x in ([sc.kill_level] if sc.kill_level else []) + [v for _, v in sc.targets[:2]]]
+    lo, hi = min(levels), max(levels)
+    ax.set_ylim(lo - 0.10 * (hi - lo), hi + 0.05 * (hi - lo))
     ax.set_title(f"{rep.symbol} 4H - wave check ({last.ts:%Y-%m-%d %H:%M} UTC, last {last.close:,.0f})",
                  color=TEXT, loc="left", fontsize=11)
     status = "   ".join(f"{SHORT.get(sc.key, sc.key)}: {'ALIVE' if sc.alive else 'DEAD'}"

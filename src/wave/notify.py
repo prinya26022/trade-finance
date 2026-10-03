@@ -7,6 +7,29 @@ from src.wave.analysis import Report, fmt
 
 WEBHOOK_ENV = "DISCORD_WEBHOOK_URL_WAVE"
 LEAN = {"A": "→ เข้าทาง A", "B": "→ เข้าทาง B", "-": ""}
+STATE = {"up": "🟢 ขาขึ้น", "down": "🔴 ขาลง", "mixed": "🟡 ปนกัน", "unknown": "⚪ วัดไม่ได้"}
+
+
+def _trend_lines(rep: Report) -> list[str]:
+    if not rep.trend:
+        return []
+    out = ["**เทรนด์ TF ใหญ่** (ผ่านทุกข้อ = ขาขึ้น · ตกทุกข้อ = ขาลง · นอกนั้น = ปนกัน):"]
+    for t in rep.trend:
+        lines = " · ".join(f"{k} {fmt(v)}" for k, v in t.lines.items())
+        checks = " · ".join(("✅ " if c.up else "❌ " if c.up is False else "➖ ") + c.text for c in t.checks)
+        out.append(f"**{t.tf}** {STATE[t.state]} — {checks}" + (f" ({lines})" if lines else ""))
+    return out + [""]
+
+
+def _alignment(rep: Report, bias: str) -> str:
+    """ฉากนี้ไปทางเดียวกับ TF ไหน สวน TF ไหน — ข้อเท็จจริง ไม่ใช่โอกาส"""
+    with_ = [t.tf for t in rep.trend if t.state == bias]
+    against = [t.tf for t in rep.trend if t.state in ("up", "down") and t.state != bias]
+    mixed = [t.tf for t in rep.trend if t.state == "mixed"]
+    parts = [f"ตาม {', '.join(with_)}" if with_ else "ไม่มี TF ไหนเป็นเทรนด์ทางเดียวกัน",
+             f"สวน {', '.join(against)}" if against else "",
+             f"TF ที่ยังปนกัน {', '.join(mixed)}" if mixed else ""]
+    return "  🧭 " + " · ".join(x for x in parts if x)
 
 
 def format_message(rep: Report) -> str:
@@ -20,6 +43,7 @@ def format_message(rep: Report) -> str:
         if not r.ok or r.text.startswith("คลื่น 4"):     # โชว์ข้อที่ผิด + ข้อที่ใกล้เส้นที่สุดเสมอ
             L.append(f"{'✅' if r.ok else '❌'} {r.text}: {r.detail}")
     L += ["", f"**ตอนนี้:** {rep.state}", ""]
+    L += _trend_lines(rep)
 
     for sc in rep.scenarios:
         mark = "🟢 ยังเป็นไปได้" if sc.alive else "⚫ ตายแล้ว"
@@ -30,6 +54,8 @@ def format_message(rep: Report) -> str:
             L.append(f"  ✔️ ชัดขึ้นเมื่อ: {sc.confirm_text}")
         if sc.targets:
             L.append("  🎯 " + " · ".join(f"{t} {fmt(x)}" for t, x in sc.targets))
+        if rep.trend and sc.bias:
+            L.append(_alignment(rep, sc.bias))
         L.append("")
 
     if rep.evidence:
@@ -48,18 +74,27 @@ def format_message(rep: Report) -> str:
     return "\n".join(L)
 
 
+def format_summary(rep: Report) -> str:
+    """คำบรรยายใต้ภาพ — สั้นพอให้อยู่ใน message เดียวกับภาพเสมอ (เพดาน Discord 2,000 ตัวอักษร).
+    รายละเอียดเต็มตามไปเป็นข้อความถัดไป ไม่ถูกตัดทิ้ง"""
+    L = [f"**{rep.name}** · {rep.symbol} **{fmt(rep.last.close)}** ({rep.last.ts:%d %b %H:%M} UTC)",
+         f"กฎเหล็ก: {'ผ่านครบ ✅' if rep.valid else 'ผิด ❌'} · {rep.state}"]
+    if rep.trend:
+        L.append("เทรนด์: " + " · ".join(f"{t.tf} {STATE[t.state]}" for t in rep.trend))
+    for sc in rep.scenarios:
+        L.append(f"**{sc.key}** {sc.title} — {'🟢' if sc.alive else '⚫'} ผิดเมื่อ{sc.kill_text}")
+    kills = [(sc.kill_level, sc.key) for sc in rep.scenarios if sc.alive and sc.kill_level is not None]
+    if len(kills) >= 2:
+        lo, hi = min(kills), max(kills)
+        L.append(f"➡️ ระหว่าง {fmt(lo[0])} – {fmt(hi[0])} ยังตัดสินไม่ได้")
+    return "\n".join(L)[:discord.DISCORD_CONTENT_LIMIT]
+
+
 def send(rep: Report, hourly, webhook_url: str | None = None) -> bool:
     from src.notify.discord import post_chunks
     from src.wave.chart import render_png
 
     url = webhook_url or os.environ.get(WEBHOOK_ENV)
-    msg = format_message(rep)
-    # ภาพ + ส่วนหัวใน message แรก ส่วนที่เกิน 2000 ตัวอักษรตามไปเป็นข้อความต่อ (ไม่ตัดทิ้งเงียบๆ)
-    head, _, rest = msg.partition("\n\n**หลักฐานตามตำรา**")
-    if len(head) > discord.DISCORD_CONTENT_LIMIT:
-        head, rest = msg[:0], msg
-    ok = discord.post_image(head, render_png(rep, hourly),
+    ok = discord.post_image(format_summary(rep), render_png(rep, hourly),
                             f"wave_{rep.symbol.replace('-', '_')}.png", url)
-    if rest:
-        ok = post_chunks("**หลักฐานตามตำรา**" + rest, url) and ok
-    return ok
+    return post_chunks(format_message(rep), url) and ok

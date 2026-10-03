@@ -36,6 +36,7 @@ class Scenario:
     kill_text: str
     confirm_text: str = ""
     targets: list[tuple[str, float]] = field(default_factory=list)
+    bias: str = ""        # "up" | "down" — ทิศที่ฉากนี้คาดต่อจากนี้ (ไว้เทียบกับเทรนด์ TF ใหญ่)
 
 
 @dataclass
@@ -58,6 +59,8 @@ class Report:
     sub: dict = field(default_factory=dict)       # ขาย่อยหลังคลื่น 4 (ถ้ามี)
     parent: "Report | None" = None
     parent_note: str = ""
+    trend: list = field(default_factory=list)     # list[trend.TrendRead] — M/W/D/4H
+    divergences: list = field(default_factory=list)
 
     @property
     def valid(self) -> bool:
@@ -188,7 +191,19 @@ def analyze(name: str, symbol: str, direction: str, pivots: list[Pivot], candles
                      f"{'หลุด' if s > 0 else 'ทะลุ'} {fmt(v[4])} (จุดเริ่มคลื่น 5)",
                      f"ทำยอดใหม่เลย {fmt(v[5])}"),
         ]
+    _set_bias(rep, direction)
     return rep
+
+
+# ฉากที่ "ไปต่อทางเทรนด์ของ count" vs "ย่อ/ปรับฐาน" — key เดียวกันมีความหมายต่างกันตามสถานะ
+_WITH_TREND = {1: set(), 2: {"A"}, 3: set(), 4: {"A"}, 5: {"A"}}
+
+
+def _set_bias(rep: Report, direction: str) -> None:
+    other = "down" if direction == "up" else "up"
+    k = len(rep.pivots) - 1
+    for sc in rep.scenarios:
+        sc.bias = direction if sc.key in _WITH_TREND.get(k, set()) else other
 
 
 def _in_wave5(rep: Report, candles, after, s, ext, back, beyond, wave4_shape, now) -> None:

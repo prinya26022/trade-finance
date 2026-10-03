@@ -166,3 +166,94 @@ def test_build_from_spec_with_parent_note():
     rep = build(spec, fake)
     assert rep.parent is not None and rep.parent.valid
     assert "ฉาก B" in rep.parent_note and "เหลือง" in rep.parent_note
+
+
+# ---------- เทรนด์หลาย TF + divergence ----------
+
+def _daily(prices: list[float], start: datetime = datetime(2020, 1, 1)) -> list[Candle]:
+    out, prev = [], prices[0]
+    for i, p in enumerate(prices):
+        out.append(Candle(start + timedelta(days=i), prev, max(prev, p), min(prev, p), p))
+        prev = p
+    return out
+
+
+def test_rsi_series_last_value_matches_the_week_month_layer():
+    """สองที่ในโปรเจกต์ต้องให้ RSI เดียวกันจากราคาเดียวกัน"""
+    from src.technical.indicators import rsi_wilder
+    from src.wave.trend import rsi_series
+    import math
+    xs = [100 + 10 * math.sin(i / 3) + i * 0.2 for i in range(80)]
+    assert abs(rsi_series(xs)[-1] - rsi_wilder(xs)) < 1e-9
+
+
+def test_macd_signal_is_sma9_like_the_users_script():
+    from src.wave.trend import ema, macd_series
+    xs = [float(i % 7 + i) for i in range(60)]
+    m, sig = macd_series(xs)
+    assert sig[-1] == sum(m[-9:]) / 9
+    assert m[-1] == ema(xs, 12)[-1] - ema(xs, 26)[-1]
+
+
+def _leg(start: float, n: int, step: float, dip: float) -> list[float]:
+    """ขาราคาที่มีแท่งสวนทุกแท่งที่ 3 — ขาตรงๆ ไม่มีแท่งสวนเลย RSI จะติด 100 ตลอดและไม่เกิดยอด"""
+    out, p = [], start
+    for i in range(n):
+        p += -dip if i % 3 == 2 else step
+        out.append(p)
+    return out
+
+
+def test_bearish_divergence_is_found_and_confirmed_five_bars_late():
+    """ยอดแรกพุ่งแรง (RSI สูง) ยอดสองสูงกว่าแต่ไต่ช้ากว่า (RSI ต่ำกว่า) = bearish divergence"""
+    from src.wave.trend import divergences
+    a = _leg(100, 20, 1.0, 0.5)
+    b = _leg(a[-1], 12, 4.0, 1.0)            # พุ่งแรง -> ยอด 140
+    c = _leg(b[-1], 10, -2.0, -1.0)
+    d = _leg(c[-1], 21, 1.6, 1.0)            # ไต่ช้ากว่า -> ยอด ~144.4
+    e = _leg(d[-1], 12, -2.0, -1.0)
+    cs = _daily(a + b + c + d + e)
+    (dv,) = [x for x in divergences("D", cs, "RSI") if x.kind == "bear"]
+    assert dv.price_now > dv.price_prev and dv.ind_now < dv.ind_prev
+    i = next(k for k, c in enumerate(cs) if c.ts == dv.pivot_ts)
+    assert cs[i + 5].ts == dv.confirmed_ts                # ยืนยันช้า 5 แท่งเสมอ
+    # ตัดข้อมูลให้เหลือไม่ถึง 5 แท่งหลังยอด -> ต้องยังไม่เห็น (ไม่ใช้ข้อมูลอนาคต)
+    assert not [x for x in divergences("D", cs[:i + 5], "RSI") if x.pivot_ts == dv.pivot_ts]
+
+
+def test_trend_reads_up_down_and_mixed():
+    from src.wave.trend import read
+    import math
+    wave = lambda i: 8 * math.sin(i / 6)
+    up = read("D", _daily([100 + i * 0.5 + wave(i) for i in range(400)]))
+    down = read("D", _daily([400 - i * 0.5 + wave(i) for i in range(400)]))
+    assert up.state == "up" and down.state == "down"
+    assert {"EMA50", "EMA200"} <= set(up.lines)
+    turn = read("D", _daily([100 + i * 0.5 + wave(i) for i in range(300)] +
+                            [250 - i * 1.5 + wave(i) for i in range(40)]))
+    assert turn.state in ("mixed", "down")
+
+
+def test_timeframes_only_include_closed_bars():
+    from src.wave.trend import timeframes
+    daily = _daily([100.0] * 70, start=datetime(2026, 8, 1))          # 1 ส.ค. – 9 ต.ค.
+    tfs = timeframes(daily, [], asof=datetime(2026, 10, 3, 14), crypto=True)
+    assert tfs["M"][-1].ts.month == 9                                  # ต.ค. ยังไม่จบ
+    assert tfs["D"][-1].ts == datetime(2026, 10, 2)                    # วันนี้ยังไม่ปิด
+    assert all(c.ts < datetime(2026, 9, 28) for c in tfs["W"])         # สัปดาห์ 28 ก.ย.–4 ต.ค. ยังไม่จบ
+
+
+def test_scenarios_carry_the_direction_they_expect():
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])
+    bias = {s.key: s.bias for s in rep.scenarios}
+    assert bias == {"A": "up", "B": "down"}
+
+
+def test_summary_fits_one_discord_message_with_the_image():
+    from src.notify.discord import DISCORD_CONTENT_LIMIT
+    from src.wave.notify import format_summary
+    from src.wave.trend import TrendRead
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])
+    rep.trend = [TrendRead("D", "up", 1.0), TrendRead("W", "mixed", 1.0)]
+    s = format_summary(rep)
+    assert len(s) <= DISCORD_CONTENT_LIMIT and "ยังตัดสินไม่ได้" in s and "D 🟢" in s

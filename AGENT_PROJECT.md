@@ -2250,6 +2250,29 @@ owner's own EMA settings instead.
 
 15 tests (767 total), offline.
 
+### Phase 54.1 -- the bigger timeframes, and two momentum readings that disagree
+
+Each wave report now carries a trend ladder (M / W / D / 4H) and says, per scenario, which
+timeframes it goes *with* and which it goes *against* -- a fact, not a probability. W and M use the
+same lines as Phase 53 (SMA40W, SMA10M) so the two Discord channels can never call the same week
+differently; D and 4H use the owner's EMA50 and EMA200. BTC on 3 Oct: M and W mixed, D and 4H up --
+so "wave 5 still running" goes with D, while "wave 5 is done" goes with W's falling 40-week line.
+
+Divergence is detected exactly the way the owner's TradingView RSI script does it (pivots 5 left /
+5 right, compared with the previous pivot 5-60 bars back), so it is **always confirmed 5 bars late**
+-- the report prints the confirmation date, not just the peak. MACD uses the owner's ChrisMoody
+settings, where the signal line is an SMA 9, not the textbook EMA 9.
+
+The owner's worry was "Day RSI and MACD both show bearish divergence". Measured, they do not say
+the same thing: from the wave-3 peak (3 Sep) to the latest high (21 Sep), **MACD fell from 3,494 to
+1,969 but RSI went from 73.0 to 73.9**. RSI only diverges if compared with the 27 Aug peak instead.
+The report shows both separately; folding them into one "divergence: yes" would have hidden it.
+
+The Discord message is now split: a short caption that always fits beside the image (2,000-char
+limit), then the full detail -- the long version had silently pushed the caption off the image.
+
+7 tests (774 total), offline.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice
