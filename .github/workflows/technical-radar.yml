@@ -1,0 +1,61 @@
+name: Technical Radar
+
+# Phase 53 — ชั้นกราฟ Week/Month: "ความเห็นที่สอง" วางข้าง health (สเปก TECHNICAL_LAYER.md)
+# ส่งภาพกราฟเข้า Discord **เฉพาะตัวที่เปลี่ยน tier** — วันที่ไม่มีอะไรเปลี่ยนจะเงียบ
+#
+# แยก workflow ด้วยเหตุผลเดียวกับ aicapex-radar.yml: ไม่เรียก Gemini, คนละช่อง Discord,
+# และ state อยู่ใน data/technical.db แยกไฟล์ (DB ร่วมจะชน commit กับ workflow อื่น)
+
+on:
+  schedule:
+    # 01:00 UTC = 08:00 น. ไทย ทุกวัน:
+    #  - วันเสาร์ UTC: แท่งสัปดาห์หุ้น (จบศุกร์) ปิดแล้ว — ตลาดสหรัฐปิด 21:00 UTC วันศุกร์
+    #  - วันจันทร์ UTC: แท่งสัปดาห์ crypto (จบอาทิตย์ 00:00 UTC) ปิดแล้ว
+    #  - วันที่ 1: แท่งเดือนปิดแล้วทั้งคู่
+    # วันอื่นไม่มีแท่งใหม่ปิด จึงไม่มีอะไรเปลี่ยน -> เงียบเอง ไม่ต้องเขียน cron แยกวัน
+    - cron: "0 1 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: technical-radar
+  cancel-in-progress: false
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # แยกช่อง (แนะนำ) — ไม่ตั้งจะ fallback ไป DISCORD_WEBHOOK_URL; ไม่มีเลยก็ข้ามเงียบๆ
+      DISCORD_WEBHOOK_URL_TECHNICAL: ${{ secrets.DISCORD_WEBHOOK_URL_TECHNICAL }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Score the watchlist and post what changed
+        run: python -c "from src.technical.radar import run; run()"
+
+      - name: Persist technical state back to the repo (only if changed)
+        run: |
+          git config user.name "trade-finance-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if [ ! -f data/technical.db ]; then
+            echo "[technical] data/technical.db ไม่ถูกสร้างรอบนี้ (ดึงข้อมูลไม่สำเร็จ ดู log ด้านบน) — ข้าม commit"
+            exit 0
+          fi
+          python scripts/merge_db.py install
+          git add -f data/technical.db
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: technical radar state $(date -u +%Y-%m-%d)"
+            git pull --rebase --autostash origin main || true
+            git push
+          fi

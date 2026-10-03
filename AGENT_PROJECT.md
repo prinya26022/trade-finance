@@ -2171,6 +2171,52 @@ says it is derived rather than reported.
 
 18 tests (720 total), offline.
 
+## Phase 53 -- a second opinion from the chart, kept beside the score instead of inside it
+
+Full spec: `TECHNICAL_LAYER.md`. Prompted by wanting the chart as another voice in the decision --
+Week/Month only, because this is a hold-for-months tool, not a 4H one.
+
+It collided with two rules already written down: "no timing calls" and Phase 20's "exit on
+thesis-break, not chart-break". Rather than quietly break them, the chart became a **second opinion**:
+a count of six conditions (weekly close vs 40-week average and its slope, monthly close vs 10-month
+average, 12-1 month return vs VT, distance from the 52-week high, weekly RSI), shown next to health
+and **never summed with it, never gating it, never sorting the board**. A test asserts no combined
+field exists. Elliott Wave was left out on purpose: the same chart supports opposite counts, so it
+cannot be backtested -- it stays a free-text note in the decision journal's `gate2`.
+
+Things that came out of building it:
+
+- **Closed bars only, enforced by a test that tries to cheat.** yfinance's `1wk`/`1mo` bars include
+  the week still in progress without saying so. Bars are resampled from daily prices instead, a bar
+  counts only once its calendar end has passed, and a test injects absurd prices (0.001 and
+  1,000,000) into the unfinished week and requires the score to be byte-identical. Injecting a
+  look-ahead bug on purpose made three tests fail, so the guard is real.
+- **"Exit when price reaches fair value" could not ship as specified.** `fair_value()` already records
+  that its absolute level is uncalibrated -- all six names measured negative. Used as an exit, it
+  would fire on every holding on day one. Proposed instead: exit review when the discount has
+  worsened by X since the buy date. Not built yet.
+- **RSI matches TradingView to 8 decimals**, including TV's odd edge case (a perfectly flat series
+  reads 100, not 50) -- two tools giving different numbers from the same prices is how both stop
+  being trusted.
+- **`BTC` on yfinance is a $37 ETF, not bitcoin.** The watchlist stores `BTC`; the first full run
+  scored the ETF. It tracks the coin closely enough that the score was identical (3/6, −31.11% over
+  12-1 months) -- so nothing looked wrong. Crypto now goes through the same `-USD` rule the price
+  provider uses, with a regression test.
+- Discord gets an image, **only when a ticker changes tier**. First sighting is recorded silently,
+  an "unmeasurable" blip does not overwrite state (so ok → blip → ok is not two alerts), a fetch
+  failure is reported as ours rather than the ticker's, and a flip in the same run as a rule change
+  says so -- the chart rules carry their own content hash (Phase 37 applied again).
+- Chart text is English on purpose: matplotlib's default font has no Thai glyphs, so Thai renders as
+  boxes on the ubuntu runner while looking fine locally. Thai lives in the message beside the image.
+
+First real run: 10 of 16 measurable names in `trend_up`, 4 `mixed`, 2 `trend_down`, SPCX
+unmeasurable (too little history). The one name actually held, DUOL, is `mixed` -- strong on
+fundamentals, 56% under its 52-week high. That disagreement is what the second opinion is for; what
+to do with it stays a human call.
+
+Own workflow (`technical-radar.yml`, 01:00 UTC daily), own DB (`data/technical.db`), own channel
+(`DISCORD_WEBHOOK_URL_TECHNICAL`). 32 tests (752 total), offline.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

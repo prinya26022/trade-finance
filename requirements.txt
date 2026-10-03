@@ -1,6 +1,7 @@
 yfinance
 google-genai
 pydantic
+matplotlib
 python-dotenv
 fastapi
 uvicorn

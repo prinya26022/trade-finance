@@ -45,6 +45,55 @@ def post(content: str, webhook_url: str | None = None) -> bool:
         return False
 
 
+def _multipart(payload: dict, filename: str, data: bytes, mime: str = "image/png",
+               boundary: str = "trade-finance-boundary-7f3a") -> tuple[bytes, str]:
+    """ประกอบ body แบบ multipart/form-data ที่ Discord webhook รับ: ส่วน payload_json (ข้อความ)
+    + ส่วน files[0] (ไฟล์) — แยกเป็นฟังก์ชันบริสุทธิ์เพื่อเทสต์รูปร่าง body ได้โดยไม่ยิงจริง."""
+    crlf = b"\r\n"
+    parts = [
+        f"--{boundary}".encode(),
+        b'Content-Disposition: form-data; name="payload_json"',
+        b"Content-Type: application/json",
+        b"",
+        json.dumps(payload).encode("utf-8"),
+        f"--{boundary}".encode(),
+        f'Content-Disposition: form-data; name="files[0]"; filename="{filename}"'.encode(),
+        f"Content-Type: {mime}".encode(),
+        b"",
+        data,
+        f"--{boundary}--".encode(),
+        b"",
+    ]
+    return crlf.join(parts), f"multipart/form-data; boundary={boundary}"
+
+
+def post_image(content: str, image: bytes, filename: str = "chart.png",
+               webhook_url: str | None = None) -> bool:
+    """ส่งข้อความ + ภาพหนึ่งภาพใน message เดียว; คืน True ถ้าสำเร็จ. ไม่มี webhook -> ข้ามเงียบๆ
+    เหมือน post(). ข้อความยาวเกินถูกตัดแบบเดียวกัน (ภาพไปด้วยเสมอ ข้อความเป็นแค่คำบรรยาย)."""
+    url = webhook_url or os.environ.get("DISCORD_WEBHOOK_URL")
+    if not url:
+        print("[discord] ไม่มี DISCORD_WEBHOOK_URL — ข้ามการส่งภาพ")
+        return False
+    if len(content) > DISCORD_CONTENT_LIMIT:
+        content = content[: DISCORD_CONTENT_LIMIT - 40] + "\n… (ตัดทอน — ดูเต็มบนเว็บ)"
+
+    body, content_type = _multipart({"content": content}, filename, image)
+    req = urllib.request.Request(url, data=body, headers={
+        "Content-Type": content_type,
+        "User-Agent": "trade-finance-agent/1.0 (+local research tool)",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return 200 <= resp.status < 300
+    except urllib.error.HTTPError as e:
+        print(f"[discord] ส่งภาพไม่สำเร็จ: HTTP {e.code} — {e.read().decode('utf-8', 'replace')[:300]}")
+        return False
+    except Exception as e:
+        print(f"[discord] ส่งภาพไม่สำเร็จ: {e}")
+        return False
+
+
 def _chunk_lines(content: str, limit: int = DISCORD_CONTENT_LIMIT) -> list[str]:
     """แบ่ง content เป็นหลายก้อน แต่ละก้อน <= limit ตัวอักษร ตัดที่ขอบบรรทัด (ไม่ตัดกลางคำ/กลางประโยค)."""
     chunks, cur = [], ""
