@@ -257,3 +257,21 @@ def test_summary_fits_one_discord_message_with_the_image():
     rep.trend = [TrendRead("D", "up", 1.0), TrendRead("W", "mixed", 1.0)]
     s = format_summary(rep)
     assert len(s) <= DISCORD_CONTENT_LIMIT and "ยังตัดสินไม่ได้" in s and "D 🟢" in s
+
+
+def test_equal_waves_1_and_3_add_fifth_wave_extension_targets():
+    """1 ≈ 3 (ไม่มีขาไหนยืด) -> ตำราคาดว่า 5 ยืด: เป้า 1× และ 1.618× ของระยะ 0→3 จากจุดจบคลื่น 4"""
+    base = [(0, 100.0), (40, 107.0), (50, 105.0), (80, 112.3), (100, 108.5), (120, 110.5),
+            (140, 107.6), (150, 109.6), (160, 108.2)]                 # คลื่น 1 = 7.0, คลื่น 3 = 7.3
+    rep = report([(180, 112.0), (190, 109.0), (200, 109.5)], base=base)
+    a = {t: x for t, x in next(s for s in rep.scenarios if s.key == "A").targets}
+    assert abs(a["5 ยืด = 1×(0→3)"] - (108.2 + 12.3)) < 1e-6
+    assert abs(a["5 ยืด = 1.618×(0→3)"] - (108.2 + 1.618 * 12.3)) < 1e-6
+
+
+def test_no_extension_targets_when_wave3_already_extended():
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)],
+                 base=[(0, 100.0), (40, 103.0), (50, 101.5), (80, 112.4), (100, 108.5), (120, 110.5),
+                       (140, 107.6), (150, 109.6), (160, 108.2)])     # คลื่น 3 = 10.9 เทียบคลื่น 1 = 3
+    a = [t for t, _ in next(s for s in rep.scenarios if s.key == "A").targets]
+    assert not any(t.startswith("5 ยืด") for t in a)
