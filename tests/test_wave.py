@@ -1,0 +1,168 @@
+"""ตัวตรวจ count คลื่น — offline ล้วน: ราคาสังเคราะห์ที่วางจุดกลับตัวไว้เองจึงรู้คำตอบล่วงหน้า.
+
+สิ่งที่ชุดนี้คุ้มครอง:
+- ใช้ราคาจริงจากแท่ง ไม่ใช่เลขที่ผู้ใช้อ่านจากจอ
+- กฎเหล็กผิดคือผิด — รวมถึงกรณีที่จุดลึกสุดของคลื่น 4 ไม่ใช่จุดที่มาร์ก (สามเหลี่ยม)
+- ทุกฉากที่ยังไม่ตายต้องโชว์ พร้อมราคาที่ทำให้ตาย; ไม่มีเปอร์เซ็นต์ความน่าจะเป็น
+- ขาลงใช้โค้ดชุดเดียวกัน (กลับทิศถูก)
+"""
+from datetime import datetime, timedelta
+
+from src.wave.analysis import analyze, check_rules, resolve
+from src.wave.candles import Candle, resample_4h
+from src.wave.chart import ema, render_png
+from src.wave.count import build
+from src.wave.notify import format_message
+from src.wave.pivots import zigzag
+
+T0 = datetime(2026, 9, 1)
+
+
+def path(points: list[tuple[int, float]]) -> list[Candle]:
+    """แท่ง 1H ที่ราคาเดินเป็นเส้นตรงระหว่างจุด (ชั่วโมงที่, ราคา) — ยอด/ก้นอยู่ตรงจุดที่วางพอดี"""
+    out = []
+    for (h0, p0), (h1, p1) in zip(points, points[1:]):
+        for h in range(h0, h1):
+            a = p0 + (p1 - p0) * (h - h0) / (h1 - h0)
+            b = p0 + (p1 - p0) * (h + 1 - h0) / (h1 - h0)
+            out.append(Candle(T0 + timedelta(hours=h), a, max(a, b), min(a, b), b))
+    return out
+
+
+def at(h: int) -> datetime:
+    return T0 + timedelta(hours=h)
+
+
+# impulse ขาขึ้นแบบเดียวกับ BTC ตอนนี้: 0→1→2→3→4 (สามเหลี่ยม ก้นลึกสุดก่อนจุด 4) → ขา i → ย่อ ii
+BASE = [(0, 100.0), (40, 107.0), (50, 105.0), (80, 112.4), (100, 108.5), (120, 110.5),
+        (140, 107.6), (150, 109.6), (160, 108.2)]          # A-B-C-D-E: E (108.2) สูงกว่าก้น C (107.6)
+MARKS = [("0", at(0)), ("1", at(40)), ("2", at(50)), ("3", at(80)), ("4", at(160))]
+
+
+def report(extra: list[tuple[int, float]], shape: str | None = "triangle", marks=MARKS, base=BASE,
+           direction: str = "up"):
+    candles = path(base + extra)
+    pivots = resolve(candles, marks, direction, window_h=3)
+    return analyze("TEST", "TEST-USD", direction, pivots, candles, shape)
+
+
+# ---------- จุดและแท่ง ----------
+
+def test_snap_uses_the_real_extreme_not_the_marked_time():
+    candles = path(BASE)
+    (p,) = resolve(candles, [("0", at(2))], "up", window_h=3)    # มาร์กคลาดไป 2 ชม.
+    assert p.ts == at(0) and p.price == 100.0
+
+
+def test_zigzag_never_puts_a_high_and_a_low_on_the_same_candle():
+    z = zigzag(path(BASE), 0.01)
+    assert len({p.ts for p in z}) == len(z)
+    assert [p.kind for p in z][:4] == ["L", "H", "L", "H"]
+
+
+def test_resample_4h_groups_on_utc_boundaries():
+    c4 = resample_4h(path([(0, 1.0), (8, 9.0)]))
+    assert [c.ts.hour for c in c4] == [0, 4]
+    assert c4[0].open == 1.0 and c4[0].close == 5.0 and c4[1].high == 9.0
+
+
+def test_ema_seeds_with_sma_like_pine():
+    e = ema([1.0, 2.0, 3.0, 4.0], 3)
+    assert e[:2] == [None, None] and e[2] == 2.0 and e[3] == 0.5 * 4 + 0.5 * 2.0
+
+
+# ---------- กฎเหล็ก ----------
+
+def test_valid_impulse_passes_every_rule():
+    rep = report([(170, 112.0)])
+    assert rep.valid, [r for r in rep.rules if not r.ok]
+
+
+def test_wave2_below_wave1_start_fails():
+    base = [(0, 100.0), (40, 107.0), (50, 99.0), (80, 112.0), (100, 108.0)]
+    candles = path(base)
+    pivots = resolve(candles, MARKS[:4], "up", 3)
+    rules = check_rules(pivots, candles, 1)
+    assert not next(r for r in rules if r.text.startswith("คลื่น 2")).ok
+
+
+def test_wave4_overlap_is_checked_at_its_deepest_point_not_the_marked_end():
+    """สามเหลี่ยมจบที่ E ซึ่งสูงกว่าก้นจริง — ถ้าเช็กแค่จุดที่มาร์ก จะปล่อย count ที่ผิดกฎผ่าน"""
+    base = BASE[:5] + [(120, 110.5), (140, 106.5), (150, 109.6), (160, 108.2)]  # ก้น C หลุดยอดคลื่น 1 (107)
+    rep = report([(170, 112.0)], base=base)
+    rule = next(r for r in rep.rules if r.text.startswith("คลื่น 4"))
+    assert not rule.ok and "106" in rule.detail
+    assert rep.scenarios == []                                         # ผิดกฎแล้ว ไม่ไล่ฉากต่อ
+
+
+def test_wave3_must_exceed_wave1():
+    base = [(0, 100.0), (40, 107.0), (50, 104.0), (80, 106.5), (100, 105.0)]
+    candles = path(base)
+    rules = check_rules(resolve(candles, MARKS[:4], "up", 3), candles, 1)
+    assert not next(r for r in rules if r.text.startswith("คลื่น 3 ไป")).ok
+
+
+# ---------- ฉากทัศน์ในคลื่น 5 ----------
+
+def test_between_the_two_kill_levels_both_scenarios_stay_alive():
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])         # ขา i ไม่เกินยอด 3 แล้วย่อ
+    keys = {s.key: s for s in rep.scenarios}
+    assert keys["A"].alive and keys["B"].alive
+    assert keys["A"].kill_level == 108.2                               # ii ห้ามหลุดจุดเริ่ม i
+    assert keys["B"].kill_level == rep.sub["s1"] == 112.3
+    assert "truncated" in keys["B"].title
+    assert any("truncated" in e.text and e.leans == "A" for e in rep.evidence)
+
+
+def test_falling_below_the_marked_wave4_end_says_the_count_must_change():
+    rep = report([(180, 112.3), (200, 107.9)])
+    assert "ไม่ใช่จุดจบคลื่น 4" in rep.state
+    assert [s.key for s in rep.scenarios] == ["C"]
+
+
+def test_wave5_targets_never_include_a_length_that_breaks_the_wave3_rule():
+    """คลื่น 3 สั้นกว่าคลื่น 1 -> คลื่น 5 ต้องสั้นกว่าคลื่น 3; เป้าที่เลยเพดานนั้นห้ามโชว์"""
+    base = [(0, 100.0), (40, 110.0), (50, 102.0), (80, 111.5), (100, 110.5)]   # 1 = 10, 3 = 9.5
+    marks = MARKS[:4] + [("4", at(100))]
+    rep = report([(110, 112.5), (120, 111.5)], shape=None, base=base, marks=marks)
+    cap = 110.5 + 9.5
+    targets = {t: x for s in rep.scenarios for t, x in s.targets if t.startswith("5 =")}
+    assert targets and all(x < cap for x in targets.values())
+    assert "5 = 1×คลื่น 1" not in targets                         # 110.5 + 10 = 120.5 เลยเพดาน
+
+
+def test_down_impulse_uses_the_same_rules_mirrored():
+    base = [(h, 300 - p) for h, p in BASE]
+    rep = report([(180, 187.7), (190, 191.1), (200, 190.5)], base=base, direction="down")   # กระจกของขาขึ้น
+    assert rep.valid
+    a = next(s for s in rep.scenarios if s.key == "A")
+    assert a.alive and a.kill_level == 191.8 and "ทะลุ" in a.kill_text
+
+
+# ---------- ข้อความ / ภาพ / ไฟล์ count ----------
+
+def test_message_has_kill_levels_and_no_probabilities_or_trade_calls():
+    msg = format_message(report([(180, 112.3), (190, 108.9), (200, 109.5)]))
+    assert "ผิดเมื่อ" in msg and "สรุประดับ" in msg
+    plain = msg.replace("ขาย่อย", "")                 # "ขาย่อย" ไม่ใช่คำว่าขาย
+    for banned in ("โอกาส", "ความน่าจะเป็น", "ซื้อ", "ขาย"):
+        assert banned not in plain
+
+
+def test_chart_renders_png():
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])
+    assert render_png(rep, path(BASE + [(180, 112.3), (190, 108.9), (200, 109.5)]))[:4] == b"\x89PNG"
+
+
+def test_build_from_spec_with_parent_note():
+    hourly = path(BASE + [(180, 112.3), (190, 108.9), (200, 109.5)])
+
+    def fake(symbol, interval, period):
+        return hourly
+
+    spec = {"symbol": "TEST-USD", "name": "ขาว", "direction": "up", "snap_hours": 3,
+            "wave4": "triangle", "marks": [[l, t.isoformat()] for l, t in MARKS],
+            "parent": {"name": "เหลือง", "snap_hours": 3, "marks": [[l, t.isoformat()] for l, t in MARKS]}}
+    rep = build(spec, fake)
+    assert rep.parent is not None and rep.parent.valid
+    assert "ฉาก B" in rep.parent_note and "เหลือง" in rep.parent_note

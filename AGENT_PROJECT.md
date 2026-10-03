@@ -2217,6 +2217,39 @@ to do with it stays a human call.
 Own workflow (`technical-radar.yml`, 01:00 UTC daily), own DB (`data/technical.db`), own channel
 (`DISCORD_WEBHOOK_URL_TECHNICAL`). 32 tests (752 total), offline.
 
+## Phase 54 -- a wave checker that refuses to count for you
+
+The swing side (1H-1D, Elliott Wave), firewalled from the long-term app the way Phase 26 was: own
+package `src/wave/`, own channel `DISCORD_WEBHOOK_URL_WAVE`, never touches health or Phase 53.
+
+The ask was "tell me which wave we are in". A machine that counts on its own would look more certain
+than any count deserves -- the same chart supports opposite readings, which is exactly the bias the
+owner wanted help with. So the machine does the parts that are *checkable*:
+
+1. **The owner marks pivots** (roughly when, plus a label) in `data/waves/*.json`; the tool snaps
+   each to the real high/low in the candles. Eyeballed numbers miss by hundreds of dollars, and on
+   the live BTC count the wave-4 overlap rule is decided by **650**.
+2. **Hard rules** -- wrong is wrong. Wave 4 overlap is checked at the *deepest* point of wave 4, not
+   the marked end: a triangle ends at E, above its real low (82,561 vs the marked 83,131).
+3. **Every interpretation the price has not killed**, each with the price that kills it and its Fib
+   targets. Targets that would make wave 3 the shortest are dropped rather than shown.
+4. **Textbook evidence as separate facts, each tagged with which scenario it leans to -- and no
+   percentage.** A probability here would be invented.
+
+First live read (BTC, 3 Oct): rules all pass; between **83,131** (A dies: "i of 5, now in ii") and
+**87,237** (B dies: "5 already ended") the count cannot be decided. Evidence splits: the fifth would
+be truncated by 157 and waves 1 ≈ 3 (lean A); the post-triangle thrust already covered 85% of the
+triangle's width, 4H RSI fell from 87 to 58, and the pullback is 82% deep (lean B). Saying "the
+evidence is split and here are the two prices that settle it" is the honest answer.
+
+Pivots are snapped from yfinance's BTC-USD, not the owner's TradingView exchange feed, so levels can
+differ by tens of dollars. Screenshots of TradingView were considered and rejected: a picture from
+another feed would disagree with the numbers beside it (Phase 49.2), and a logged-in bot browser is
+fragile and against TradingView's terms. The chart is drawn in TradingView's dark palette with the
+owner's own EMA settings instead.
+
+15 tests (767 total), offline.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice
