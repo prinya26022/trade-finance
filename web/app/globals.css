@@ -1171,3 +1171,34 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
              font-variant-numeric: tabular-nums; }
 .br-l-note { color: var(--muted); font-size: 11.5px; }
 .br-missing { margin: 12px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+
+/* ---- Phase 54.2: /wave สามมุมมอง ---- */
+.wv-age { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.wv-stale { color: var(--amber); }
+.wv-trend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.wv-tf { font-size: 13px; padding: 4px 10px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); cursor: help; }
+.wv-up { border-color: rgba(63,185,80,.5); }
+.wv-down { border-color: rgba(248,81,73,.5); }
+.wv-mixed { border-color: rgba(210,153,34,.5); }
+.wv-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+@media (max-width: 1000px) { .wv-cols { grid-template-columns: 1fr; } }
+.wv-col h3 { margin: 0 0 8px; font-size: 16px; }
+.wv-col h4 { margin: 12px 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.wv-pts { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text); word-break: break-word; }
+.wv-state { font-size: 13px; }
+.wv-sc { margin: 10px 0; font-size: 13px; }
+.wv-kill { color: var(--red); font-size: 12px; }
+.wv-muted { color: var(--muted); font-size: 12px; }
+.wv-ev { font-size: 12px; padding-left: 18px; color: var(--muted); }
+.wv-auto ol { padding-left: 20px; margin: 0; }
+.wv-auto li { margin-bottom: 10px; font-size: 13px; }
+.wv-auto-head { margin-bottom: 2px; }
+.wv-mine { background: rgba(88,166,255,.08); border-radius: 6px; padding: 4px 6px; }
+.wv-guides { display: flex; flex-direction: column; gap: 1px; font-size: 11.5px; margin-top: 3px; }
+.wv-ok { color: var(--green); }
+.wv-no { color: var(--muted); }
+.wv-claude { font-size: 13px; line-height: 1.6; margin-top: 8px; }
+.wv-claude p { margin: 8px 0; }
+.wv-claude ul { margin: 4px 0 8px; padding-left: 18px; }
+.wv-imgs { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }
+.wv-imgs img { width: 100%; border-radius: 10px; border: 1px solid var(--border); }

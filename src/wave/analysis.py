@@ -61,6 +61,7 @@ class Report:
     parent_note: str = ""
     trend: list = field(default_factory=list)     # list[trend.TrendRead] — M/W/D/4H
     divergences: list = field(default_factory=list)
+    auto: list = field(default_factory=list)      # list[auto.AutoCount] — เครื่องนับเองระดับนี้
 
     @property
     def valid(self) -> bool:

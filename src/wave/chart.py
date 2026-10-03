@@ -11,6 +11,7 @@ from datetime import timedelta
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.dates  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 
 from src.wave.analysis import Report  # noqa: E402
@@ -101,5 +102,69 @@ def render_png(rep: Report, hourly: list[Candle]) -> bytes:
     ax.yaxis.tick_right()
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight", facecolor=BG)
+    plt.close(fig)
+    return buf.getvalue()
+
+
+PATTERN_COLOR = {"impulse": "#42a5f5", "zigzag": "#ff9800", "flat": "#ab47bc"}
+USER_COLOR = "#ffffff"
+
+
+def _panel(ax, candles: list[Candle], start, c, rank: int) -> None:
+    view = [x for x in candles if x.ts >= start]
+    ax.set_facecolor(BG)
+    ax.plot([x.ts for x in view], [x.close for x in view], color=MUTED, lw=0.9)
+    col = PATTERN_COLOR.get(c.pattern, TEXT)
+    ax.plot([p.ts for p in c.pivots], [p.price for p in c.pivots], color=col, lw=1.6, marker="o", ms=3)
+    span = max(x.high for x in view) - min(x.low for x in view)
+    for p in c.pivots:
+        ax.text(p.ts, p.price + span * (0.05 if p.kind == "H" else -0.09), p.label, color=col,
+                fontsize=9, weight="bold", ha="center")
+    if c.kill_level is not None:
+        ax.axhline(c.kill_level, color=DOWN, lw=0.8, ls="--")
+    tag = "  * YOURS" if c.matches_user else ""
+    ax.set_title(f"#{rank} {c.pattern} {'done' if c.complete else 'in progress'} | "
+                 f"textbook {c.hits}/{len(c.guides)}"
+                 + (f" (+{c.unchecked} unchecked)" if c.unchecked else "") + tag,
+                 color=USER_COLOR if c.matches_user else TEXT, fontsize=8.5, loc="left")
+    ax.tick_params(colors=MUTED, labelsize=6.5)
+    ax.xaxis.set_major_locator(matplotlib.dates.AutoDateLocator(maxticks=4))
+    ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d %b"))
+    for sp in ax.spines.values():
+        sp.set_color(GRID)
+    ax.grid(color=GRID, lw=0.4)
+
+
+def render_auto_png(rep: Report, hourly: list[Candle], daily: list[Candle] | None = None,
+                    per_row: int = 3) -> bytes:
+    """เครื่องนับเอง: แถวบน = ระดับย่อย (4H) แถวล่าง = ระดับใหญ่ (Day) — อันดับ 1..per_row ของแต่ละ
+    ระดับ + count ที่ตรงกับของผู้ใช้ (ถ้าตกอันดับ ใส่ช่องสุดท้ายแทน ไม่ให้หายไปเงียบๆ)"""
+    import matplotlib.dates  # noqa: F401  (ใช้ใน _panel)
+
+    rows = []
+    c4 = resample_4h(hourly)
+    rows.append(("4H", c4, rep.auto, rep.pivots[0].ts - timedelta(days=2)))
+    if rep.parent is not None and daily:
+        rows.append(("1D", daily, rep.parent.auto, rep.parent.pivots[0].ts - timedelta(days=10)))
+    fig, axes = plt.subplots(len(rows), per_row, figsize=(4.2 * per_row, 3.3 * len(rows)), dpi=100,
+                             squeeze=False)
+    fig.patch.set_facecolor(BG)
+    for r, (tf, cs, counts, start) in enumerate(rows):
+        shown = counts[:per_row]
+        mine = next((c for c in counts if c.matches_user), None)
+        if mine is not None and mine not in shown and shown:
+            shown = shown[:-1] + [mine]
+        for k in range(per_row):
+            ax = axes[r][k]
+            if k < len(shown):
+                _panel(ax, cs, start, shown[k], counts.index(shown[k]) + 1)
+            else:
+                ax.axis("off")
+        axes[r][0].set_ylabel(tf, color=TEXT, fontsize=10)
+    fig.suptitle(f"{rep.symbol} - counts found by the machine (every count that passes the hard rules, "
+                 "ranked by textbook fit)", color=TEXT, fontsize=10, x=0.01, ha="left")
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", facecolor=BG)
     plt.close(fig)
     return buf.getvalue()

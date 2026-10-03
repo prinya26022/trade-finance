@@ -50,3 +50,7 @@ Thumbs.db
 .idea/
 *.swp
 
+
+# Phase 54.2: snapshot ของหน้าเว็บ /wave สร้างใหม่ได้ทุกเมื่อ (มุมมอง Claude ใน data/waves/claude เก็บไว้)
+data/waves/snapshots/
+data/waves/packs/

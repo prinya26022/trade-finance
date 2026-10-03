@@ -9,9 +9,10 @@ Next.js dashboard จะ fetch จากที่นี่.
 ดู docs อัตโนมัติที่  http://localhost:8000/docs
 """
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -38,6 +39,7 @@ from src.agent.claims import extract_claims_with_context
 from src.agent.scorecard import scorecard
 from src.agent.label_check import valuation_conflict
 from src.agent.bridge import build_bridge
+from src.wave import snapshot as wave_snapshot
 from src.macro.radar import dashboard as macro_dashboard, status as macro_status
 from src.macro.geonews import fetch_geopolitical
 from src.macro.altseason import eth_btc_momentum
@@ -439,6 +441,40 @@ def get_aicapex():
 
     return {"available": True, "age_days": age_days, "stale": age_days is None or age_days >= 2,
             "report": payload, "history": history, "exposure": exposure}
+
+
+# ---- Phase 54.2: คลื่น — count ที่ผู้ใช้มาร์ก / เครื่องนับเอง / มุมมอง Claude วางเทียบกัน ----
+# อ่าน snapshot ที่ `python -m src.wave <count> --snapshot` เขียนไว้ ไม่ดึงราคาเอง (หลัก Phase 49.2)
+
+@app.get("/api/waves")
+def get_waves():
+    return {"stems": wave_snapshot.stems()}
+
+
+@app.get("/api/wave/{stem}")
+def get_wave(stem: str):
+    data = wave_snapshot.read(stem)
+    if data is None:
+        return {"available": False, "reason": f"ยังไม่มี snapshot ของ {stem}",
+                "how": f"รัน `python -m src.wave data/waves/{stem}.json --snapshot`"}
+    try:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        age_h = (now - datetime.fromisoformat(data["generated_at"])).total_seconds() / 3600
+    except (KeyError, ValueError):
+        age_h = None
+    # คลื่นเปลี่ยนเร็วกว่ากระดานหุ้นมาก — เกิน 12 ชม. ก็ถือว่าเก่าแล้ว (แท่ง 4H ผ่านไป 3 แท่ง)
+    return {"available": True, "age_hours": round(age_h, 1) if age_h is not None else None,
+            "stale": age_h is None or age_h >= 12, **data}
+
+
+@app.get("/api/wave/{stem}/image/{kind}")
+def get_wave_image(stem: str, kind: str):
+    if kind not in ("wave", "auto") or not stem.replace("_", "").replace("-", "").isalnum():
+        raise HTTPException(404)          # กัน path traversal — stem มาจาก URL
+    path = wave_snapshot.SNAP_DIR / f"{stem}_{kind}.png"
+    if not path.exists():
+        raise HTTPException(404)
+    return FileResponse(path, media_type="image/png")
 
 
 # ---- thesis / invalidation (Phase 5, ต่อสายเข้า UI ครั้งแรกที่ Phase 27) ----

@@ -2273,6 +2273,38 @@ limit), then the full detail -- the long version had silently pushed the caption
 
 7 tests (774 total), offline.
 
+### Phase 54.2 -- letting the machine count after all, by making it answer every way at once
+
+The owner asked to see the machine count on its own. The objection all along was that a machine
+which counts answers one way, confidently. So `src/wave/auto.py` answers **every** way the hard rules
+allow: pivots from several zigzag resolutions, a pruned DFS over labelled sequences for impulse,
+zigzag and flat, and each survivor scored guideline by guideline -- never as a probability.
+
+First run on BTC, without looking at the owner's lines: on the daily chart it found the owner's
+yellow count to the dollar, tied for the best textbook fit. On 4H it found the owner's white count
+too, but ranked second -- and its first pick read the same rise as a zigzag. The owner's "waves 1
+and 3 are equal, so 5 will extend" is equally the signature of a zigzag where C = A; the numbers
+cannot separate the two until price passes ~91,379 or breaks 83,131.
+
+Two ranking bugs found on the first real output:
+- **Fraction-of-checks rewards ignorance.** "In wave C" can be checked against one guideline, passes
+  1/1 = 100%, and topped the list over a 3/4 impulse. Ranking is now hits − misses − half of every
+  guideline that cannot be checked yet: unknown is not a pass.
+- **A top-8 cut silently dropped an alternative** that passed the rules but scored low. Raised to 12,
+  and the count matching the owner's is always kept regardless of rank -- falling off the list
+  would read as "the machine never found yours".
+
+Matching tolerates 1% at wave 4 only: the owner marks a triangle at E, the machine at its deepest
+point (83,131 vs 82,561).
+
+A third view, Claude's, sits beside the two -- through the Phase 33 route, since there is no Claude
+API key: `python -m src.wave pack` writes the exact report text to paste into a chat, `claude`
+imports the reply with the price and time it was written, so an old view says it is old. The first
+one was written in this development session and disagrees with the owner on the 4H degree.
+
+`/wave` shows all three side by side from one snapshot (the page never fetches prices), with no
+combined verdict. 8 tests (784 total), offline.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

@@ -275,3 +275,94 @@ def test_no_extension_targets_when_wave3_already_extended():
                        (140, 107.6), (150, 109.6), (160, 108.2)])     # คลื่น 3 = 10.9 เทียบคลื่น 1 = 3
     a = [t for t, _ in next(s for s in rep.scenarios if s.key == "A").targets]
     assert not any(t.startswith("5 ยืด") for t in a)
+
+
+# ---------- Phase 54.2: เครื่องนับเอง / มุมมอง Claude / snapshot ----------
+
+def _anchor(candles):
+    from src.wave.pivots import Pivot
+    c = min(candles[:5], key=lambda x: x.low)
+    return Pivot("0", c.ts, c.low, "L")
+
+
+def test_auto_finds_the_users_impulse_and_flags_it():
+    from src.wave.auto import find_counts
+    candles = path(BASE + [(180, 112.3), (190, 108.9), (200, 109.5)])
+    user = resolve(candles, MARKS, "up", 3)
+    counts = find_counts(candles, _anchor(candles), pcts=(0.005, 0.01, 0.02), user=user)
+    mine = [c for c in counts if c.matches_user]
+    assert mine and mine[0].pattern == "impulse"
+    assert all(c.pattern in ("impulse", "zigzag", "flat") for c in counts)
+
+
+def test_auto_counts_never_break_the_hard_rules():
+    from src.wave.auto import find_counts
+    candles = path(BASE + [(180, 112.3), (190, 108.9), (200, 109.5)])
+    for c in find_counts(candles, _anchor(candles), pcts=(0.005, 0.01, 0.02)):
+        v = [p.price for p in c.pivots]
+        if c.pattern == "impulse":
+            assert v[2] > v[0] and v[3] > v[1] and (len(v) < 5 or v[4] > v[1])
+        if c.pattern == "zigzag" and len(v) >= 3:
+            assert v[0] < v[2] < v[1]
+
+
+def test_unfinished_pattern_does_not_win_just_by_having_fewer_checks():
+    """1/1 ข้อ ต้องไม่ชนะ 3/4 ข้อ — 'ยังตรวจไม่ได้' ไม่ใช่ 'ผ่าน'"""
+    from src.wave.auto import AutoCount, Guide
+    few = AutoCount("zigzag", [], [], False, [Guide("x", True, "")], "", None, "")
+    many = AutoCount("impulse", [], [], False, [Guide("x", True, "")] * 3 + [Guide("y", False, "")], "", None, "")
+    assert few.unchecked == 2 and many.unchecked == 1
+    assert many.score > few.score
+
+
+def test_pick_keeps_the_users_count_even_when_ranked_low():
+    from src.wave.auto import AutoCount, pick
+    counts = [AutoCount("impulse", [], [], False, [], "", None, "") for _ in range(15)]
+    counts[-1].matches_user = True
+    assert counts[-1] in pick(counts, n=5)
+
+
+def test_auto_mirrors_for_down_moves():
+    from src.wave.auto import find_counts
+    from src.wave.pivots import Pivot
+    candles = path([(h, 300 - p) for h, p in BASE] + [(180, 187.7), (190, 191.1), (200, 190.5)])
+    top = max(candles[:5], key=lambda x: x.high)
+    counts = find_counts(candles, Pivot("0", top.ts, top.high, "H"), pcts=(0.005, 0.01, 0.02))
+    imp = [c for c in counts if c.pattern == "impulse"]
+    assert imp and all(c.pivots[1].price < c.pivots[0].price for c in imp)   # คลื่น 1 ลง
+
+
+def test_claude_view_roundtrip_carries_its_age(tmp_path, monkeypatch):
+    from src.wave import claude
+    monkeypatch.setattr(claude, "VIEW_DIR", tmp_path)
+    claude.save_view("btc", "**มุมมอง**\n- ข้อหนึ่ง", 84842.0, asof=datetime(2026, 10, 3, 15, 0), by="Claude")
+    v = claude.load_view("btc", now=datetime(2026, 10, 4, 3, 0))
+    assert v["text"].startswith("**มุมมอง**") and v["price"] == "84,842" and v["age_hours"] == 12.0
+    assert claude.load_view("missing") is None
+
+
+def test_pack_contains_the_same_report_text_and_forbids_trade_calls(tmp_path, monkeypatch):
+    from src.wave import claude
+    monkeypatch.setattr(claude, "PACK_DIR", tmp_path)
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])
+    text = format_message(rep)
+    pack = claude.make_pack("btc", rep, text).read_text(encoding="utf-8")
+    assert text in pack and "ห้ามแนะนำซื้อ/ขาย" in pack
+
+
+def test_snapshot_roundtrip_and_api_guards(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from src.api.main import app
+    from src.wave import claude, snapshot
+    monkeypatch.setattr(snapshot, "SNAP_DIR", tmp_path)
+    monkeypatch.setattr(claude, "VIEW_DIR", tmp_path / "claude")
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])
+    snapshot.write("btc", rep, b"\x89PNGw", b"\x89PNGa", "msg")
+    client = TestClient(app)
+    assert client.get("/api/waves").json()["stems"] == ["btc"]
+    body = client.get("/api/wave/btc").json()
+    assert body["available"] and body["report"]["symbol"] == "TEST-USD" and body["claude"] is None
+    assert client.get("/api/wave/btc/image/auto").content == b"\x89PNGa"
+    assert client.get("/api/wave/nope").json()["available"] is False
+    assert client.get("/api/wave/btc/image/other").status_code == 404
+    assert client.get("/api/wave/..%2Fx/image/wave").status_code == 404

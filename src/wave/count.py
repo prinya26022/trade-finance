@@ -9,7 +9,9 @@ from pathlib import Path
 
 from src.wave import trend as T
 from src.wave.analysis import Evidence, Report, analyze, fmt, resolve
-from src.wave.candles import Candle, fetch
+from src.wave.auto import find_counts, pick
+from src.wave.candles import Candle, fetch, resample_4h
+from src.wave.pivots import snap
 
 TREND_DAILY_PERIOD = "10y"     # แท่ง Month ต้องย้อนยาวพอให้เห็นยอด/ก้นสองรอบ
 RECENT_DIV_BARS = 30           # divergence ที่ยืนยันภายใน 30 แท่งล่าสุดของ TF นั้นถึงรายงาน
@@ -36,6 +38,11 @@ def build(spec: dict, fetcher=fetch, now: datetime | None = None) -> Report:
             pp = resolve(pc, _marks(parent["marks"]), spec["direction"], parent.get("snap_hours", 72))
             rep.parent = analyze(parent["name"], spec["symbol"], spec["direction"], pp, pc)
             rep.parent_note = _parent_note(rep, rep.parent)
+            rep.parent.auto = _auto(pc, pp)
+
+    # เครื่องนับเองบนแท่ง 4H (ระดับย่อย) โดยเริ่มจากจุด 0 เดียวกับที่ผู้ใช้มาร์ก — ถ้าเริ่มคนละจุด
+    # จะเทียบกันไม่ได้ว่า "เห็นต่างตรงไหน"
+    rep.auto = _auto(resample_4h(candles), pivots)
 
     # หลังระดับใหญ่ — การเทียบแรงส่งคลื่น 3 กับ 5 ใช้จุดของระดับใหญ่
     daily = fetcher(spec["symbol"], "1d", TREND_DAILY_PERIOD)
@@ -45,6 +52,11 @@ def build(spec: dict, fetcher=fetch, now: datetime | None = None) -> Report:
         rep.trend = T.ladder(tfs)
         _add_divergences(rep, tfs, spec["direction"])
     return rep
+
+
+def _auto(candles: list[Candle], user: list) -> list:
+    anchor = snap(candles, "0", user[0].ts, user[0].kind, 24 * 3)
+    return pick(find_counts(candles, anchor, user=user)) if anchor else []
 
 
 def _add_divergences(rep: Report, tfs: dict[str, list[Candle]], direction: str) -> None:

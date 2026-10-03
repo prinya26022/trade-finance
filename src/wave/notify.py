@@ -21,6 +21,29 @@ def _trend_lines(rep: Report) -> list[str]:
     return out + [""]
 
 
+PATTERN_TH = {"impulse": "impulse 5 คลื่น", "zigzag": "zigzag ABC", "flat": "flat ABC"}
+
+
+def auto_lines(rep: Report, limit: int = 6) -> list[str]:
+    """เครื่องนับเอง ทั้งสองระดับ — บอกเสมอว่า count ของผู้ใช้อยู่อันดับไหน (หรือไม่เจอ)"""
+    out = []
+    for title, r in (("ระดับย่อย 4H", rep), ("ระดับใหญ่ Day", rep.parent)):
+        if r is None or not r.auto:
+            continue
+        mine = next((i for i, c in enumerate(r.auto) if c.matches_user), None)
+        out.append(f"**เครื่องนับเอง — {title}** (ทุกแบบที่ผ่านกฎเหล็ก เรียงตามจำนวนข้อที่เข้าตำรา) · "
+                   + (f"count ของคุณอยู่อันดับ **{mine + 1}**" if mine is not None
+                      else "ไม่มีแบบไหนตรงกับ count ของคุณ"))
+        for i, c in enumerate(r.auto[:limit]):
+            pts = " ".join(f"{p.label}={fmt(p.price)}" for p in c.pivots)
+            unk = f" (+{c.unchecked} ข้อยังตรวจไม่ได้)" if c.unchecked else ""
+            kill = f" · ผิดเมื่อ{c.kill_text} {fmt(c.kill_level)}" if c.kill_level is not None else ""
+            out.append(f"{i + 1}. {'⭐ ' if c.matches_user else ''}{PATTERN_TH[c.pattern]} — {c.state} · "
+                       f"ตำรา {c.hits}/{len(c.guides)}{unk} · {pts}{kill}")
+        out.append("")
+    return out
+
+
 def _alignment(rep: Report, bias: str) -> str:
     """ฉากนี้ไปทางเดียวกับ TF ไหน สวน TF ไหน — ข้อเท็จจริง ไม่ใช่โอกาส"""
     with_ = [t.tf for t in rep.trend if t.state == bias]
@@ -64,6 +87,7 @@ def format_message(rep: Report) -> str:
         L.append("")
     if rep.parent_note:
         L += [f"**ภาพใหญ่:** {rep.parent_note}", ""]
+    L += auto_lines(rep)
 
     kills = [(sc.kill_level, sc.key) for sc in rep.scenarios if sc.alive and sc.kill_level is not None]
     if len(kills) >= 2:
@@ -90,11 +114,17 @@ def format_summary(rep: Report) -> str:
     return "\n".join(L)[:discord.DISCORD_CONTENT_LIMIT]
 
 
-def send(rep: Report, hourly, webhook_url: str | None = None) -> bool:
+def send(rep: Report, hourly, webhook_url: str | None = None, daily=None) -> bool:
     from src.notify.discord import post_chunks
-    from src.wave.chart import render_png
+    from src.wave.chart import render_auto_png, render_png
 
     url = webhook_url or os.environ.get(WEBHOOK_ENV)
-    ok = discord.post_image(format_summary(rep), render_png(rep, hourly),
-                            f"wave_{rep.symbol.replace('-', '_')}.png", url)
-    return post_chunks(format_message(rep), url) and ok
+    sym = rep.symbol.replace("-", "_")
+    ok = discord.post_image(format_summary(rep), render_png(rep, hourly), f"wave_{sym}.png", url)
+    ok = post_chunks(format_message(rep), url) and ok
+    if rep.auto:
+        mine = next((i + 1 for i, c in enumerate(rep.auto) if c.matches_user), None)
+        cap = ("**เครื่องนับเอง** — ทุก count ที่ผ่านกฎเหล็ก เรียงตามจำนวนข้อที่เข้าตำรา · "
+               + (f"count ของคุณ (ระดับย่อย) อยู่อันดับ {mine}" if mine else "ไม่เจอ count ที่ตรงกับของคุณ"))
+        ok = discord.post_image(cap, render_auto_png(rep, hourly, daily), f"wave_auto_{sym}.png", url) and ok
+    return ok
