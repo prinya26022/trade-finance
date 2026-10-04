@@ -1202,3 +1202,30 @@ a.bio-detail:hover { color: var(--blue); text-decoration: underline; }
 .wv-claude ul { margin: 4px 0 8px; padding-left: 18px; }
 .wv-imgs { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }
 .wv-imgs img { width: 100%; border-radius: 10px; border: 1px solid var(--border); }
+
+/* ---- Phase 55: /journal สมุดเทรด (ใช้บนมือถือ: ปุ่มต้องใหญ่พอแตะ) ---- */
+.jn-stats { margin-bottom: 14px; }
+.jn-big { font-size: 16px; margin-bottom: 4px; }
+.jn-pos { color: var(--green); }
+.jn-neg { color: var(--red); }
+.jn-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin: 12px 0 6px; }
+.jn-group h4 { margin: 0 0 4px; font-size: 13px; color: var(--muted); }
+.jn-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; font-size: 13px; padding: 2px 0; }
+.jn-thin { opacity: .55; }
+.jn-trade { margin-bottom: 12px; border-left: 3px solid var(--border); }
+.jn-open { border-left-color: var(--blue); }
+.jn-win { border-left-color: var(--green); }
+.jn-loss { border-left-color: var(--red); }
+.jn-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+.jn-pnl { margin-left: auto; }
+.jn-facts { font-size: 13px; margin: 4px 0; font-family: ui-monospace, monospace; }
+.jn-ctx { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.jn-warn { color: var(--amber); }
+.jn-tags { display: flex; flex-direction: column; gap: 6px; }
+.jn-tag-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.jn-tag-label { font-size: 12px; color: var(--muted); min-width: 130px; }
+.jn-chip { font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border);
+           background: var(--panel-2); color: var(--text); cursor: pointer; }
+.jn-chip.on { background: rgba(88,166,255,.2); border-color: var(--blue); color: var(--blue); }
+.jn-note { width: 100%; min-height: 48px; margin-top: 8px; background: var(--panel-2); color: var(--text);
+           border: 1px solid var(--border); border-radius: 8px; padding: 8px; font: inherit; font-size: 13px; }

@@ -2305,6 +2305,40 @@ one was written in this development session and disagrees with the owner on the 
 `/wave` shows all three side by side from one snapshot (the page never fetches prices), with no
 combined verdict. 8 tests (784 total), offline.
 
+## Phase 55 -- a trade journal that does not depend on discipline at the moment of entry
+
+The owner had kept a Google Form journal and stopped: all 15 rows were typed on the same afternoon,
+six of them saying "I don't remember". A journal that needs you to write right after clicking
+"open position" is a journal that stays empty. So the numbers come from the exchange and the person
+is left with one job: tap two or three reasons -- and if they don't, the trade is still recorded.
+
+- `src/journal/okx.py` reads BTC-USDT-SWAP positions from OKX with a **read-only** key the owner
+  creates and puts in `.env` themselves. The client has four GET methods and a test fails if a fifth
+  appears. Runs on the owner's PC (`schedule-journal.ps1`, hourly), not GitHub Actions: OKX restricts
+  US IPs, which is where the runners are.
+- At each new trade the chart context is computed **as of the entry time, from bars that had
+  closed** -- trend ladder, RSI, MACD histogram colour, EMA alignment -- replacing a "MACD" column
+  that said "unclear" on 14 of 15 rows.
+- Real risk per trade = stop distance x coins, not margin. The owner described "10% per trade",
+  which turned out to be margin (~160$ of 2,000$); the losses in the sheet were 0.5-2.75%.
+
+What the owner's own 15 trades said, flagged as too few to conclude:
+
+| | trades | won |
+|---|---|---|
+| planned R:R above 5 | 10 | **0** |
+| stop tighter than 2% | 8 | **0** |
+| "no time to watch this trade" | 8 | **0** |
+| R:R up to 5 | 5 | 4 |
+
+The owner's account of their wins was "RSI + MACD + trend + wave confluence". The journal recorded
+MACD as unclear on every winning trade. What separated wins from losses was realistic targets,
+stops outside normal 4H noise, and having time to watch -- which is why the alert for a new trade
+leads with the stop's distance against the 4H swing, not with the indicators.
+
+`/journal` is tap-only, mobile-sized; stats group by what the owner tapped *and* by what the
+system measured, because the interesting rows are where they disagree. 17 tests (801 total).
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

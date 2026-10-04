@@ -40,6 +40,10 @@ from src.agent.scorecard import scorecard
 from src.agent.label_check import valuation_conflict
 from src.agent.bridge import build_bridge
 from src.wave import snapshot as wave_snapshot
+from src.journal import store as journal_store
+from src.journal.context import risk as journal_risk
+from src.journal.stats import compute as journal_stats
+from src.journal.tags import GROUPS as JOURNAL_TAGS, clean as clean_journal_tags
 from src.macro.radar import dashboard as macro_dashboard, status as macro_status
 from src.macro.geonews import fetch_geopolitical
 from src.macro.altseason import eth_btc_momentum
@@ -475,6 +479,29 @@ def get_wave_image(stem: str, kind: str):
     if not path.exists():
         raise HTTPException(404)
     return FileResponse(path, media_type="image/png")
+
+
+# ---- Phase 55: สมุดเทรด — ไม้มาจาก OKX เอง, หน้าเว็บมีไว้แตะปุ่มเหตุผลอย่างเดียว ----
+
+class JournalTagsIn(BaseModel):
+    tags: dict = {}
+    note: str | None = None
+
+
+@app.get("/api/journal")
+def get_journal():
+    trades = journal_store.all_trades()
+    for t in trades:
+        t.update(journal_risk(t))
+    return {"trades": trades, "stats": journal_stats(trades), "tag_groups": JOURNAL_TAGS}
+
+
+@app.put("/api/journal/{trade_id}/tags")
+def put_journal_tags(trade_id: int, body: JournalTagsIn):
+    note = (body.note or "").strip()[:2000] or None
+    if not journal_store.set_tags(trade_id, clean_journal_tags(body.tags), note):
+        raise HTTPException(404, "ไม่มีไม้นี้")
+    return journal_store.get(trade_id)
 
 
 # ---- thesis / invalidation (Phase 5, ต่อสายเข้า UI ครั้งแรกที่ Phase 27) ----
