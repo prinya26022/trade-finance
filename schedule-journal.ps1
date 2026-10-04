@@ -1,6 +1,8 @@
 # schedule-journal.ps1 - run the trade journal automatically on this PC (run once)
 #   - every hour : pull positions from OKX (read only) + Discord ping for trades just opened/closed
 #   - Sunday 20:00: weekly stats to Discord
+#   - every hour : wave alert - Discord ping when a CLOSED 4H bar crosses a scenario's kill/confirm line,
+#                  and refresh the snapshot the /wave and /check pages read
 # Usage:  .\schedule-journal.ps1            (register)
 #         .\schedule-journal.ps1 -Remove    (delete)
 #
@@ -14,10 +16,11 @@ param([switch]$Remove)
 $root = $PSScriptRoot
 $sync = "TradeFinanceJournalSync"
 $weekly = "TradeFinanceJournalWeekly"
+$wave = "TradeFinanceWaveAlert"
 
 if ($Remove) {
-    foreach ($t in $sync, $weekly) { Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue }
-    Write-Host "Removed journal tasks" -ForegroundColor Yellow
+    foreach ($t in $sync, $weekly, $wave) { Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue }
+    Write-Host "Removed journal + wave tasks" -ForegroundColor Yellow
     return
 }
 
@@ -32,22 +35,27 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out
 $log = Join-Path $logDir "journal.log"
 $psExe = (Get-Command powershell).Source
 
-function New-JournalAction([string]$cmd) {
-    $arg = '-ExecutionPolicy Bypass -NoProfile -Command "Set-Location ''{0}''; $env:PYTHONIOENCODING=''utf-8''; python -m src.journal {1} *>&1 | Out-File -FilePath ''{2}'' -Append -Encoding utf8"' -f $root, $cmd, $log
+function New-PyAction([string]$module, [string]$cmd) {
+    $arg = '-ExecutionPolicy Bypass -NoProfile -Command "Set-Location ''{0}''; $env:PYTHONIOENCODING=''utf-8''; python -m {1} {2} *>&1 | Out-File -FilePath ''{3}'' -Append -Encoding utf8"' -f $root, $module, $cmd, $log
     New-ScheduledTaskAction -Execute $psExe -Argument $arg
 }
 
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
 $hourly = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 1)
+# 4H bars close at 00/04/08/12/16/20 UTC; run a few minutes past each hour so the bar has closed
+$hourlyWave = New-ScheduledTaskTrigger -Once -At ((Get-Date).Date.AddHours((Get-Date).Hour + 1).AddMinutes(5)) `
+    -RepetitionInterval (New-TimeSpan -Hours 1)
 $sunday = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "20:00"
 
-foreach ($t in $sync, $weekly) { Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue }
-Register-ScheduledTask -TaskName $sync -Action (New-JournalAction "sync") -Trigger $hourly -Settings $settings `
+foreach ($t in $sync, $weekly, $wave) { Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue }
+Register-ScheduledTask -TaskName $sync -Action (New-PyAction "src.journal" "sync") -Trigger $hourly -Settings $settings `
     -Description "Pull BTC-USDT-SWAP positions from OKX (read only) into the trade journal" | Out-Null
-Register-ScheduledTask -TaskName $weekly -Action (New-JournalAction "stats --send") -Trigger $sunday -Settings $settings `
+Register-ScheduledTask -TaskName $weekly -Action (New-PyAction "src.journal" "stats --send") -Trigger $sunday -Settings $settings `
     -Description "Weekly trade journal stats to Discord" | Out-Null
+Register-ScheduledTask -TaskName $wave -Action (New-PyAction "src.wave" "alert data/waves/btc.json") -Trigger $hourlyWave `
+    -Settings $settings -Description "Wave alert: closed 4H bar crossing a scenario line + refresh /wave snapshot" | Out-Null
 
-Write-Host "Registered: OKX sync every hour + weekly stats Sunday 20:00" -ForegroundColor Green
+Write-Host "Registered: OKX sync hourly + weekly stats Sunday 20:00 + wave alert hourly (:05)" -ForegroundColor Green
 Write-Host "Log     : $log"
 Write-Host "Run now : Start-ScheduledTask -TaskName $sync"
 Write-Host "Remove  : .\schedule-journal.ps1 -Remove"

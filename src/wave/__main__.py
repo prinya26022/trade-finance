@@ -6,6 +6,9 @@
       สร้างไฟล์ให้แปะในแชท Claude เพื่อขอ "มุมมองของ Claude"
   python -m src.wave claude data/waves/btc.json reply.md
       นำคำตอบจากแชทกลับเข้ามาเก็บ (โชว์บนเว็บคู่กับอีกสองฝั่ง)
+  python -m src.wave alert data/waves/btc.json
+      (รันเองทุกชั่วโมงผ่าน schedule-journal.ps1) แจ้ง Discord เมื่อแท่ง 4H ปิดผ่านเส้นตาย/เส้นยืนยัน
+      + อัปเดต snapshot ให้หน้าเว็บ /wave และ /check ใช้ข้อมูลสด
 
 แก้ count = แก้ไฟล์ JSON (วันเวลาโดยประมาณของแต่ละจุด — เครื่องหาราคาจริงรอบนั้นให้เอง)
 """
@@ -35,7 +38,7 @@ def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     load_dotenv(Path(__file__).parents[2] / ".env")
     argv = sys.argv[1:]
-    cmd = argv[0] if argv and argv[0] in ("pack", "claude") else "report"
+    cmd = argv[0] if argv and argv[0] in ("pack", "claude", "alert") else "report"
     if cmd != "report":
         argv = argv[1:]
     p = argparse.ArgumentParser()
@@ -60,6 +63,9 @@ def main() -> None:
         from src.wave.claude import make_pack
         print(f"แพ็กสำหรับแปะในแชท Claude: {make_pack(stem, rep, msg)}")
         return
+    if cmd == "alert":
+        _alert(stem, rep, hourly, daily, msg)
+        return
     if cmd == "claude":
         from src.wave.claude import save_view
         text = Path(a.reply).read_text(encoding="utf-8")
@@ -79,6 +85,28 @@ def main() -> None:
     if a.send:
         from src.wave.notify import send
         print("\nส่ง Discord:", "สำเร็จ" if send(rep, hourly, daily=daily) else "ไม่สำเร็จ")
+
+
+def _alert(stem, rep, hourly, daily, msg) -> None:
+    import os
+    from datetime import datetime, timezone
+    from src.notify import discord
+    from src.wave import alerts, snapshot
+    from src.wave.candles import resample_4h
+    from src.wave.chart import render_auto_png, render_png
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    closed = resample_4h(hourly, now)
+    hits = alerts.crossings(alerts.load_state(stem), closed)
+    png = render_png(rep, hourly)
+    snapshot.write(stem, rep, png, render_auto_png(rep, hourly, daily), msg)     # /wave, /check สดเสมอ
+    if hits:
+        text = alerts.format_alert(rep.symbol, hits, rep)
+        print(text)
+        discord.post_image(text, png, f"wave_alert_{stem}.png", os.environ.get("DISCORD_WEBHOOK_URL_WAVE"))
+    else:
+        print(f"[wave] {stem}: ไม่มีแท่ง 4H ที่ปิดผ่านเส้น")
+    alerts.save_state(stem, rep, closed)
 
 
 if __name__ == "__main__":

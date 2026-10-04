@@ -366,3 +366,60 @@ def test_snapshot_roundtrip_and_api_guards(tmp_path, monkeypatch):
     assert client.get("/api/wave/nope").json()["available"] is False
     assert client.get("/api/wave/btc/image/other").status_code == 404
     assert client.get("/api/wave/..%2Fx/image/wave").status_code == 404
+
+
+# ---------- แจ้งเตือนเมื่อแท่ง 4H ปิดผ่านเส้น (ข้อ 2) ----------
+
+def _bar(h: int, close: float) -> Candle:
+    return Candle(T0 + timedelta(hours=h), close, close, close, close)
+
+
+def test_scenarios_know_which_side_their_lines_are_on():
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])
+    a = next(s for s in rep.scenarios if s.key == "A")
+    b = next(s for s in rep.scenarios if s.key == "B")
+    assert (a.kill_side, a.confirm_side, a.confirm_level) == ("below", "above", 112.3)
+    assert (b.kill_side, b.confirm_side, b.confirm_level) == ("above", "below", 108.2)
+
+
+def test_first_run_has_nothing_to_compare_so_it_stays_quiet():
+    from src.wave.alerts import crossings
+    assert crossings(None, [_bar(0, 1.0)]) == []
+
+
+def test_a_closed_bar_beyond_last_runs_kill_line_fires_once():
+    from src.wave.alerts import crossings, levels_of
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])
+    prev = {"last_bar": (T0 + timedelta(hours=200)).isoformat(), "levels": levels_of(rep)}
+    bars = [_bar(196, 107.0),                      # ก่อนรอบก่อน — ไม่นับ (เห็นไปแล้ว)
+            _bar(204, 109.0), _bar(208, 108.0), _bar(212, 107.5)]
+    hits = crossings(prev, bars)
+    # เส้นเดียวกัน (108.2) คือเส้นตายของ A และเส้นยืนยันของ B — แจ้งทั้งคู่ ที่แท่งแรกที่ผ่าน ครั้งเดียว
+    assert sorted((h.key, h.kind, h.close) for h in hits) == [("A", "kill", 108.0), ("B", "confirm", 108.0)]
+
+
+def test_wick_through_the_line_does_not_count_only_the_close():
+    from src.wave.alerts import crossings, levels_of
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])
+    prev = {"last_bar": (T0 + timedelta(hours=200)).isoformat(), "levels": levels_of(rep)}
+    wick = Candle(T0 + timedelta(hours=204), 109.0, 109.2, 107.0, 109.1)       # low แทงเส้น 108.2 แต่ปิดเหนือ
+    assert crossings(prev, [wick]) == []
+
+
+def test_confirm_line_crossing_is_reported_as_clearer_not_dead():
+    from src.wave.alerts import crossings, format_alert, levels_of
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])
+    prev = {"last_bar": (T0 + timedelta(hours=200)).isoformat(), "levels": levels_of(rep)}
+    hits = crossings(prev, [_bar(204, 112.6)])
+    assert {(h.key, h.kind) for h in hits} == {("A", "confirm"), ("B", "kill")}
+    text = format_alert("TEST", hits, rep)
+    assert "ชัดขึ้น" in text and "ตายแล้ว" in text and "ปิด" in text
+
+
+def test_alert_state_roundtrip(tmp_path):
+    from src.wave import alerts
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])
+    alerts.save_state("btc", rep, [_bar(200, 109.5)], tmp_path)
+    st = alerts.load_state("btc", tmp_path)
+    assert st["last_bar"] == (T0 + timedelta(hours=200)).isoformat() and {l["key"] for l in st["levels"]} == {"A", "B"}
+    assert alerts.load_state("none", tmp_path) is None

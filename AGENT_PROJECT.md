@@ -2339,6 +2339,32 @@ leads with the stop's distance against the 4H swing, not with the indicators.
 `/journal` is tap-only, mobile-sized; stats group by what the owner tapped *and* by what the
 system measured, because the interesting rows are where they disagree. 17 tests (801 total).
 
+### Phase 55.1-55.3 -- stops from history, a pre-entry check, and alerts on closed 4H bars
+
+**55.1 -- the sheet's lesson did not survive real data.** OKX does not return stops with closed
+positions, so initial stops were recovered from order history (`attachAlgoOrds` on the opening
+order, else the first separately-placed stop): 46 of 101 trades, back to Oct 2025. The *first* stop,
+not the latest -- the open trade was placed with 82,200 and later moved to 82,900, which would have
+understated the risk at entry by almost half. With real stops, the sheet's headline pattern
+(planned R:R above 5 lost 10 of 10) flipped: on OKX those trades won 8 of 22, +317$.
+
+**55.2 -- so the pre-entry check has no fixed thresholds.** `/check` shows, for the trade being
+planned, which bucket it falls in and how *that bucket* has done in the owner's own live journal,
+with n every time. Thresholds lifted from the 15-trade sheet would have warned in the wrong
+direction, confidently. It also says where the stop sits against the wave scenario the trade relies
+on ("hit before the scenario is wrong" vs "hit only if it is wrong"), with the age of the wave report.
+Every check is saved and later paired with the real OKX trade (same side, within 3h, entry within
+1%), so "checked before entering" vs "clicked straight in" becomes measurable -- counting only
+trades opened after checks existed, or the old trades would all read as "unchecked".
+
+**55.3 -- alerts on closes, compared against last run's lines.** A wick through a line is normal
+BTC noise and is exactly what stops the owner out; only a closed 4H bar counts. The lines come from
+the previous run, because once price crosses a kill line the new report has already redrawn its
+scenarios and would never show "just crossed". The hourly task also refreshes the wave snapshot so
+`/wave` and `/check` stop reading a days-old report.
+
+19 tests (820 total), offline.
+
 ## Guardrails (always)
 - Analysis to help *me* decide — never "buy/sell" calls
 - Research tool, not investment advice

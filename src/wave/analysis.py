@@ -37,6 +37,9 @@ class Scenario:
     confirm_text: str = ""
     targets: list[tuple[str, float]] = field(default_factory=list)
     bias: str = ""        # "up" | "down" — ทิศที่ฉากนี้คาดต่อจากนี้ (ไว้เทียบกับเทรนด์ TF ใหญ่)
+    confirm_level: float | None = None   # ราคาที่ทำให้ฉากนี้ชัดขึ้น (ตัวเลขคู่กับ confirm_text)
+    kill_side: str = ""   # "below" | "above" — เส้นตายอยู่ฝั่งไหนของราคาตอนสร้างรายงาน (alerts.py ใช้)
+    confirm_side: str = ""
 
 
 @dataclass
@@ -170,7 +173,7 @@ def analyze(name: str, symbol: str, direction: str, pivots: list[Pivot], candles
             "A", "คลื่น 3 กำลังวิ่ง", "ขาที่มักแรงและยาวที่สุด", True, v[2],
             f"{'หลุด' if s > 0 else 'ทะลุ'} {fmt(v[2])} (จุดเริ่มคลื่น 3)",
             f"ผ่าน {fmt(v[1])} (ยอดคลื่น 1)",
-            [(f"3 = {r}×1", v[2] + s * r * l1) for r in (1.0, 1.618, 2.618)]))
+            [(f"3 = {r}×1", v[2] + s * r * l1) for r in (1.0, 1.618, 2.618)], confirm_level=v[1]))
     elif k == 3:
         l3 = abs(v[3] - v[2])
         rep.state = "จบคลื่น 3 แล้ว · กำลังอยู่ในคลื่น 4"
@@ -190,7 +193,7 @@ def analyze(name: str, symbol: str, direction: str, pivots: list[Pivot], candles
                      targets=[(f"ย่อ {r:.1%} ของทั้งขา", v[5] - s * r * whole) for r in (0.382, 0.5, 0.618)]),
             Scenario("A", "คลื่น 5 ยังไม่จบ (ยืด)", "ยอดที่มาร์กเป็นแค่ขาย่อยในคลื่น 5", True, v[4],
                      f"{'หลุด' if s > 0 else 'ทะลุ'} {fmt(v[4])} (จุดเริ่มคลื่น 5)",
-                     f"ทำยอดใหม่เลย {fmt(v[5])}"),
+                     f"ทำยอดใหม่เลย {fmt(v[5])}", confirm_level=v[5]),
         ]
     _set_bias(rep, direction)
     return rep
@@ -203,8 +206,14 @@ _WITH_TREND = {1: set(), 2: {"A"}, 3: set(), 4: {"A"}, 5: {"A"}}
 def _set_bias(rep: Report, direction: str) -> None:
     other = "down" if direction == "up" else "up"
     k = len(rep.pivots) - 1
+    px = rep.last.close
     for sc in rep.scenarios:
         sc.bias = direction if sc.key in _WITH_TREND.get(k, set()) else other
+        # ฝั่งของเส้นเทียบราคาตอนนี้ — ฉากที่ยังไม่ตาย ราคายังอยู่ฝั่งรอดของเส้นตาย จึงอนุมานได้ตรงๆ
+        if sc.kill_level is not None:
+            sc.kill_side = "below" if sc.kill_level < px else "above"
+        if sc.confirm_level is not None:
+            sc.confirm_side = "below" if sc.confirm_level < px else "above"
 
 
 def _in_wave5(rep: Report, candles, after, s, ext, back, beyond, wave4_shape, now) -> None:
@@ -259,12 +268,14 @@ def _in_wave5(rep: Report, candles, after, s, ext, back, beyond, wave4_shape, no
                  "คลื่น 5 เพิ่งเริ่ม — ย่อพักก่อนขา iii ที่มักแรงที่สุด", a_alive, v[4],
                  f"{'หลุด' if s > 0 else 'ทะลุ'} {fmt(v[4])} (ii ห้ามย้อนเลยจุดเริ่ม i)",
                  f"{'ทะลุ' if s > 0 else 'หลุด'} {fmt(s1)} (ยอดขา i)",
-                 [("iii = 1×i", pull + s * move), ("iii = 1.618×i", pull + s * 1.618 * move)] + w5),
+                 [("iii = 1×i", pull + s * move), ("iii = 1.618×i", pull + s * 1.618 * move)] + w5,
+                 confirm_level=s1),
         Scenario("B", "คลื่น 5 จบแล้วที่ " + fmt(s1) + (" (truncated)" if truncated else ""),
                  "ขาขึ้นชุดนี้ครบ 5 คลื่น — ต่อไปคือการปรับฐาน", True, s1,
                  f"{'ทะลุ' if s > 0 else 'หลุด'} {fmt(s1)} (ถ้าทำยอดใหม่ = คลื่น 5 ยังไม่จบ)",
                  f"{'หลุด' if s > 0 else 'ทะลุ'} {fmt(v[4])} (จุดเริ่มคลื่น 5)",
-                 [(f"ย่อ {r:.1%} ของ 0→5", s1 - s * r * abs(s1 - v[0])) for r in (0.382, 0.5, 0.618)]),
+                 [(f"ย่อ {r:.1%} ของ 0→5", s1 - s * r * abs(s1 - v[0])) for r in (0.382, 0.5, 0.618)],
+                 confirm_level=v[4]),
     ]
     if legs == 3:
         rep.scenarios.append(Scenario(
