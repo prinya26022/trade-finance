@@ -337,3 +337,75 @@ def test_old_database_gets_the_new_column(tmp_path, monkeypatch):
     tid, _ = store.upsert({"key": "k", "source": "okx", "status": "closed"})
     store.set_stops(tid, 1.0, None, "algo")
     assert store.get(tid)["sl_source"] == "algo"
+
+
+# ---------- เช็กลิสต์ก่อนเข้า (ข้อ 1) ----------
+
+def _wave_snap(kill_a=83131.0, kill_b=87237.0):
+    return {"report": {"scenarios": [
+        {"key": "A", "title": "i ของ 5", "alive": True, "kill_level": kill_a, "kill_text": "หลุด 83,131", "bias": "up"},
+        {"key": "B", "title": "5 จบแล้ว", "alive": True, "kill_level": kill_b, "kill_text": "ทะลุ 87,237", "bias": "down"},
+        {"key": "C", "title": "ตายแล้ว", "alive": False, "kill_level": 1.0, "kill_text": "-", "bias": "up"}]}}
+
+
+def test_check_reports_history_of_similar_trades_not_fixed_thresholds():
+    from src.journal.check import evaluate
+    h = _hourly(2400, start=datetime(2026, 7, 1))
+    past = [{"status": "closed", "side": "long", "entry": 100.0, "sl": 99.0, "tp": 110.0, "pnl": 50.0},
+            {"status": "closed", "side": "long", "entry": 100.0, "sl": 99.0, "tp": 108.0, "pnl": -10.0}]
+    r = evaluate("long", sl=h[-1].close * 0.99, tp=h[-1].close * 1.10, hourly=h, daily=_daily_from(h),
+                 trades=past, has_time=False, equity=2000.0, margin=160.0, lever=10.0)
+    rr = next(x for x in r["history"] if x["group"] == "R:R ที่วางไว้")
+    assert rr["bucket"] == "R:R เกิน 5" and rr["n"] == 2 and rr["wins"] == 1
+    t = next(x for x in r["history"] if x["group"] == "มีเวลาดูไม้นี้ไหม")
+    assert t["bucket"] == "ไม่มีเวลาดู" and t["n"] == 0
+    assert r["risk_usd"] == round(r["entry"] * 0.01 * 160 * 10 / r["entry"], 2)
+    one = next(s for s in r["sizing"] if s["risk_pct"] == 1.0)
+    assert abs(one["coins"] * (r["entry"] - r["sl"]) - 20.0) < 0.05         # 1% ของ 2,000$
+    assert one["contracts"] == round(one["coins"] / 0.01, 2)
+    assert one["margin"] == round(one["notional"] / 10, 2)
+
+
+def test_check_says_whether_the_stop_sits_beyond_the_scenarios_kill_level():
+    from src.journal.check import evaluate
+    h = _hourly(2400, start=datetime(2026, 7, 1))
+    inside = evaluate("long", sl=83500.0, tp=None, hourly=h, daily=_daily_from(h), trades=[], wave=_wave_snap())
+    a = next(w for w in inside["wave"] if w["key"] == "A")
+    assert a["with_trade"] and a["stop_beyond_kill"] is False and "ทั้งที่ฉากยังไม่ผิด" in a["stop_vs_kill"]
+    beyond = evaluate("long", sl=82900.0, tp=None, hourly=h, daily=_daily_from(h), trades=[], wave=_wave_snap())
+    assert next(w for w in beyond["wave"] if w["key"] == "A")["stop_beyond_kill"] is True
+    assert {w["key"] for w in beyond["wave"]} == {"A", "B"}                   # ฉากที่ตายแล้วไม่โชว์
+    assert not next(w for w in beyond["wave"] if w["key"] == "B")["with_trade"]
+
+
+def test_link_checks_pairs_by_side_time_and_price():
+    from src.journal.check import link_checks
+    checks = [{"id": 1, "created_at": "2026-10-05T10:00:00", "side": "long", "entry": 84000.0, "trade_id": None}]
+    trades = [{"id": 7, "side": "long", "opened_at": "2026-10-05T11:30:00", "entry": 84300.0},   # ตรง
+              {"id": 8, "side": "short", "opened_at": "2026-10-05T10:30:00", "entry": 84000.0},  # คนละทิศ
+              {"id": 9, "side": "long", "opened_at": "2026-10-05T09:00:00", "entry": 84000.0},   # ก่อนเช็ก
+              {"id": 10, "side": "long", "opened_at": "2026-10-05T10:10:00", "entry": 86000.0}]  # ราคาห่างเกิน 1%
+    assert link_checks(trades, checks) == [(1, 7)]
+
+
+def test_check_bucket_only_counts_trades_after_checks_began():
+    trades = [{"status": "closed", "pnl": 5.0, "opened_at": "2026-01-01T00:00:00"},
+              {"status": "closed", "pnl": -5.0, "opened_at": "2026-10-06T00:00:00", "check_id": 3},
+              {"status": "closed", "pnl": -5.0, "opened_at": "2026-10-07T00:00:00"}]
+    g = stats.compute(trades, checks_since="2026-10-05T00:00:00")["groups"]["เช็กลิสต์ก่อนเข้า"]
+    assert g["เช็กก่อนเข้า"]["n"] == 1 and g["กดเข้าโดยไม่ได้เช็ก"]["n"] == 1
+    assert "เช็กลิสต์ก่อนเข้า" not in stats.compute(trades)["groups"]
+
+
+def test_check_api_saves_every_check_and_uses_synced_equity(db, monkeypatch):
+    from fastapi.testclient import TestClient
+    from src.api import main
+    h = _hourly(2400, start=datetime(2026, 7, 1))
+    monkeypatch.setattr(main, "_candles_for_check", lambda: (h, _daily_from(h)))
+    monkeypatch.setattr(main.wave_snapshot, "read", lambda stem: None)
+    store.set_meta("equity", 2000.0)
+    client = TestClient(main.app)
+    r = client.post("/api/check", json={"side": "long", "sl": h[-1].close * 0.98, "margin": 160, "lever": 10})
+    assert r.status_code == 200 and r.json()["risk_pct"] is not None and r.json()["equity"] == 2000.0
+    assert store.all_checks()[0]["id"] == r.json()["id"]
+    assert client.post("/api/check", json={"side": "up", "sl": 1}).status_code == 400

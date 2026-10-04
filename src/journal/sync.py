@@ -34,6 +34,8 @@ def sync(client: okx.Client, db_path: Path | None = None, candles=None, ct_val: 
     first_run = not any(t["source"] == "okx" for t in store.all_trades(db_path))
     ct = ct_val or okx.contract_value()
     equity = client.equity()
+    if equity:
+        store.set_meta("equity", equity, db_path)      # หน้าเช็กลิสต์ใช้คิด % ความเสี่ยง
     stops = client.stops()
     seen = []
     for t in client.open_positions():
@@ -63,6 +65,9 @@ def sync(client: okx.Client, db_path: Path | None = None, candles=None, ct_val: 
                 store.set_context(t["id"], C.build(hourly, daily, at, t["side"], t["entry"], t["sl"], t["tp"]),
                                   db_path)
     backfill_stops(client, db_path, pages=1 if not first_run else 30)
+    from src.journal.check import link_checks
+    for check_id, trade_id in link_checks(store.all_trades(db_path), store.all_checks(db_path)):
+        store.link_check(check_id, trade_id, db_path)
     rep.opened = [store.get(t["id"], db_path) for t in rep.opened]
     rep.closed = [store.get(t["id"], db_path) for t in rep.closed]
     return rep

@@ -41,8 +41,20 @@ def _connect(db_path: Path | None = None) -> sqlite3.Connection:
         )
     """)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(trades)")}
-    if "sl_source" not in cols:          # DB ที่สร้างก่อนมีคอลัมน์นี้ (เครื่องผู้ใช้มีอยู่แล้ว 116 ไม้)
-        conn.execute("ALTER TABLE trades ADD COLUMN sl_source TEXT")
+    for col, decl in (("sl_source", "TEXT"), ("check_id", "INTEGER")):
+        if col not in cols:              # DB ที่สร้างก่อนมีคอลัมน์นี้ (เครื่องผู้ใช้มีอยู่แล้ว 116 ไม้)
+            conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {decl}")
+    # เช็กลิสต์ก่อนเข้า — ทุกครั้งที่กดเช็ก ไม่ว่าจะเข้าจริงหรือไม่ (ไม่เข้าก็เป็นข้อมูล)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            side TEXT NOT NULL, entry REAL, sl REAL, tp REAL,
+            result TEXT NOT NULL,
+            trade_id INTEGER                     -- ไม้จริงบน OKX ที่จับคู่ได้ (check.link_checks)
+        )
+    """)
+    conn.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT, updated_at TEXT)")
     conn.commit()
     return conn
 
@@ -137,3 +149,46 @@ def get(trade_id: int, db_path: Path | None = None) -> dict | None:
     with closing(_connect(db_path)) as conn:
         r = conn.execute("SELECT * FROM trades WHERE id = ?", (trade_id,)).fetchone()
         return _row(r) if r else None
+
+
+# ---------- เช็กลิสต์ก่อนเข้า ----------
+
+def save_check(result: dict, db_path: Path | None = None) -> int:
+    with closing(_connect(db_path)) as conn:
+        cur = conn.execute("INSERT INTO checks (created_at, side, entry, sl, tp, result) VALUES (?, ?, ?, ?, ?, ?)",
+                           (result.get("asof") or _now(), result["side"], result.get("entry"), result.get("sl"),
+                            result.get("tp"), json.dumps(result, ensure_ascii=False, default=str)))
+        conn.commit()
+        return cur.lastrowid
+
+
+def all_checks(db_path: Path | None = None) -> list[dict]:
+    with closing(_connect(db_path)) as conn:
+        return [dict(r) for r in conn.execute("SELECT id, created_at, side, entry, sl, tp, trade_id FROM checks")]
+
+
+def link_check(check_id: int, trade_id: int, db_path: Path | None = None) -> None:
+    with closing(_connect(db_path)) as conn:
+        conn.execute("UPDATE checks SET trade_id = ? WHERE id = ?", (trade_id, check_id))
+        conn.execute("UPDATE trades SET check_id = ? WHERE id = ?", (check_id, trade_id))
+        conn.commit()
+
+
+def set_meta(k: str, v, db_path: Path | None = None) -> None:
+    with closing(_connect(db_path)) as conn:
+        conn.execute("INSERT INTO meta (k, v, updated_at) VALUES (?, ?, ?) ON CONFLICT(k) DO UPDATE SET "
+                     "v = excluded.v, updated_at = excluded.updated_at", (k, json.dumps(v), _now()))
+        conn.commit()
+
+
+def get_meta(k: str, db_path: Path | None = None):
+    with closing(_connect(db_path)) as conn:
+        r = conn.execute("SELECT v FROM meta WHERE k = ?", (k,)).fetchone()
+        return json.loads(r["v"]) if r else None
+
+
+def checks_since(db_path: Path | None = None) -> str | None:
+    """เวลาเช็กครั้งแรก — ไม้ก่อนหน้านั้นไม่นับในกลุ่ม 'เช็กก่อนเข้า / ไม่ได้เช็ก'"""
+    with closing(_connect(db_path)) as conn:
+        r = conn.execute("SELECT MIN(created_at) AS m FROM checks").fetchone()
+        return r["m"] if r else None

@@ -493,7 +493,49 @@ def get_journal():
     trades = journal_store.all_trades()
     for t in trades:
         t.update(journal_risk(t))
-    return {"trades": trades, "stats": journal_stats(trades), "tag_groups": JOURNAL_TAGS}
+    return {"trades": trades, "stats": journal_stats(trades, journal_store.checks_since()),
+            "tag_groups": JOURNAL_TAGS}
+
+
+class CheckIn(BaseModel):
+    side: str
+    sl: float | None = None
+    tp: float | None = None
+    entry: float | None = None
+    margin: float | None = None
+    lever: float | None = None
+    equity: float | None = None
+    has_time: bool | None = None
+
+
+_check_candles: dict = {}
+
+
+def _candles_for_check():
+    """แท่ง BTC สำหรับเช็กลิสต์ — เก็บไว้ 5 นาที. หน้านี้ต่างจากกระดานอื่นที่อ่าน snapshot อย่างเดียว:
+    เช็กก่อนกดเข้าต้องใช้ราคาตอนนี้ ไม่ใช่ราคาเมื่อเช้า"""
+    import time
+    from src.wave.candles import fetch
+    if _check_candles.get("at", 0) < time.time() - 300:
+        _check_candles.update(at=time.time(), hourly=fetch("BTC-USD", "1h", "730d"), daily=fetch("BTC-USD", "1d", "10y"))
+    return _check_candles["hourly"], _check_candles["daily"]
+
+
+@app.post("/api/check")
+def post_check(body: CheckIn):
+    """เช็กลิสต์ก่อนเข้า (Phase 55.2) — คำนวณ + บันทึกทุกครั้ง เพื่อจับคู่กับไม้จริงทีหลัง"""
+    from src.journal.check import evaluate
+    if body.side not in ("long", "short"):
+        raise HTTPException(400, "side ต้องเป็น long หรือ short")
+    hourly, daily = _candles_for_check()
+    if not hourly or not daily:
+        raise HTTPException(503, "ดึงราคา BTC ไม่ได้ตอนนี้")
+    result = evaluate(body.side, body.sl, body.tp, hourly, daily, journal_store.all_trades(),
+                      entry=body.entry, margin=body.margin, lever=body.lever,
+                      equity=body.equity or journal_store.get_meta("equity"), has_time=body.has_time,
+                      wave=wave_snapshot.read("btc"))
+    result["id"] = journal_store.save_check(result)
+    return result
 
 
 @app.put("/api/journal/{trade_id}/tags")

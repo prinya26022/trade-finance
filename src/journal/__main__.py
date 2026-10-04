@@ -51,7 +51,7 @@ def main() -> None:
               f"เจอจากคำสั่ง stop ที่ตั้งทีหลัง {r['algo']} · ที่เหลือ OKX ไม่เก็บประวัติไว้แล้ว")
     elif a.cmd == "stats":
         from src.journal.stats import compute, format_report
-        text = format_report(compute(store.all_trades()))
+        text = format_report(compute(store.all_trades(), store.checks_since()))
         print(text)
         if a.send:
             import os

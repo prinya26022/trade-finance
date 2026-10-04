@@ -41,6 +41,14 @@ def _trend_bucket(t: dict) -> str | None:
     return "ตามเทรนด์ D (ระบบวัด)" if st == want else "สวนเทรนด์ D (ระบบวัด)" if st in ("up", "down") else "D ปนกัน"
 
 
+def _check_bucket(t: dict, since: str | None) -> str | None:
+    """เช็กก่อนเข้าหรือกดเข้าเลย — นับเฉพาะไม้ที่เปิดหลังเริ่มมีเช็กลิสต์ (ไม้ก่อนหน้านั้นไม่มีทางได้เช็ก
+    ถ้านับรวมจะดูเหมือน 'ไม่ได้เช็ก' แพ้เยอะ ทั้งที่เป็นแค่ไม้ยุคก่อน)"""
+    if not since or not t.get("opened_at") or t["opened_at"] < since:
+        return None
+    return "เช็กก่อนเข้า" if t.get("check_id") else "กดเข้าโดยไม่ได้เช็ก"
+
+
 def _summary(trades: list[dict]) -> dict:
     n = len(trades)
     wins = sum(1 for t in trades if (t.get("pnl") or 0) > 0)
@@ -49,7 +57,7 @@ def _summary(trades: list[dict]) -> dict:
             "thin": n < MIN_N}
 
 
-def compute(trades: list[dict]) -> dict:
+def compute(trades: list[dict], checks_since: str | None = None) -> dict:
     done = [t for t in trades if t.get("status") == "closed" and t.get("pnl") is not None]
     groups: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
     for t in done:
@@ -57,7 +65,8 @@ def compute(trades: list[dict]) -> dict:
             for v in (t.get("tags") or {}).get(g["key"], []):
                 groups[g["label"]][v].append(t)
         for title, fn in (("R:R ที่วางไว้", _rr_bucket), ("stop เทียบระยะแกว่ง", _stop_bucket),
-                          ("เทรนด์จริงตอนเข้า", _trend_bucket)):
+                          ("เทรนด์จริงตอนเข้า", _trend_bucket),
+                          ("เช็กลิสต์ก่อนเข้า", lambda t: _check_bucket(t, checks_since))):
             b = fn(t)
             if b:
                 groups[title][b].append(t)
