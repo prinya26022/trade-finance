@@ -58,13 +58,18 @@ def build(hourly: list[Candle], daily: list[Candle], opened_at: datetime, side: 
         noise = sorted((c.high - c.low) / c.close * 100 for c in recent)[len(recent) // 2]
         ctx["noise_pct_4h"] = round(noise, 2)
 
+    return with_stop(ctx, side, entry, sl, tp)
+
+
+def with_stop(ctx: dict, side: str, entry: float | None, sl: float | None, tp: float | None) -> dict:
+    """ส่วนที่ขึ้นกับ stop/TP — แยกออกมาเพราะ stop ของไม้เก่ามาทีหลังบริบทกราฟ (stops.py)"""
+    ctx = {k: v for k, v in ctx.items() if k not in ("stop_pct", "stop_inside_noise", "stop_wrong_side", "rr")}
     if entry and sl:
         stop_pct = abs(entry - sl) / entry * 100
         ctx["stop_pct"] = round(stop_pct, 2)
         if "noise_pct_4h" in ctx:
             ctx["stop_inside_noise"] = stop_pct < ctx["noise_pct_4h"]
-        wrong_side = (sl >= entry) if side == "long" else (sl <= entry)
-        ctx["stop_wrong_side"] = wrong_side
+        ctx["stop_wrong_side"] = (sl >= entry) if side == "long" else (sl <= entry)
     if entry and sl and tp and abs(entry - sl) > 0:
         ctx["rr"] = round(abs(tp - entry) / abs(entry - sl), 2)
     return ctx

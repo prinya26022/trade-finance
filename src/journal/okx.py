@@ -138,6 +138,39 @@ def parse_algos(rows: list[dict]) -> dict[str, dict]:
     return out
 
 
+def _closes_side(order_side: str) -> str:
+    """คำสั่งฝั่ง sell ปิด long / buy ปิด short (โหมด net ไม่มี posSide)"""
+    return "long" if order_side == "sell" else "short"
+
+
+def parse_entry_orders(rows: list[dict]) -> list[dict]:
+    """คำสั่งเปิดไม้ที่แนบ stop/TP มาด้วย = stop ตัวแรกจริง ณ ตอนกดเข้า.
+    เวลาใช้ uTime (ตอนจับคู่สำเร็จ) ไม่ใช่ cTime — limit order วางไว้ก่อนแล้วค่อยจับคู่ทีหลังได้"""
+    out = []
+    for r in rows:
+        if str(r.get("reduceOnly")).lower() == "true" or r.get("state") not in ("filled", "partially_filled"):
+            continue
+        att = r.get("attachAlgoOrds") or []
+        sl = next((_f(a.get("slTriggerPx")) for a in att if _f(a.get("slTriggerPx"))), None) or _f(r.get("slTriggerPx"))
+        tp = next((_f(a.get("tpTriggerPx")) for a in att if _f(a.get("tpTriggerPx"))), None) or _f(r.get("tpTriggerPx"))
+        if sl or tp:
+            side = r["posSide"] if r.get("posSide") in ("long", "short") else (
+                "long" if r.get("side") == "buy" else "short")
+            out.append({"ts": _ms(r.get("uTime")) or _ms(r.get("cTime")), "side": side, "sl": sl, "tp": tp})
+    return out
+
+
+def parse_algo_history(rows: list[dict]) -> list[dict]:
+    """คำสั่ง stop/TP ที่ตั้งแยกหลังเข้าไม้ (ทั้งที่ทำงานแล้วและที่ยกเลิก)"""
+    out = []
+    for r in rows:
+        side = r["posSide"] if r.get("posSide") in ("long", "short") else _closes_side(r.get("side"))
+        sl, tp = _f(r.get("slTriggerPx")), _f(r.get("tpTriggerPx"))
+        if sl or tp:
+            out.append({"ts": _ms(r.get("cTime")), "side": side, "sl": sl, "tp": tp})
+    return out
+
+
 # ---------- เรียกจริง ----------
 
 class Client:
@@ -159,6 +192,27 @@ class Client:
             rows += _get("/api/v5/trade/orders-algo-pending", {"ordType": kind, "instType": "SWAP", "instId": inst},
                          self.creds)
         return parse_algos(rows)
+
+    def entry_orders(self, inst: str = INST, pages: int = 30) -> list[dict]:
+        """ประวัติคำสั่ง (OKX เก็บ ~3 เดือนขึ้นไป) ไล่ทีละหน้าย้อนหลังด้วย after=ordId"""
+        rows, after = [], None
+        for _ in range(pages):
+            params = {"instType": "SWAP", "instId": inst, "limit": "100", **({"after": after} if after else {})}
+            page = _get("/api/v5/trade/orders-history-archive", params, self.creds)
+            rows += page
+            if len(page) < 100:
+                break
+            after = page[-1].get("ordId")
+        return parse_entry_orders(rows)
+
+    def algo_history(self, inst: str = INST) -> list[dict]:
+        rows = []
+        for kind in ("conditional", "oco"):
+            for state in ("effective", "canceled"):
+                rows += _get("/api/v5/trade/orders-algo-history",
+                             {"ordType": kind, "state": state, "instType": "SWAP", "instId": inst, "limit": "100"},
+                             self.creds)
+        return parse_algo_history(rows)
 
     def equity(self) -> float | None:
         data = _get("/api/v5/account/balance", None, self.creds)

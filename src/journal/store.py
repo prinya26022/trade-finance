@@ -13,7 +13,7 @@ DB_PATH = Path(__file__).parents[2] / "data" / "journal.db"
 
 NUMERIC = ("inst", "side", "status", "opened_at", "closed_at", "entry", "exit", "contracts", "ct_val",
            "lever", "margin", "pnl", "fee", "liquidated")
-FIRST_SEEN = ("sl", "tp", "equity")          # ค่า ณ ตอนเข้าไม้ — เห็นครั้งแรกแล้วไม่เปลี่ยน
+FIRST_SEEN = ("sl", "tp", "equity", "sl_source")          # ค่า ณ ตอนเข้าไม้ — เห็นครั้งแรกแล้วไม่เปลี่ยน
 JSON_COLS = ("context", "tags")
 
 
@@ -32,6 +32,7 @@ def _connect(db_path: Path | None = None) -> sqlite3.Connection:
             entry REAL, exit REAL, contracts REAL, ct_val REAL, lever REAL, margin REAL,
             pnl REAL, fee REAL, liquidated INTEGER,
             sl REAL, tp REAL, equity REAL,
+            sl_source   TEXT,                    -- entry | algo | seen (มาจากไหน — ดู stops.py)
             context     TEXT,                    -- บริบทกราฟ ณ เวลาเข้าไม้ (json)
             tags        TEXT,                    -- ปุ่มเหตุผลที่ผู้ใช้แตะ (json)
             note        TEXT,
@@ -39,6 +40,9 @@ def _connect(db_path: Path | None = None) -> sqlite3.Connection:
             updated_at  TEXT NOT NULL
         )
     """)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(trades)")}
+    if "sl_source" not in cols:          # DB ที่สร้างก่อนมีคอลัมน์นี้ (เครื่องผู้ใช้มีอยู่แล้ว 116 ไม้)
+        conn.execute("ALTER TABLE trades ADD COLUMN sl_source TEXT")
     conn.commit()
     return conn
 
@@ -89,6 +93,15 @@ def upsert(t: dict, db_path: Path | None = None) -> tuple[int, str]:
         conn.commit()
         state = "closed" if old["status"] == "open" and t.get("status") == "closed" else "updated"
         return old["id"], state
+
+
+def set_stops(trade_id: int, sl: float | None, tp: float | None, source: str,
+              db_path: Path | None = None) -> None:
+    """เขียนทับ stop/TP ด้วยค่าที่น่าเชื่อกว่า — ใช้โดย stops.py เท่านั้น (upsert ปกติไม่ทับ)"""
+    with closing(_connect(db_path)) as conn:
+        conn.execute("UPDATE trades SET sl = ?, tp = COALESCE(?, tp), sl_source = ?, updated_at = ? WHERE id = ?",
+                     (sl, tp, source, _now(), trade_id))
+        conn.commit()
 
 
 def set_context(trade_id: int, context: dict, db_path: Path | None = None) -> None:

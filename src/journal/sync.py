@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from src.journal import context as C
-from src.journal import okx, store
+from src.journal import okx, stops, store
 
 WEBHOOK_ENV = "DISCORD_WEBHOOK_URL_JOURNAL"
 NEWS_HOURS = 48     # แจ้งเฉพาะไม้ที่เปิด/ปิดภายในช่วงนี้ — ไม้ย้อนหลังที่เพิ่งดึงมาครั้งแรกคือประวัติ ไม่ใช่ข่าว
@@ -31,13 +31,15 @@ def _candles():
 
 def sync(client: okx.Client, db_path: Path | None = None, candles=None, ct_val: float | None = None) -> SyncReport:
     rep = SyncReport()
+    first_run = not any(t["source"] == "okx" for t in store.all_trades(db_path))
     ct = ct_val or okx.contract_value()
     equity = client.equity()
     stops = client.stops()
     seen = []
     for t in client.open_positions():
         s = stops.get(t["side"], {})
-        seen.append({**t, "ct_val": ct, "sl": s.get("sl"), "tp": s.get("tp"), "equity": equity})
+        seen.append({**t, "ct_val": ct, "sl": s.get("sl"), "tp": s.get("tp"), "equity": equity,
+                     "sl_source": "seen" if s.get("sl") else None})
     seen += [{**t, "ct_val": ct} for t in client.closed_positions()]
 
     fresh = []
@@ -60,9 +62,31 @@ def sync(client: okx.Client, db_path: Path | None = None, candles=None, ct_val: 
                     continue           # เก่ากว่าข้อมูล 1H ที่มี — ไม่เดาบริบท
                 store.set_context(t["id"], C.build(hourly, daily, at, t["side"], t["entry"], t["sl"], t["tp"]),
                                   db_path)
+    backfill_stops(client, db_path, pages=1 if not first_run else 30)
     rep.opened = [store.get(t["id"], db_path) for t in rep.opened]
     rep.closed = [store.get(t["id"], db_path) for t in rep.closed]
     return rep
+
+
+def backfill_stops(client, db_path: Path | None = None, pages: int = 30) -> dict:
+    """เติม stop ตัวแรกให้ไม้ที่ยังไม่มี หรือมีแค่ค่าที่ 'เห็นทีหลัง' — แล้วคิดส่วนที่ขึ้นกับ stop ใหม่.
+    ซิงก์ปกติดูแค่หน้าแรก (ไม้ใหม่), ครั้งแรก/สั่งเองไล่ย้อนหลังได้หลายหน้า"""
+    todo = [t for t in store.all_trades(db_path)
+            if t["source"] == "okx" and t["sl_source"] not in ("entry", "algo")]
+    if not todo:
+        return {"checked": 0, "entry": 0, "algo": 0}
+    orders, algos = client.entry_orders(pages=pages), client.algo_history()
+    found = {"checked": len(todo), "entry": 0, "algo": 0}
+    for t in todo:
+        m = stops.match(t, orders, algos)
+        if not m or not m["sl"]:
+            continue
+        store.set_stops(t["id"], m["sl"], m["tp"], m["source"], db_path)
+        found[m["source"]] += 1
+        if t["context"]:
+            store.set_context(t["id"], C.with_stop(t["context"], t["side"], t["entry"], m["sl"], m["tp"] or t["tp"]),
+                              db_path)
+    return found
 
 
 def describe(t: dict) -> str:

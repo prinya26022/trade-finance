@@ -3,6 +3,7 @@
   python -m src.journal sync            ดึงไม้จาก OKX + แจ้ง Discord ไม้ที่เพิ่งเปิด/ปิด
   python -m src.journal stats [--send]  สรุปสถิติ (--send = ส่ง Discord)
   python -m src.journal import-sheet <ลิงก์ Google Sheet>   นำเข้าไม้เก่าจากชีต (ทำครั้งเดียว)
+  python -m src.journal backfill-stops  เติม stop/TP ตัวแรกให้ไม้เก่าจากประวัติคำสั่งของ OKX
 """
 import argparse
 import sys
@@ -19,6 +20,7 @@ def main() -> None:
     sub.add_parser("sync")
     st = sub.add_parser("stats")
     st.add_argument("--send", action="store_true")
+    sub.add_parser("backfill-stops")
     im = sub.add_parser("import-sheet")
     im.add_argument("url")
     a = p.parse_args()
@@ -38,6 +40,15 @@ def main() -> None:
         sent = sync.notify(rep)
         print(f"[journal] ไม้ใหม่ที่เปิด {len(rep.opened)} · เพิ่งปิด {len(rep.closed)} · แจ้ง Discord {sent} "
               f"(แจ้งเฉพาะไม้ใน {sync.NEWS_HOURS} ชม.ล่าสุด)")
+    elif a.cmd == "backfill-stops":
+        from src.journal import okx, sync
+        creds = okx.credentials()
+        if creds is None:
+            print("ยังไม่ได้ตั้ง OKX key ใน .env — ข้าม")
+            return
+        r = sync.backfill_stops(okx.Client(creds))
+        print(f"ไม้ที่ยังไม่มี stop ตัวแรก {r['checked']} · เจอจากคำสั่งเปิดไม้ {r['entry']} · "
+              f"เจอจากคำสั่ง stop ที่ตั้งทีหลัง {r['algo']} · ที่เหลือ OKX ไม่เก็บประวัติไว้แล้ว")
     elif a.cmd == "stats":
         from src.journal.stats import compute, format_report
         text = format_report(compute(store.all_trades()))

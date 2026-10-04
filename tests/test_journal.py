@@ -75,7 +75,7 @@ def test_no_credentials_means_none(monkeypatch):
 def test_okx_client_has_no_method_that_can_trade():
     """อ่านอย่างเดียวโดยโครงสร้าง — ถ้าวันหนึ่งมีคนเพิ่มเมธอดส่งคำสั่ง เทสต์นี้ต้องแดง"""
     names = {n for n in dir(okx.Client) if not n.startswith("_")}
-    assert names == {"closed_positions", "open_positions", "stops", "equity"}
+    assert names == {"closed_positions", "open_positions", "stops", "equity", "entry_orders", "algo_history"}
     assert "POST" not in open(okx.__file__, encoding="utf-8").read().replace('"POST" not in', "")
 
 
@@ -192,6 +192,12 @@ class FakeClient:
     def closed_positions(self):
         return [okx.parse_closed(r) for r in self._c]
 
+    def entry_orders(self, pages=1):
+        return getattr(self, "_entries", [])
+
+    def algo_history(self):
+        return getattr(self, "_algos", [])
+
 
 def test_sync_reports_new_and_closed_once_and_attaches_risk(db):
     h = _hourly(2400, start=datetime(2026, 7, 1))
@@ -248,3 +254,86 @@ def test_discord_retries_after_rate_limit(monkeypatch):
     monkeypatch.setattr(discord.urllib.request, "urlopen", fake)
     monkeypatch.setattr(discord.time, "sleep", lambda s: None)
     assert discord.post("x", "https://discord.test/x") is True and len(calls) == 2
+
+
+# ---------- เติม stop ตัวแรก (ข้อ 3) ----------
+
+def _ms(dt: datetime) -> str:
+    return str(int((dt - datetime(1970, 1, 1)).total_seconds() * 1000))
+
+
+def test_parse_entry_orders_reads_attached_stop_and_skips_closing_orders():
+    t = datetime(2026, 9, 30, 7, 23)
+    rows = [{"state": "filled", "reduceOnly": "false", "side": "buy", "posSide": "net", "uTime": _ms(t),
+             "attachAlgoOrds": [{"slTriggerPx": "82200", "tpTriggerPx": "90000"}]},
+            {"state": "filled", "reduceOnly": "true", "side": "sell", "posSide": "net", "uTime": _ms(t),
+             "attachAlgoOrds": [{"slTriggerPx": "1"}]},
+            {"state": "canceled", "reduceOnly": "false", "side": "buy", "attachAlgoOrds": [{"slTriggerPx": "2"}]}]
+    (o,) = okx.parse_entry_orders(rows)
+    assert o == {"ts": t, "side": "long", "sl": 82200.0, "tp": 90000.0}
+
+
+def test_parse_algo_history_maps_closing_side():
+    (a,) = okx.parse_algo_history([{"side": "buy", "posSide": "net", "slTriggerPx": "65550",
+                                    "tpTriggerPx": "59300", "cTime": _ms(datetime(2026, 7, 30))}])
+    assert a["side"] == "short" and a["sl"] == 65550 and a["tp"] == 59300
+
+
+def test_match_prefers_the_stop_attached_at_entry_over_later_ones():
+    from src.journal import stops
+    opened = datetime(2026, 9, 30, 7, 23)
+    trade = {"opened_at": opened.isoformat(), "closed_at": None, "side": "long"}
+    entries = [{"ts": opened + timedelta(minutes=2), "side": "long", "sl": 82200.0, "tp": 90000.0}]
+    algos = [{"ts": opened + timedelta(hours=5), "side": "long", "sl": 82900.0, "tp": None}]
+    assert stops.match(trade, entries, algos) == {"sl": 82200.0, "tp": 90000.0, "source": "entry"}
+    assert stops.match(trade, [], algos)["source"] == "algo"
+    assert stops.match(trade, [{**entries[0], "side": "short"}], []) is None          # คนละทิศ
+    far = [{**entries[0], "ts": opened - timedelta(hours=3)}]
+    assert stops.match(trade, far, []) is None                                         # คนละไม้
+
+
+def test_match_takes_the_first_algo_stop_inside_the_trade_window():
+    from src.journal import stops
+    o, c = datetime(2026, 8, 1), datetime(2026, 8, 5)
+    trade = {"opened_at": o.isoformat(), "closed_at": c.isoformat(), "side": "short"}
+    algos = [{"ts": o - timedelta(days=2), "side": "short", "sl": 1.0, "tp": None},       # ไม้ก่อนหน้า
+             {"ts": o + timedelta(hours=1), "side": "short", "sl": 66000.0, "tp": None},
+             {"ts": o + timedelta(hours=9), "side": "short", "sl": 65000.0, "tp": 60000.0},
+             {"ts": c + timedelta(hours=1), "side": "short", "sl": 2.0, "tp": None}]       # ไม้ถัดไป
+    assert stops.match(trade, [], algos) == {"sl": 66000.0, "tp": 60000.0, "source": "algo"}
+
+
+def test_backfill_replaces_a_moved_stop_with_the_one_set_at_entry(db):
+    """ไม้จริง: ตอนกดเข้า stop 82,200 แต่ระบบเห็นครั้งแรกที่ 82,900 เพราะเลื่อนไปแล้ว"""
+    h = _hourly(2400, start=datetime(2026, 7, 1))
+    opened = h[-100].ts
+    row = {**OPEN, "posSide": "net", "pos": "1.7", "avgPx": "83278.4", "cTime": _ms(opened)}
+
+    class Moved(FakeClient):
+        def stops(self):
+            return {"long": {"sl": 82900.0, "tp": 90000.0}}
+
+    client = Moved(opens=[row])
+    client._entries = [{"ts": opened + timedelta(minutes=1), "side": "long", "sl": 82200.0, "tp": 90000.0}]
+    sync.sync(client, candles=(h, _daily_from(h)), ct_val=0.01)
+    (t,) = store.all_trades()
+    assert t["sl"] == 82200.0 and t["sl_source"] == "entry"
+    assert t["context"]["stop_pct"] == round((83278.4 - 82200) / 83278.4 * 100, 2)
+    assert C.risk(t)["risk_usd"] == round((83278.4 - 82200) * 1.7 * 0.01, 2)
+
+
+def test_old_database_gets_the_new_column(tmp_path, monkeypatch):
+    import sqlite3
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE trades (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, "
+                "source TEXT NOT NULL, inst TEXT, side TEXT, status TEXT, opened_at TEXT, closed_at TEXT, "
+                "entry REAL, exit REAL, contracts REAL, ct_val REAL, lever REAL, margin REAL, pnl REAL, fee REAL, "
+                "liquidated INTEGER, sl REAL, tp REAL, equity REAL, context TEXT, tags TEXT, note TEXT, "
+                "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+    con.commit()
+    con.close()
+    monkeypatch.setattr(store, "DB_PATH", path)
+    tid, _ = store.upsert({"key": "k", "source": "okx", "status": "closed"})
+    store.set_stops(tid, 1.0, None, "algo")
+    assert store.get(tid)["sl_source"] == "algo"
