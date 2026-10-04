@@ -215,3 +215,36 @@ def test_journal_api_roundtrip(db):
     r = client.put(f"/api/journal/{tid}/tags", json={"tags": {"plan": ["ด้นสด"], "x": ["y"]}, "note": " โน้ต "})
     assert r.status_code == 200 and r.json()["tags"] == {"plan": ["ด้นสด"]} and r.json()["note"] == "โน้ต"
     assert client.put("/api/journal/999/tags", json={"tags": {}}).status_code == 404
+
+
+def test_only_recent_trades_are_news():
+    """ซิงก์ครั้งแรกเคยแจ้งทุกไม้ย้อนหลัง 101 ไม้ — ประวัติไม่ใช่ข่าว"""
+    now = datetime(2026, 10, 4, 12, 0)
+    fresh = {"status": "open", "opened_at": "2026-10-04T09:00:00"}
+    old_closed = {"status": "closed", "opened_at": "2025-03-01T00:00:00", "closed_at": "2025-03-02T00:00:00"}
+    just_closed = {"status": "closed", "opened_at": "2026-09-20T00:00:00", "closed_at": "2026-10-04T08:00:00"}
+    assert sync.is_news(fresh, now) and sync.is_news(just_closed, now)
+    assert not sync.is_news(old_closed, now)
+    assert not sync.is_news({"status": "closed", "closed_at": None}, now)
+
+
+def test_discord_retries_after_rate_limit(monkeypatch):
+    import io
+    import urllib.error
+    from src.notify import discord
+    calls = []
+
+    class _Ok:
+        status = 204
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake(req, timeout):
+        calls.append(1)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError("u", 429, "rate", {}, io.BytesIO(b'{"retry_after": 0.01}'))
+        return _Ok()
+
+    monkeypatch.setattr(discord.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(discord.time, "sleep", lambda s: None)
+    assert discord.post("x", "https://discord.test/x") is True and len(calls) == 2

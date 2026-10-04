@@ -35,8 +35,9 @@ def main() -> None:
         except okx.OkxError as e:
             print(f"[journal] {e}")
             sys.exit(1)
-        print(f"[journal] ไม้ใหม่ที่เปิด {len(rep.opened)} · เพิ่งปิด {len(rep.closed)}")
-        sync.notify(rep)
+        sent = sync.notify(rep)
+        print(f"[journal] ไม้ใหม่ที่เปิด {len(rep.opened)} · เพิ่งปิด {len(rep.closed)} · แจ้ง Discord {sent} "
+              f"(แจ้งเฉพาะไม้ใน {sync.NEWS_HOURS} ชม.ล่าสุด)")
     elif a.cmd == "stats":
         from src.journal.stats import compute, format_report
         text = format_report(compute(store.all_trades()))

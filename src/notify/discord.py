@@ -6,6 +6,7 @@
 """
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
@@ -33,16 +34,29 @@ def post(content: str, webhook_url: str | None = None) -> bool:
             "User-Agent": "trade-finance-agent/1.0 (+local research tool)",
         },
     )
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return 200 <= resp.status < 300
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")[:300]
+            # 429 = ส่งถี่เกิน: Discord บอกเวลารอมาให้ — รอแล้วส่งใหม่ แทนการทิ้งข้อความเงียบๆ
+            if e.code == 429 and attempt < 2:
+                time.sleep(_retry_after(body))
+                continue
+            print(f"[discord] ส่งไม่สำเร็จ: HTTP {e.code} — {body}")
+            return False
+        except Exception as e:
+            print(f"[discord] ส่งไม่สำเร็จ: {e}")
+            return False
+    return False
+
+
+def _retry_after(body: str) -> float:
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return 200 <= resp.status < 300
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", "replace")[:300]
-        print(f"[discord] ส่งไม่สำเร็จ: HTTP {e.code} — {body}")
-        return False
-    except Exception as e:
-        print(f"[discord] ส่งไม่สำเร็จ: {e}")
-        return False
+        return min(float(json.loads(body).get("retry_after", 1.0)), 10.0) + 0.1
+    except (ValueError, AttributeError):
+        return 1.0
 
 
 def _multipart(payload: dict, filename: str, data: bytes, mime: str = "image/png",

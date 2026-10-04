@@ -5,13 +5,14 @@
 """
 import os
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from src.journal import context as C
 from src.journal import okx, store
 
 WEBHOOK_ENV = "DISCORD_WEBHOOK_URL_JOURNAL"
+NEWS_HOURS = 48     # แจ้งเฉพาะไม้ที่เปิด/ปิดภายในช่วงนี้ — ไม้ย้อนหลังที่เพิ่งดึงมาครั้งแรกคือประวัติ ไม่ใช่ข่าว
 WEB_URL_ENV = "JOURNAL_WEB_URL"            # ลิงก์ในข้อความ Discord (ค่าเริ่มต้น = เว็บในเครื่อง)
 
 
@@ -24,7 +25,8 @@ class SyncReport:
 
 def _candles():
     from src.wave.candles import fetch
-    return fetch("BTC-USD", "1h", "180d"), fetch("BTC-USD", "1d", "10y")
+    # 730 วัน = สูงสุดที่ yfinance ให้แท่ง 1H — ซิงก์ครั้งแรกดึงประวัติย้อนหลังได้เป็นปี
+    return fetch("BTC-USD", "1h", "730d"), fetch("BTC-USD", "1d", "10y")
 
 
 def sync(client: okx.Client, db_path: Path | None = None, candles=None, ct_val: float | None = None) -> SyncReport:
@@ -52,7 +54,6 @@ def sync(client: okx.Client, db_path: Path | None = None, candles=None, ct_val: 
     if need:
         hourly, daily = candles or _candles()
         if hourly and daily:
-            from datetime import datetime
             for t in need:
                 at = datetime.fromisoformat(t["opened_at"])
                 if at < hourly[0].ts + timedelta(days=60):
@@ -94,8 +95,21 @@ def describe(t: dict) -> str:
     return "\n".join(L)
 
 
-def notify(rep: SyncReport) -> None:
+def is_news(t: dict, now: datetime | None = None) -> bool:
+    """ไม้ที่ควรแจ้ง = เปิดหรือปิดภายใน NEWS_HOURS ชม.ล่าสุด.
+    ซิงก์ครั้งแรกเคยส่งทุกไม้ย้อนหลัง 101 ไม้จน Discord บล็อก และเข้าช่องหลักเพราะยังไม่ได้ตั้งช่องแยก
+    — ประวัติที่เพิ่งถูกดึงมาไม่ใช่เหตุการณ์ที่ต้องรู้ตอนนี้"""
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    stamp = t.get("closed_at") if t.get("status") == "closed" else t.get("opened_at")
+    if not stamp:
+        return False
+    return now - datetime.fromisoformat(stamp) <= timedelta(hours=NEWS_HOURS)
+
+
+def notify(rep: SyncReport, now: datetime | None = None) -> int:
     from src.notify.discord import post
     url = os.environ.get(WEBHOOK_ENV)
-    for t in rep.opened + rep.closed:
+    news = [t for t in rep.opened + rep.closed if is_news(t, now)]
+    for t in news:
         post(describe(t), url)
+    return len(news)
