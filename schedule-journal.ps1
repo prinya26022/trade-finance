@@ -1,11 +1,14 @@
-# schedule-journal.ps1 - ให้สมุดเทรดทำงานเองบนคอมนี้ (รันครั้งเดียวพอ)
-#   - ทุกชั่วโมง: ดึงไม้จาก OKX + แจ้ง Discord ไม้ที่เพิ่งเปิด/ปิด
-#   - ทุกวันอาทิตย์ 20:00: ส่งสรุปสถิติเข้า Discord
-# Usage:  .\schedule-journal.ps1            (ตั้ง)
-#         .\schedule-journal.ps1 -Remove    (ลบ)
+# schedule-journal.ps1 - run the trade journal automatically on this PC (run once)
+#   - every hour : pull positions from OKX (read only) + Discord ping for trades just opened/closed
+#   - Sunday 20:00: weekly stats to Discord
+# Usage:  .\schedule-journal.ps1            (register)
+#         .\schedule-journal.ps1 -Remove    (delete)
 #
-# ทำไมรันบนคอมนี้ ไม่ใช่ GitHub Actions: OKX จำกัดการเข้าถึงจาก IP สหรัฐ ซึ่งเป็นที่ตั้งของ runner
-# ปิดคอมไว้ไม่เป็นไร — OKX เก็บประวัติ 3 เดือน เปิดคอมเมื่อไหร่ก็ดึงย้อนมาครบ (StartWhenAvailable)
+# ASCII only on purpose: Windows PowerShell 5.1 reads a .ps1 without BOM as the ANSI code page,
+# so Thai text here turned into mojibake and broke the quoting (same reason schedule.ps1 is English).
+#
+# Why this PC and not GitHub Actions: OKX restricts US IPs, which is where the runners are.
+# PC off for a while is fine - OKX keeps 3 months of history and StartWhenAvailable catches up.
 param([switch]$Remove)
 
 $root = $PSScriptRoot
@@ -18,8 +21,9 @@ if ($Remove) {
     return
 }
 
-if (-not (Select-String -Path "$root\.env" -Pattern '^OKX_API_KEY=.+' -Quiet -ErrorAction SilentlyContinue)) {
-    Write-Host "ยังไม่มี OKX_API_KEY ใน .env — ใส่ key แบบ Read only ก่อน (ดู .env.example)" -ForegroundColor Red
+$envFile = Join-Path $root ".env"
+if (-not (Select-String -Path $envFile -Pattern '^OKX_API_KEY=.+' -Quiet -ErrorAction SilentlyContinue)) {
+    Write-Host "OKX_API_KEY not found in .env - add a READ ONLY key first (see .env.example)" -ForegroundColor Red
     return
 }
 
@@ -43,7 +47,7 @@ Register-ScheduledTask -TaskName $sync -Action (New-JournalAction "sync") -Trigg
 Register-ScheduledTask -TaskName $weekly -Action (New-JournalAction "stats --send") -Trigger $sunday -Settings $settings `
     -Description "Weekly trade journal stats to Discord" | Out-Null
 
-Write-Host "ตั้งแล้ว: ดึงไม้จาก OKX ทุกชั่วโมง + สรุปทุกวันอาทิตย์ 20:00" -ForegroundColor Green
-Write-Host "log      : $log"
-Write-Host "รันตอนนี้ : Start-ScheduledTask -TaskName $sync"
-Write-Host "ลบ       : .\schedule-journal.ps1 -Remove"
+Write-Host "Registered: OKX sync every hour + weekly stats Sunday 20:00" -ForegroundColor Green
+Write-Host "Log     : $log"
+Write-Host "Run now : Start-ScheduledTask -TaskName $sync"
+Write-Host "Remove  : .\schedule-journal.ps1 -Remove"
