@@ -3,8 +3,8 @@
 #   - Sunday 20:00: weekly stats to Discord
 #   - every hour : wave alert - Discord ping when a CLOSED 4H bar crosses a scenario's kill/confirm line,
 #                  and refresh the snapshot the /wave and /check pages read (every coin in data/waves/*.json)
-#   - daily 07:10: 4H wave picture + short summary per coin to Discord (07:10 = just after the 00:00 UTC daily close
-#                  in UTC+7). The hourly alert only speaks when a line is crossed, so a sideways week is silent.
+#   (the daily 4H wave picture runs on GitHub Actions instead - .github/workflows/wave-daily.yml -
+#    it only needs yfinance prices, so it works with the PC off)
 # Usage:  .\schedule-journal.ps1            (register)
 #         .\schedule-journal.ps1 -Remove    (delete)
 #
@@ -19,7 +19,7 @@ $root = $PSScriptRoot
 $sync = "TradeFinanceJournalSync"
 $weekly = "TradeFinanceJournalWeekly"
 $wave = "TradeFinanceWaveAlert"
-$waveDaily = "TradeFinanceWaveDaily"
+$waveDaily = "TradeFinanceWaveDaily"   # old: now on GitHub Actions, only removed here
 
 if ($Remove) {
     foreach ($t in $sync, $weekly, $wave, $waveDaily) { Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue }
@@ -49,7 +49,6 @@ $hourly = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New
 $hourlyWave = New-ScheduledTaskTrigger -Once -At ((Get-Date).Date.AddHours((Get-Date).Hour + 1).AddMinutes(5)) `
     -RepetitionInterval (New-TimeSpan -Hours 1)
 $sunday = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "20:00"
-$daily = New-ScheduledTaskTrigger -Daily -At "07:10"
 # every count file in data/waves (btc.json, eth.json, ...). The list is read when THIS script runs,
 # so after adding a coin file, run the script again
 $waveFiles = (Get-ChildItem (Join-Path $root "data\waves") -Filter *.json | ForEach-Object { "data/waves/" + $_.Name }) -join " "
@@ -61,10 +60,8 @@ Register-ScheduledTask -TaskName $weekly -Action (New-PyAction "src.journal" "st
     -Description "Weekly trade journal stats to Discord" | Out-Null
 Register-ScheduledTask -TaskName $wave -Action (New-PyAction "src.wave" "alert $waveFiles") -Trigger $hourlyWave `
     -Settings $settings -Description "Wave alert: closed 4H bar crossing a scenario line + refresh /wave snapshot" | Out-Null
-Register-ScheduledTask -TaskName $waveDaily -Action (New-PyAction "src.wave" "$waveFiles --send --brief") -Trigger $daily `
-    -Settings $settings -Description "Daily 4H wave picture + short summary per coin to Discord" | Out-Null
 
-Write-Host "Registered: OKX sync hourly + weekly stats Sunday 20:00 + wave alert hourly (:05) + wave picture daily 07:10" -ForegroundColor Green
+Write-Host "Registered: OKX sync hourly + weekly stats Sunday 20:00 + wave alert hourly (:05)" -ForegroundColor Green
 Write-Host "Wave files: $waveFiles"
 Write-Host "Log     : $log"
 Write-Host "Run now : Start-ScheduledTask -TaskName $sync"

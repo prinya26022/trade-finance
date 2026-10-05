@@ -1,0 +1,41 @@
+name: Wave Daily
+
+# ภาพ 4H + สรุปสั้นของทุกเหรียญใน data/waves/*.json เข้า Discord วันละครั้ง
+#
+# ทำไมรันบน GitHub ไม่ใช่เครื่องผู้ใช้: ใช้แค่ราคาจาก yfinance (ไม่ติดเรื่อง OKX บล็อก IP สหรัฐ)
+# และไม่มี state — คอมปิดก็ยังได้ภาพ. ส่วนแจ้งเตือนรายชั่วโมงตอนแท่ง 4H ปิดผ่านเส้น ยังรันที่เครื่อง
+# (schedule-journal.ps1) เพราะต้องจำเส้นของรอบก่อน และต้องอัปเดต snapshot ให้หน้าเว็บในเครื่อง
+
+on:
+  schedule:
+    # 00:10 UTC = 07:10 น. ไทย — หลังแท่ง Day ของ crypto ปิด (00:00 UTC) และแท่ง 4H 00:00 ปิดแล้ว
+    - cron: "10 0 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wave-daily
+  cancel-in-progress: false
+
+jobs:
+  wave:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # แยกช่อง (แนะนำ) — ไม่ตั้งจะ fallback ไป DISCORD_WEBHOOK_URL; ไม่มีเลยก็ข้ามเงียบๆ
+      DISCORD_WEBHOOK_URL_WAVE: ${{ secrets.DISCORD_WEBHOOK_URL_WAVE }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Post the 4H wave picture + short summary per coin
+        run: python -m src.wave data/waves/*.json --send --brief
