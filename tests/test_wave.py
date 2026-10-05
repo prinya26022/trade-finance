@@ -154,6 +154,14 @@ def test_chart_renders_png():
     assert render_png(rep, path(BASE + [(180, 112.3), (190, 108.9), (200, 109.5)]))[:4] == b"\x89PNG"
 
 
+def test_chart_label_follows_scenario_not_letter():
+    from src.wave.analysis import Scenario
+    from src.wave.chart import short_label
+    in4 = Scenario("A", "คลื่น 4 กำลังพักฐาน", "", True, 1.0, "")
+    ii = Scenario("A", "ขาแรกคือ i ของ 5 · ตอนนี้อยู่ใน ii", "", True, 1.0, "")
+    assert short_label(in4) == "A: in wave 4" and short_label(ii) == "A: i of 5, now ii"
+
+
 def test_build_from_spec_with_parent_note():
     hourly = path(BASE + [(180, 112.3), (190, 108.9), (200, 109.5)])
 

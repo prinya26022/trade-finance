@@ -114,13 +114,16 @@ def format_summary(rep: Report) -> str:
     return "\n".join(L)[:discord.DISCORD_CONTENT_LIMIT]
 
 
-def send(rep: Report, hourly, webhook_url: str | None = None, daily=None) -> bool:
+def send(rep: Report, hourly, webhook_url: str | None = None, daily=None, full: bool = True) -> bool:
+    """full=False = ภาพ 4H + สรุปสั้นข้อความเดียว (รายวัน) · full = ตามด้วยรายละเอียดเต็ม + ภาพเครื่องนับเอง"""
     from src.notify.discord import post_chunks
     from src.wave.chart import render_auto_png, render_png
 
     url = webhook_url or os.environ.get(WEBHOOK_ENV)
     sym = rep.symbol.replace("-", "_")
     ok = discord.post_image(format_summary(rep), render_png(rep, hourly), f"wave_{sym}.png", url)
+    if not full:
+        return ok
     ok = post_chunks(format_message(rep), url) and ok
     if rep.auto:
         mine = next((i + 1 for i, c in enumerate(rep.auto) if c.matches_user), None)

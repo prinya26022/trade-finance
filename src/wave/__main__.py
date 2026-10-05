@@ -6,9 +6,12 @@
       สร้างไฟล์ให้แปะในแชท Claude เพื่อขอ "มุมมองของ Claude"
   python -m src.wave claude data/waves/btc.json reply.md
       นำคำตอบจากแชทกลับเข้ามาเก็บ (โชว์บนเว็บคู่กับอีกสองฝั่ง)
-  python -m src.wave alert data/waves/btc.json
+  python -m src.wave alert data/waves/btc.json data/waves/eth.json
       (รันเองทุกชั่วโมงผ่าน schedule-journal.ps1) แจ้ง Discord เมื่อแท่ง 4H ปิดผ่านเส้นตาย/เส้นยืนยัน
       + อัปเดต snapshot ให้หน้าเว็บ /wave และ /check ใช้ข้อมูลสด
+  python -m src.wave data/waves/btc.json data/waves/eth.json --send --brief
+      (รันเองวันละครั้งผ่าน schedule-journal.ps1) ภาพ 4H + สรุปสั้นของทุกเหรียญเข้า Discord
+      — alert ดังเฉพาะตอนราคาผ่านเส้น ถ้าไม่มีภาพรายวัน ช่วงราคาออกข้างจะเงียบทั้งสัปดาห์
 
 แก้ count = แก้ไฟล์ JSON (วันเวลาโดยประมาณของแต่ละจุด — เครื่องหาราคาจริงรอบนั้นให้เอง)
 """
@@ -42,16 +45,25 @@ def main() -> None:
     if cmd != "report":
         argv = argv[1:]
     p = argparse.ArgumentParser()
-    p.add_argument("count", help="ไฟล์ count เช่น data/waves/btc.json")
+    many = cmd in ("report", "alert")          # หลายเหรียญในคำสั่งเดียว — ตัวตั้งเวลาเรียกครั้งเดียว
+    p.add_argument("count", nargs="+" if many else None, help="ไฟล์ count เช่น data/waves/btc.json")
     if cmd == "claude":
         p.add_argument("reply", help="ไฟล์คำตอบที่ก๊อปมาจากแชท Claude")
         p.add_argument("--by", default="Claude (แปะจากแชท)")
     p.add_argument("--png", help="เซฟภาพลงไฟล์นี้")
     p.add_argument("--send", action="store_true", help="ส่งภาพ+ข้อความเข้า Discord")
     p.add_argument("--snapshot", action="store_true", help="เก็บรายงาน+ภาพให้หน้าเว็บ /wave")
+    p.add_argument("--brief", action="store_true", help="กับ --send: ส่งแค่ภาพ + สรุปสั้น (รายวัน)")
     a = p.parse_args(argv)
+    for path in (a.count if many else [a.count]):
+        try:
+            _one(cmd, a, path)
+        except Exception as e:                 # เหรียญหนึ่งดึงราคาไม่ได้ ไม่ควรทำให้เหรียญอื่นเงียบไปด้วย
+            print(f"[wave] {path}: {e}")
 
-    spec, stem = load(a.count), Path(a.count).stem
+
+def _one(cmd: str, a, path: str) -> None:
+    spec, stem = load(path), Path(path).stem
     get = _cached()
     rep = build(spec, get)
     hourly = get(spec["symbol"], spec.get("interval", "1h"), spec.get("period", "60d"))
@@ -84,7 +96,7 @@ def main() -> None:
         print(f"\nsnapshot สำหรับหน้าเว็บ: {path}")
     if a.send:
         from src.wave.notify import send
-        print("\nส่ง Discord:", "สำเร็จ" if send(rep, hourly, daily=daily) else "ไม่สำเร็จ")
+        print("\nส่ง Discord:", "สำเร็จ" if send(rep, hourly, daily=daily, full=not a.brief) else "ไม่สำเร็จ")
 
 
 def _alert(stem, rep, hourly, daily, msg) -> None:

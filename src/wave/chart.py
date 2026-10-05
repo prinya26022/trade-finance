@@ -24,7 +24,17 @@ UP, DOWN = "#26a69a", "#ef5350"
 EMAS = ((50, "#9c27b0"), (200, "#ffeb3b"))
 TREND_COLOR = {"up": UP, "down": DOWN, "mixed": "#fbc02d", "unknown": MUTED}
 SCENARIO_COLOR = {"A": "#42a5f5", "B": "#ff9800", "C": "#ab47bc"}
-SHORT = {"A": "A: i of 5, now ii", "B": "B: 5 done", "C": "C: 4 not done"}
+# ป้ายอังกฤษในภาพ ผูกกับ "ชื่อฉาก" ไม่ใช่ตัวอักษร — ตัวอักษร A/B/C ใช้ซ้ำในทุกสถานะของ count
+# (ตอนแรกผูกกับตัวอักษร count ที่อยู่ในคลื่น 4 เลยขึ้นป้าย "i of 5, now ii" ผิดๆ)
+SHORT = (("ตอนนี้อยู่ใน ii", "i of 5, now ii"), ("คลื่น 5 จบแล้ว", "5 done"),
+         ("คลื่น 4 อาจยังไม่จบ", "4 not done"), ("คลื่น 4 ยังไม่จบ", "4 not done"),
+         ("คลื่น 4 กำลังพักฐาน", "in wave 4"), ("คลื่น 5 กำลังวิ่ง", "wave 5 running"),
+         ("คลื่น 5 ยังไม่จบ", "5 extending"), ("impulse จบแล้ว", "impulse done, ABC next"),
+         ("คลื่น 3 กำลังวิ่ง", "wave 3 running"), ("คลื่น 2 กำลังย่อ", "in wave 2"))
+
+
+def short_label(sc) -> str:
+    return f"{sc.key}: " + next((en for th, en in SHORT if th in sc.title), sc.key)
 
 
 def render_png(rep: Report, hourly: list[Candle]) -> bytes:
@@ -89,7 +99,7 @@ def render_png(rep: Report, hourly: list[Candle]) -> bytes:
     ax.set_ylim(lo - 0.10 * (hi - lo), hi + 0.05 * (hi - lo))
     ax.set_title(f"{rep.symbol} 4H - wave check ({last.ts:%Y-%m-%d %H:%M} UTC, last {last.close:,.0f})",
                  color=TEXT, loc="left", fontsize=11)
-    status = "   ".join(f"{SHORT.get(sc.key, sc.key)}: {'ALIVE' if sc.alive else 'DEAD'}"
+    status = "   ".join(f"{short_label(sc)}: {'ALIVE' if sc.alive else 'DEAD'}"
                        for sc in rep.scenarios) or "rules check only"
     ax.text(0.01, 0.02, status + "   |   rules " + ("PASS" if rep.valid else "FAIL"),
             transform=ax.transAxes, color=TEXT, fontsize=9)
