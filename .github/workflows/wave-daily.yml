@@ -1,6 +1,7 @@
 name: Wave Daily
 
-# ภาพ 4H + สรุปสั้นของทุกเหรียญใน data/waves/*.json เข้า Discord วันละครั้ง
+# รายงานคลื่นแบบเต็มของทุกเหรียญใน data/waves/*.json เข้าห้องกราฟ (ห้องเดียวกับ Technical Radar)
+# วันละครั้ง: ภาพ 4H + สรุป → รายละเอียดเต็ม (เทรนด์, ฉาก, หลักฐาน) → ภาพเครื่องนับเอง
 #
 # ทำไมรันบน GitHub ไม่ใช่เครื่องผู้ใช้: ใช้แค่ราคาจาก yfinance (ไม่ติดเรื่อง OKX บล็อก IP สหรัฐ)
 # และไม่มี state — คอมปิดก็ยังได้ภาพ. ส่วนแจ้งเตือนรายชั่วโมงตอนแท่ง 4H ปิดผ่านเส้น ยังรันที่เครื่อง
@@ -24,8 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      # แยกช่อง (แนะนำ) — ไม่ตั้งจะ fallback ไป DISCORD_WEBHOOK_URL; ไม่มีเลยก็ข้ามเงียบๆ
-      DISCORD_WEBHOOK_URL_WAVE: ${{ secrets.DISCORD_WEBHOOK_URL_WAVE }}
+      # ห้องกราฟ — ไม่ตั้งจะ fallback ไป DISCORD_WEBHOOK_URL; ไม่มีเลยก็ข้ามเงียบๆ
+      DISCORD_WEBHOOK_URL_TECHNICAL: ${{ secrets.DISCORD_WEBHOOK_URL_TECHNICAL }}
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
     steps:
       - uses: actions/checkout@v5
@@ -37,5 +38,5 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Post the 4H wave picture + short summary per coin
-        run: python -m src.wave data/waves/*.json --send --brief
+      - name: Post the full wave report per coin
+        run: python -m src.wave data/waves/*.json --send

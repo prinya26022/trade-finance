@@ -5,7 +5,8 @@ import os
 from src.notify import discord
 from src.wave.analysis import Report, fmt
 
-WEBHOOK_ENV = "DISCORD_WEBHOOK_URL_WAVE"
+# ห้องเดียวกับชั้นกราฟ Phase 53 — ผู้ใช้อยากเห็นการวิเคราะห์กราฟทั้งหมดในห้องเดียว ไม่แยกห้องคลื่น
+WEBHOOK_ENV = "DISCORD_WEBHOOK_URL_TECHNICAL"
 LEAN = {"A": "→ เข้าทาง A", "B": "→ เข้าทาง B", "-": ""}
 STATE = {"up": "🟢 ขาขึ้น", "down": "🔴 ขาลง", "mixed": "🟡 ปนกัน", "unknown": "⚪ วัดไม่ได้"}
 

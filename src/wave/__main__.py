@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 
 from src.wave.candles import fetch
 from src.wave.count import build, load
-from src.wave.notify import format_message
+from src.wave.notify import WEBHOOK_ENV, format_message
 
 
 def _cached():
@@ -115,7 +115,7 @@ def _alert(stem, rep, hourly, daily, msg) -> None:
     if hits:
         text = alerts.format_alert(rep.symbol, hits, rep)
         print(text)
-        discord.post_image(text, png, f"wave_alert_{stem}.png", os.environ.get("DISCORD_WEBHOOK_URL_WAVE"))
+        discord.post_image(text, png, f"wave_alert_{stem}.png", os.environ.get(WEBHOOK_ENV))
     else:
         print(f"[wave] {stem}: ไม่มีแท่ง 4H ที่ปิดผ่านเส้น")
     alerts.save_state(stem, rep, closed)
