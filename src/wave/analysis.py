@@ -72,7 +72,9 @@ class Report:
 
 
 def fmt(x: float) -> str:
-    return f"{x:,.0f}"
+    """BTC/ETH หลักพัน = จำนวนเต็มพอ · เหรียญราคาหลักร้อยลงมา (SOL ~120) ต้องมีทศนิยม
+    ไม่งั้นยอด 124.9 กลายเป็น 125 และเส้นตาย 95.72 กลายเป็น 96 — คนละจุดกับบนจอผู้ใช้"""
+    return f"{x:,.0f}" if abs(x) >= 1000 else f"{x:,.2f}"
 
 
 def resolve(candles: list[Candle], marks: list[tuple[str, datetime]], direction: str,

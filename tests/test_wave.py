@@ -154,6 +154,11 @@ def test_chart_renders_png():
     assert render_png(rep, path(BASE + [(180, 112.3), (190, 108.9), (200, 109.5)]))[:4] == b"\x89PNG"
 
 
+def test_fmt_keeps_decimals_for_low_priced_coins():
+    from src.wave.analysis import fmt
+    assert fmt(87237.4) == "87,237" and fmt(124.9) == "124.90" and fmt(95.72) == "95.72"
+
+
 def test_chart_label_follows_scenario_not_letter():
     from src.wave.analysis import Scenario
     from src.wave.chart import short_label
