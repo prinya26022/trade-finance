@@ -76,7 +76,7 @@ def _one(cmd: str, a, path: str) -> None:
         print(f"แพ็กสำหรับแปะในแชท Claude: {make_pack(stem, rep, msg)}")
         return
     if cmd == "alert":
-        _alert(stem, rep, hourly, daily, msg)
+        _alert(stem, rep, hourly, daily, msg, spec)
         return
     if cmd == "claude":
         from src.wave.claude import save_view
@@ -99,7 +99,7 @@ def _one(cmd: str, a, path: str) -> None:
         print("\nส่ง Discord:", "สำเร็จ" if send(rep, hourly, daily=daily, full=not a.brief) else "ไม่สำเร็จ")
 
 
-def _alert(stem, rep, hourly, daily, msg) -> None:
+def _alert(stem, rep, hourly, daily, msg, spec=None) -> None:
     import os
     from datetime import datetime, timezone
     from src.notify import discord
@@ -118,7 +118,7 @@ def _alert(stem, rep, hourly, daily, msg) -> None:
         discord.post_image(text, png, f"wave_alert_{stem}.png", os.environ.get(WEBHOOK_ENV))
     else:
         print(f"[wave] {stem}: ไม่มีแท่ง 4H ที่ปิดผ่านเส้น")
-    alerts.save_state(stem, rep, closed)
+    alerts.save_state(stem, rep, closed, spec=spec)
 
 
 if __name__ == "__main__":

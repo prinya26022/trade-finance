@@ -429,6 +429,33 @@ def test_confirm_line_crossing_is_reported_as_clearer_not_dead():
     assert "ชัดขึ้น" in text and "ตายแล้ว" in text and "ปิด" in text
 
 
+def test_user_watch_line_fires_on_the_cross_with_its_own_text():
+    from src.wave.alerts import crossings, format_alert, levels_of
+    rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])
+    spec = {"watch": [{"level": 109.0, "side": "below", "text": "ขา A เริ่ม"}]}
+    prev = {"last_bar": (T0 + timedelta(hours=200)).isoformat(), "last_close": 109.5,
+            "levels": levels_of(rep, spec)}
+    hits = [h for h in crossings(prev, [_bar(204, 109.3), _bar(208, 108.7)]) if h.kind == "watch"]
+    assert [(h.level, h.close) for h in hits] == [(109.0, 108.7)]
+    assert "ขา A เริ่ม" in format_alert("SOL-USD", hits, rep)
+
+
+def test_staying_beyond_a_line_does_not_alert_again_every_bar():
+    from src.wave.alerts import crossings
+    prev = {"last_bar": (T0 + timedelta(hours=200)).isoformat(), "last_close": 108.5,     # ปิดใต้เส้นไปแล้วรอบก่อน
+            "levels": [{"key": "watch", "title": "x", "kind": "watch", "level": 109.0, "side": "below"}]}
+    assert crossings(prev, [_bar(204, 108.4), _bar(208, 108.1)]) == []
+    # กลับขึ้นไปเหนือเส้นแล้วหลุดอีกรอบ = ข้ามใหม่ แจ้งได้
+    assert len(crossings(prev, [_bar(204, 109.6), _bar(208, 108.8)])) == 1
+
+
+def test_bad_watch_line_is_rejected_not_silently_ignored():
+    import pytest
+    from src.wave.alerts import watch_levels
+    with pytest.raises(ValueError):
+        watch_levels({"watch": [{"level": 116.4, "side": "under"}]})
+
+
 def test_alert_state_roundtrip(tmp_path):
     from src.wave import alerts
     rep = report([(180, 112.3), (190, 108.9), (200, 109.5)])
