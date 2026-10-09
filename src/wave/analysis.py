@@ -235,10 +235,27 @@ def _in_wave5(rep: Report, candles, after, s, ext, back, beyond, wave4_shape, no
 
     broke4 = [c for c in after if not beyond(back(c), v[4]) and back(c) != v[4]]
     if broke4:
-        rep.state = (f"ราคา{'หลุด' if s > 0 else 'ทะลุ'} {fmt(v[4])} ไปแล้ว — จุดที่มาร์กเป็นคลื่น 4 "
-                     "ไม่ใช่จุดจบคลื่น 4 (หรือ count ต้องเปลี่ยน)")
+        # ก่อน Phase 54 แก้: ฉาก C "คลื่น 4 ยังไม่จบ" ถูกตั้งเป็น True เสมอ — BTC ลงไป 80,316 ทะลุเขตคลื่น 1
+        # (81,911) แล้วรายงานยังบอกว่ายังเป็นไปได้ และไม่พูดถึงขาขึ้นก่อนหน้าที่ทำให้ "5 จบแล้ว" ยืนยัน
+        first = broke4[0]
+        overlap = any(s * (back(c) - v[1]) < 0 for c in after)
+        rep.state = (f"ราคา{'หลุด' if s > 0 else 'ทะลุ'} {fmt(v[4])} ไปแล้ว — "
+                     + ("ล้ำเขตคลื่น 1 ด้วย: count impulse นี้จบแล้ว ไม่ว่าจะนับแบบไหน" if overlap else
+                        "จุดที่มาร์กเป็นคลื่น 4 ไม่ใช่จุดจบคลื่น 4 หรือคลื่น 5 จบไปแล้ว"))
+        rally = [c for c in after if c.ts < first.ts]
+        if rally:
+            top_c = max(rally, key=ext) if s > 0 else min(rally, key=ext)
+            s1 = ext(top_c)
+            later = [c for c in after if c.ts > top_c.ts]
+            truncated = not beyond(s1, v[3])
+            rep.scenarios.append(Scenario(
+                "B", "คลื่น 5 จบแล้วที่ " + fmt(s1) + (" (truncated)" if truncated else ""),
+                "ขาขึ้นชุดนี้ครบ 5 คลื่น — ตอนนี้อยู่ในการปรับฐาน",
+                not any(beyond(ext(c), s1) for c in later), s1,
+                f"{'ทะลุ' if s > 0 else 'หลุด'} {fmt(s1)} (ทำยอดใหม่ = ยังไม่จบ)",
+                targets=[(f"ย่อ {r:.1%} ของ 0→5", s1 - s * r * abs(s1 - v[0])) for r in (0.382, 0.5, 0.618)]))
         rep.scenarios.append(Scenario("C", "คลื่น 4 ยังไม่จบ", "ยังพักฐานต่อ จุดที่มาร์กเป็นแค่ขาย่อย",
-                                      True, v[1], f"ล้ำเขตคลื่น 1 ที่ {fmt(v[1])}"))
+                                      not overlap, v[1], f"ล้ำเขตคลื่น 1 ที่ {fmt(v[1])}"))
         return
     if not after:
         rep.state = "เพิ่งจบคลื่น 4 · คลื่น 5 ยังไม่เริ่มให้เห็น"

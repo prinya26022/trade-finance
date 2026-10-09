@@ -46,6 +46,22 @@ def report(extra: list[tuple[int, float]], shape: str | None = "triangle", marks
     return analyze("TEST", "TEST-USD", direction, pivots, candles, shape)
 
 
+# ---------- ราคาหลุดจุดจบคลื่น 4 (BTC 8 ต.ค.: ขึ้น 87,237 แล้วลงทะลุ 83,131 ไปถึง 80,316) ----------
+
+def test_rally_then_break_below_wave4_means_5_done_and_4_may_still_be_open():
+    rep = report([(180, 112.3), (200, 107.5)])        # หลุด 4 (108.2) แต่ยังเหนือยอด 1 (107.0)
+    sc = {s.key: s for s in rep.scenarios}
+    assert sc["B"].alive and "112.30" in sc["B"].title and "truncated" in sc["B"].title
+    assert sc["C"].alive
+
+
+def test_breaking_into_wave1_territory_kills_wave4_not_done():
+    rep = report([(180, 112.3), (200, 106.5)])        # ลงใต้ยอดคลื่น 1 (107.0) = ซ้อน
+    sc = {s.key: s for s in rep.scenarios}
+    assert not sc["C"].alive and sc["B"].alive
+    assert "ล้ำเขตคลื่น 1" in rep.state
+
+
 # ---------- จุดและแท่ง ----------
 
 def test_snap_uses_the_real_extreme_not_the_marked_time():
@@ -117,7 +133,8 @@ def test_between_the_two_kill_levels_both_scenarios_stay_alive():
 def test_falling_below_the_marked_wave4_end_says_the_count_must_change():
     rep = report([(180, 112.3), (200, 107.9)])
     assert "ไม่ใช่จุดจบคลื่น 4" in rep.state
-    assert [s.key for s in rep.scenarios] == ["C"]
+    # มีขาขึ้นก่อนหลุด -> "5 จบแล้ว" เป็นฉากด้วย (เดิมโชว์แค่ C ซึ่งซ่อนทางที่ราคาเพิ่งยืนยัน)
+    assert [s.key for s in rep.scenarios] == ["B", "C"]
 
 
 def test_wave5_targets_never_include_a_length_that_breaks_the_wave3_rule():
