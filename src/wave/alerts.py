@@ -82,6 +82,29 @@ def crossings(prev: dict | None, closed_4h: list[Candle]) -> list[Crossing]:
     return out
 
 
+def stale_reason(rep: Report) -> str | None:
+    """count นี้หมดอายุแล้วหรือยัง — ไม่มีฉากไหนรอด หรือราคาล้ำเขตจนเป็น impulse ตามที่มาร์กไม่ได้แล้ว.
+    เพิ่มใน Phase 56: count BTC ขาวจบไปตั้งแต่ 8 ต.ค. แต่ระบบยังรายงานมันทุกวันโดยไม่มีใครบอกให้มาร์กใหม่"""
+    if not rep.valid:
+        return "count ที่มาร์กผิดกฎเหล็ก"
+    if rep.scenarios and not any(sc.alive for sc in rep.scenarios):
+        return "ทุกฉากของ count นี้ตายหมดแล้ว"
+    if "จบแล้ว ไม่ว่าจะนับแบบไหน" in (rep.state or ""):
+        return "ราคาล้ำเขตจน impulse ที่มาร์กไว้จบแล้ว"
+    return None
+
+
+def format_stale(symbol: str, name: str, stem: str, reason: str, rep: Report) -> str:
+    alive = [sc for sc in rep.scenarios if sc.alive]
+    L = [f"🧭 **{symbol} — count \"{name}\" ต้องอัปเดตแล้ว**: {reason}",
+         f"ราคาล่าสุด {fmt(rep.last.close)}"]
+    if alive:
+        L.append("ฉากที่ยังเหลือ: " + " · ".join(f"{sc.key} {sc.title}" for sc in alive))
+    L.append(f"_มาร์กชุดใหม่ใน data/waves/{stem}.json หรือเพิ่มไฟล์ count ทางเลือก — "
+             "ระบบไม่นับคลื่นใหม่แทนคุณ_")
+    return "\n".join(L)
+
+
 def load_state(stem: str, state_dir: Path | None = None) -> dict | None:
     path = (state_dir or STATE_DIR) / f"{stem}_alert_state.json"
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
@@ -92,7 +115,8 @@ def save_state(stem: str, rep: Report, closed_4h: list[Candle], state_dir: Path 
     d = state_dir or STATE_DIR
     d.mkdir(parents=True, exist_ok=True)
     state = {"last_bar": closed_4h[-1].ts.isoformat() if closed_4h else None,
-             "last_close": closed_4h[-1].close if closed_4h else None, "levels": levels_of(rep, spec)}
+             "last_close": closed_4h[-1].close if closed_4h else None, "levels": levels_of(rep, spec),
+             "stale": stale_reason(rep)}
     (d / f"{stem}_alert_state.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
 
 

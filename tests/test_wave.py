@@ -480,3 +480,18 @@ def test_alert_state_roundtrip(tmp_path):
     st = alerts.load_state("btc", tmp_path)
     assert st["last_bar"] == (T0 + timedelta(hours=200)).isoformat() and {l["key"] for l in st["levels"]} == {"A", "B"}
     assert alerts.load_state("none", tmp_path) is None
+
+
+def test_count_that_broke_into_wave1_is_reported_stale_once_per_reason(tmp_path):
+    from src.wave import alerts
+    rep = report([(180, 112.3), (200, 106.5)])                  # ลงใต้ยอดคลื่น 1 = impulse จบแล้ว
+    reason = alerts.stale_reason(rep)
+    assert reason and "จบแล้ว" in reason
+    assert "count \"TEST\" ต้องอัปเดตแล้ว" in alerts.format_stale("TEST-USD", rep.name, "test", reason, rep)
+    alerts.save_state("test", rep, [_bar(200, 106.5)], tmp_path)
+    assert alerts.load_state("test", tmp_path)["stale"] == reason
+
+
+def test_live_count_is_not_stale():
+    from src.wave import alerts
+    assert alerts.stale_reason(report([(180, 112.3), (190, 108.9), (200, 109.5)])) is None

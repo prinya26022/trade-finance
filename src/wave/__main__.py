@@ -109,7 +109,13 @@ def _alert(stem, rep, hourly, daily, msg, spec=None) -> None:
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     closed = resample_4h(hourly, now)
-    hits = alerts.crossings(alerts.load_state(stem), closed)
+    prev = alerts.load_state(stem)
+    hits = alerts.crossings(prev, closed)
+    stale = alerts.stale_reason(rep)
+    if stale and (prev or {}).get("stale") != stale:       # บอกครั้งเดียวต่อเหตุผล ไม่ใช่ทุกชั่วโมง
+        text = alerts.format_stale(rep.symbol, rep.name, stem, stale, rep)
+        print(text)
+        discord.post(text, os.environ.get(WEBHOOK_ENV))
     png = render_png(rep, hourly)
     snapshot.write(stem, rep, png, render_auto_png(rep, hourly, daily), msg)     # /wave, /check สดเสมอ
     if hits:
