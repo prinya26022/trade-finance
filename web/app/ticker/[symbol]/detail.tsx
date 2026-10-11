@@ -10,6 +10,7 @@ import { HealthBreakdown } from "../../health-breakdown";
 import { WhatsNew } from "./whats-new";
 import ThesisPanel from "./thesis-panel";
 import DecisionLog from "./decision-log";
+import StoryPanel from "./story-panel";
 import InvestigatePanel from "./investigate-panel";
 import ClaimParser from "./claim-parser";
 
@@ -189,6 +190,7 @@ export default function TickerDetail({
 
       {/* ---- Phase 27: thesis + invalidation banner (ระบบเตือนขาย) + decision journal ----
           อยู่ก่อน health breakdown ตั้งใจ: นี่คือส่วนที่ตอบ "ควรทำอะไรต่อ" ไม่ใช่แค่ "ตอนนี้เป็นไง" */}
+      <StoryPanel ticker={ticker} />
       <ThesisPanel
         ticker={ticker}
         thesis={thesis ?? null}

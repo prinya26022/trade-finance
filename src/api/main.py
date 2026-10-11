@@ -662,3 +662,27 @@ def post_decision(ticker: str, body: DecisionCreate):
 @app.get("/api/decisions/{ticker}")
 def get_decisions(ticker: str, limit: int = 50):
     return list_decisions(ticker.upper(), limit=limit)
+
+
+# ---- เรื่องอนาคต 3 ข้อ (Phase 56) — src/thesis/story.py ----
+# ผู้ใช้แก้จากหน้าเว็บ = author "user" เสมอ (ร่างของ Claude ใส่ผ่านโค้ด ไม่ผ่าน endpoint นี้)
+
+class StorySet(BaseModel):
+    future: str
+    signals: str
+    wrong_if: str
+
+
+@app.get("/api/story/{ticker}")
+def get_ticker_story(ticker: str):
+    from src.thesis.story import get_story
+    return get_story(ticker)
+
+
+@app.put("/api/story/{ticker}")
+def put_ticker_story(ticker: str, body: StorySet):
+    from src.thesis.story import set_story
+    try:
+        return set_story(ticker, body.future, body.signals, body.wrong_if, author="user")
+    except ValueError as e:
+        raise HTTPException(400, str(e))

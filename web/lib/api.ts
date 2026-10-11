@@ -290,3 +290,32 @@ export async function getAicapex(): Promise<AicapexResponse> {
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
+
+// Phase 56: เรื่องอนาคต 3 ข้อต่อ ticker (src/thesis/story.py)
+export type Story = {
+  ticker: string;
+  future: string;
+  signals: string;
+  wrong_if: string;
+  author: "user" | "claude-draft";
+  updated_at: string;
+};
+
+export async function getStory(ticker: string): Promise<Story | null> {
+  const res = await fetch(`${API_BASE}/api/story/${ticker}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+export async function saveStory(
+  ticker: string,
+  body: { future: string; signals: string; wrong_if: string }
+): Promise<Story> {
+  const res = await fetch(`${API_BASE}/api/story/${ticker}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  return res.json();
+}
