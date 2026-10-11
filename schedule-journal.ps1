@@ -55,7 +55,7 @@ $waveFiles = (Get-ChildItem (Join-Path $root "data\waves") -Filter *.json | ForE
 
 foreach ($t in $sync, $weekly, $wave, $waveDaily) { Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue }
 Register-ScheduledTask -TaskName $sync -Action (New-PyAction "src.journal" "sync") -Trigger $hourly -Settings $settings `
-    -Description "Pull BTC-USDT-SWAP positions from OKX (read only) into the trade journal" | Out-Null
+    -Description "Pull BTC/ETH/SOL USDT perpetual positions from OKX (read only) into the trade journal" | Out-Null
 Register-ScheduledTask -TaskName $weekly -Action (New-PyAction "src.journal" "stats --send") -Trigger $sunday -Settings $settings `
     -Description "Weekly trade journal stats to Discord" | Out-Null
 Register-ScheduledTask -TaskName $wave -Action (New-PyAction "src.wave" "alert $waveFiles") -Trigger $hourlyWave `

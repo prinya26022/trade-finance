@@ -8,7 +8,7 @@ type Wave = { key: string; title: string; with_trade: boolean; kill: number | nu
               stop_vs_kill?: string; stop_beyond_kill?: boolean };
 type Sizing = { risk_pct: number; coins: number; contracts: number; notional: number; margin?: number };
 type Result = {
-  id: number; asof: string; side: string; entry: number; sl: number | null; tp: number | null;
+  id: number; asof: string; inst?: string; side: string; entry: number; sl: number | null; tp: number | null;
   risk_usd?: number; risk_pct?: number; equity?: number | null; sizing?: Sizing[];
   context: {
     trend?: Record<string, string>; with_trend?: string[]; against_trend?: string[];
@@ -22,9 +22,12 @@ type Result = {
 const TREND: Record<string, string> = { up: "🟢 ขึ้น", down: "🔴 ลง", mixed: "🟡 ปนกัน", unknown: "⚪ ?" };
 const n0 = (x: number | null | undefined, d = 0) =>
   typeof x === "number" ? x.toLocaleString("en-US", { maximumFractionDigits: d, minimumFractionDigits: d }) : "—";
+// Phase 56: เหรียญที่ซิงก์จาก OKX ได้ — จำนวนสัญญาคิดตามขนาดสัญญาของเหรียญนั้น (BTC 0.01 · ETH 0.1 · SOL 1)
+const COINS = ["BTC", "ETH", "SOL"] as const;
 const num = (s: string) => (s.trim() === "" ? null : Number(s.replace(/,/g, "")));
 
 export default function CheckView() {
+  const [coin, setCoin] = useState<(typeof COINS)[number]>("BTC");
   const [side, setSide] = useState<"long" | "short">("long");
   const [entry, setEntry] = useState("");
   const [sl, setSl] = useState("");
@@ -42,7 +45,7 @@ export default function CheckView() {
     try {
       const r = await fetch(`${API_BASE}/api/check`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ side, entry: num(entry), sl: num(sl), tp: num(tp), margin: num(margin),
+        body: JSON.stringify({ coin, side, entry: num(entry), sl: num(sl), tp: num(tp), margin: num(margin),
                                lever: num(lever), has_time: hasTime }),
       });
       if (!r.ok) throw new Error((await r.json()).detail ?? `API ${r.status}`);
@@ -58,6 +61,14 @@ export default function CheckView() {
   return (
     <>
       <section className="card ck-form">
+        <div className="ck-row">
+          {COINS.map((k) => (
+            <button key={k} type="button" className={`jn-chip ${coin === k ? "on" : ""}`}
+                    onClick={() => { setCoin(k); setRes(null); }}>
+              {k}
+            </button>
+          ))}
+        </div>
         <div className="ck-row">
           {(["long", "short"] as const).map((s) => (
             <button key={s} type="button" className={`jn-chip ${side === s ? "on" : ""}`} onClick={() => setSide(s)}>
@@ -156,7 +167,7 @@ export default function CheckView() {
               {res.sizing.map((s) => (
                 <div key={s.risk_pct} className="jn-row">
                   <span>เสี่ยง {s.risk_pct}%</span>
-                  <span>{s.contracts} สัญญา ({n0(s.coins, 4)} BTC) · มูลค่า {n0(s.notional)}$</span>
+                  <span>{s.contracts} สัญญา ({n0(s.coins, 4)} {res.inst?.split("-")[0] ?? "BTC"}) · มูลค่า {n0(s.notional)}$</span>
                   <span>{s.margin !== undefined ? `มาร์จิน ${n0(s.margin)}$` : ""}</span>
                 </div>
               ))}

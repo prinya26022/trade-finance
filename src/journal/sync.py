@@ -23,26 +23,30 @@ class SyncReport:
     error: str | None = None
 
 
-def _candles():
+def _candles(inst: str = okx.INST):
     from src.wave.candles import fetch
     # 730 วัน = สูงสุดที่ yfinance ให้แท่ง 1H — ซิงก์ครั้งแรกดึงประวัติย้อนหลังได้เป็นปี
-    return fetch("BTC-USD", "1h", "730d"), fetch("BTC-USD", "1d", "10y")
+    sym = okx.yahoo_symbol(inst)
+    return fetch(sym, "1h", "730d"), fetch(sym, "1d", "10y")
 
 
-def sync(client: okx.Client, db_path: Path | None = None, candles=None, ct_val: float | None = None) -> SyncReport:
+def sync(client: okx.Client, db_path: Path | None = None, candles=None, ct_val: float | None = None,
+         insts: tuple[str, ...] = okx.INSTS) -> SyncReport:
+    """candles/ct_val ที่ส่งเข้ามา (เทสต์) ใช้กับทุกเหรียญในรอบนั้น; ไม่ส่ง = ดึงของแต่ละเหรียญเอง"""
     rep = SyncReport()
     first_run = not any(t["source"] == "okx" for t in store.all_trades(db_path))
-    ct = ct_val or okx.contract_value()
     equity = client.equity()
     if equity:
         store.set_meta("equity", equity, db_path)      # หน้าเช็กลิสต์ใช้คิด % ความเสี่ยง
-    stops = client.stops()
     seen = []
-    for t in client.open_positions():
-        s = stops.get(t["side"], {})
-        seen.append({**t, "ct_val": ct, "sl": s.get("sl"), "tp": s.get("tp"), "equity": equity,
-                     "sl_source": "seen" if s.get("sl") else None})
-    seen += [{**t, "ct_val": ct} for t in client.closed_positions()]
+    for inst in insts:
+        ct = ct_val or okx.contract_value(inst)
+        stops = client.stops(inst)
+        for t in client.open_positions(inst):
+            s = stops.get(t["side"], {})
+            seen.append({**t, "ct_val": ct, "sl": s.get("sl"), "tp": s.get("tp"), "equity": equity,
+                         "sl_source": "seen" if s.get("sl") else None})
+        seen += [{**t, "ct_val": ct} for t in client.closed_positions(inst)]
 
     fresh = []
     for t in seen:
@@ -55,15 +59,18 @@ def sync(client: okx.Client, db_path: Path | None = None, candles=None, ct_val: 
 
     # บริบทกราฟ ณ เวลาเข้า: คิดครั้งเดียวต่อไม้ (ค่าของอดีตไม่เปลี่ยน) — ดึงแท่งเฉพาะเมื่อมีไม้ใหม่
     need = [t for t in store.all_trades(db_path) if t["context"] is None and t["opened_at"]]
-    if need:
-        hourly, daily = candles or _candles()
-        if hourly and daily:
-            for t in need:
-                at = datetime.fromisoformat(t["opened_at"])
-                if at < hourly[0].ts + timedelta(days=60):
-                    continue           # เก่ากว่าข้อมูล 1H ที่มี — ไม่เดาบริบท
-                store.set_context(t["id"], C.build(hourly, daily, at, t["side"], t["entry"], t["sl"], t["tp"]),
-                                  db_path)
+    for inst in sorted({t["inst"] or okx.INST for t in need}):
+        hourly, daily = candles or _candles(inst)      # บริบทของไม้ ETH ต้องมาจากกราฟ ETH ไม่ใช่ BTC
+        if not (hourly and daily):
+            continue
+        for t in need:
+            if (t["inst"] or okx.INST) != inst:
+                continue
+            at = datetime.fromisoformat(t["opened_at"])
+            if at < hourly[0].ts + timedelta(days=60):
+                continue           # เก่ากว่าข้อมูล 1H ที่มี — ไม่เดาบริบท
+            store.set_context(t["id"], C.build(hourly, daily, at, t["side"], t["entry"], t["sl"], t["tp"]),
+                              db_path)
     backfill_stops(client, db_path, pages=1 if not first_run else 30)
     from src.journal.check import link_checks
     for check_id, trade_id in link_checks(store.all_trades(db_path), store.all_checks(db_path)):
@@ -80,9 +87,13 @@ def backfill_stops(client, db_path: Path | None = None, pages: int = 30) -> dict
             if t["source"] == "okx" and t["sl_source"] not in ("entry", "algo")]
     if not todo:
         return {"checked": 0, "entry": 0, "algo": 0}
-    orders, algos = client.entry_orders(pages=pages), client.algo_history()
     found = {"checked": len(todo), "entry": 0, "algo": 0}
+    by_inst: dict[str, tuple] = {}
     for t in todo:
+        inst = t["inst"] or okx.INST
+        if inst not in by_inst:      # คำสั่งของแต่ละเหรียญแยกกัน — stop ของไม้ SOL ห้ามไปจับกับคำสั่ง BTC
+            by_inst[inst] = (client.entry_orders(inst, pages=pages), client.algo_history(inst))
+        orders, algos = by_inst[inst]
         m = stops.match(t, orders, algos)
         if not m or not m["sl"]:
             continue
@@ -121,7 +132,7 @@ def auto_check(t: dict, trades: list[dict], wave: dict | None = None) -> list[st
             n = S.week_count(trades, t["opened_at"])
             b = S.week_bucket(n)
             L.append(_past_line(f"ไม้ที่ {n} ของสัปดาห์นี้ ({b})", groups.get("จำนวนไม้ในสัปดาห์นั้น", {}).get(b)))
-        if wave and (t.get("inst") or "").startswith("BTC"):
+        if wave:
             rows = _wave_lines(t["side"], t.get("sl"), wave)
             mine = [r for r in rows if r["with_trade"]]
             if mine:
@@ -179,10 +190,10 @@ def is_news(t: dict, now: datetime | None = None) -> bool:
     return now - datetime.fromisoformat(stamp) <= timedelta(hours=NEWS_HOURS)
 
 
-def _wave_snapshot() -> dict | None:
+def _wave_snapshot(stem: str = "btc") -> dict | None:
     try:
         from src.wave import snapshot
-        return snapshot.read("btc")
+        return snapshot.read(stem)
     except Exception:            # ไม่มี snapshot (ยังไม่เคยรันคลื่น) ก็ยังแจ้งไม้ได้ตามปกติ
         return None
 
@@ -194,7 +205,7 @@ def notify(rep: SyncReport, now: datetime | None = None, trades: list[dict] | No
     news = [t for t in rep.opened + rep.closed if is_news(t, now)]
     if news:
         trades = store.all_trades() if trades is None else trades
-        wave = _wave_snapshot() if wave is None else wave
     for t in news:
-        post("\n".join([describe(t)] + auto_check(t, trades, wave)), url)
+        w = wave if wave is not None else _wave_snapshot(okx.coin(t.get("inst")).lower())   # คลื่นของเหรียญนั้น
+        post("\n".join([describe(t)] + auto_check(t, trades, w)), url)
     return len(news)

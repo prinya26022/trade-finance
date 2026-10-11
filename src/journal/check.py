@@ -60,12 +60,14 @@ def _history(planned: dict, trades: list[dict], has_time: bool | None) -> list[d
 def evaluate(side: str, sl: float | None, tp: float | None, hourly, daily, trades: list[dict],
              entry: float | None = None, margin: float | None = None, lever: float | None = None,
              equity: float | None = None, has_time: bool | None = None, wave: dict | None = None,
-             now: datetime | None = None) -> dict:
+             now: datetime | None = None, ct_val: float = CT_VAL, inst: str = "BTC-USDT-SWAP") -> dict:
+    """ct_val/inst: Phase 56 รองรับ ETH/SOL — จำนวนสัญญาต้องหารด้วยขนาดสัญญาของเหรียญนั้น
+    (ใส่ราคา ETH แล้วหารด้วย 0.01 ของ BTC = จำนวนสัญญาผิด 10 เท่า)"""
     now = now or datetime.now(timezone.utc).replace(tzinfo=None)
     entry = entry or (hourly[-1].close if hourly else None)
     ctx = C.build(hourly, daily, now, side, entry, sl, tp)
     planned = {"side": side, "entry": entry, "sl": sl, "tp": tp, "context": ctx}
-    out = {"asof": now.isoformat(timespec="minutes"), "side": side, "entry": entry, "sl": sl, "tp": tp,
+    out = {"asof": now.isoformat(timespec="minutes"), "inst": inst, "ct_val": ct_val, "side": side, "entry": entry, "sl": sl, "tp": tp,
            "margin": margin, "lever": lever, "equity": equity, "has_time": has_time, "context": ctx,
            "history": _history(planned, trades, has_time), "wave": _wave_lines(side, sl, wave),
            # เส้นตายมาจากรายงานคลื่นรอบล่าสุด ไม่ใช่ตอนนี้ — ต้องบอกอายุ ไม่งั้นอ่านเหมือนสด (Phase 47)
@@ -82,7 +84,7 @@ def evaluate(side: str, sl: float | None, tp: float | None, hourly, daily, trade
             out["sizing"] = []
             for p in RISK_STEPS:
                 coins = equity * p / 100 / per_coin
-                out["sizing"].append({"risk_pct": p, "coins": round(coins, 6), "contracts": round(coins / CT_VAL, 2),
+                out["sizing"].append({"risk_pct": p, "coins": round(coins, 6), "contracts": round(coins / ct_val, 2),
                                       "notional": round(coins * entry, 2),
                                       **({"margin": round(coins * entry / lever, 2)} if lever else {})})
     return out

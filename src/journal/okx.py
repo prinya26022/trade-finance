@@ -22,6 +22,19 @@ from datetime import datetime, timezone
 
 INST = "BTC-USDT-SWAP"
 DEFAULT_CT_VAL = 0.01          # BTC-USDT-SWAP: 1 สัญญา = 0.01 BTC (ยืนยันด้วย public instruments ตอนรัน)
+# Phase 56: ผู้ใช้เริ่มวางแผนเทรด ETH/SOL — ซิงก์ทุกตัวในนี้ (key เดิม Read only ไม่ต้องสร้างใหม่)
+INSTS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP")
+DEFAULT_CT_VALS = {"BTC-USDT-SWAP": 0.01, "ETH-USDT-SWAP": 0.1, "SOL-USDT-SWAP": 1.0}   # ค่าจริงจาก OKX 10/2026
+
+
+def coin(inst: str | None) -> str:
+    """BTC-USDT-SWAP -> BTC"""
+    return (inst or INST).split("-")[0]
+
+
+def yahoo_symbol(inst: str | None) -> str:
+    """ราคาสำหรับบริบทกราฟ — BTC-USDT-SWAP -> BTC-USD (แหล่งเดียวกับระบบคลื่น)"""
+    return f"{coin(inst)}-USD"
 
 
 class OkxError(RuntimeError):
@@ -220,9 +233,10 @@ class Client:
 
 
 def contract_value(inst: str = INST) -> float:
-    """ขนาดสัญญา (public, ไม่ต้องใช้ key) — ดึงไม่ได้ใช้ค่าเริ่มต้นที่รู้แน่ของ BTC-USDT-SWAP"""
+    """ขนาดสัญญา (public, ไม่ต้องใช้ key) — ดึงไม่ได้ใช้ค่าเริ่มต้นที่รู้แน่ของเหรียญนั้น"""
+    fallback = DEFAULT_CT_VALS.get(inst, DEFAULT_CT_VAL)
     try:
         data = _get("/api/v5/public/instruments", {"instType": "SWAP", "instId": inst})
-        return _f(data[0].get("ctVal")) or DEFAULT_CT_VAL
+        return _f(data[0].get("ctVal")) or fallback
     except (OkxError, IndexError):
-        return DEFAULT_CT_VAL
+        return fallback

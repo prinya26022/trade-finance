@@ -183,20 +183,21 @@ class FakeClient:
     def equity(self):
         return 2000.0
 
-    def stops(self):
-        return {"short": {"sl": 86000.0, "tp": 80000.0}}
+    # ไม้ในเทสต์เป็น BTC ทั้งหมด — เหรียญอื่นตอบว่างเหมือนบัญชีจริงที่ไม่มีไม้เหรียญนั้น
+    def stops(self, inst=okx.INST):
+        return {"short": {"sl": 86000.0, "tp": 80000.0}} if inst == okx.INST else {}
 
-    def open_positions(self):
-        return [okx.parse_open(r) for r in self._o]
+    def open_positions(self, inst=okx.INST):
+        return [okx.parse_open(r) for r in self._o if r.get("instId", okx.INST) == inst]
 
-    def closed_positions(self):
-        return [okx.parse_closed(r) for r in self._c]
+    def closed_positions(self, inst=okx.INST):
+        return [okx.parse_closed(r) for r in self._c if r.get("instId", okx.INST) == inst]
 
-    def entry_orders(self, pages=1):
-        return getattr(self, "_entries", [])
+    def entry_orders(self, inst=okx.INST, pages=1):
+        return getattr(self, "_entries", []) if inst == okx.INST else []
 
-    def algo_history(self):
-        return getattr(self, "_algos", [])
+    def algo_history(self, inst=okx.INST):
+        return getattr(self, "_algos", []) if inst == okx.INST else []
 
 
 def test_sync_reports_new_and_closed_once_and_attaches_risk(db):
@@ -310,8 +311,8 @@ def test_backfill_replaces_a_moved_stop_with_the_one_set_at_entry(db):
     row = {**OPEN, "posSide": "net", "pos": "1.7", "avgPx": "83278.4", "cTime": _ms(opened)}
 
     class Moved(FakeClient):
-        def stops(self):
-            return {"long": {"sl": 82900.0, "tp": 90000.0}}
+        def stops(self, inst=okx.INST):
+            return {"long": {"sl": 82900.0, "tp": 90000.0}} if inst == okx.INST else {}
 
     client = Moved(opens=[row])
     client._entries = [{"ts": opened + timedelta(minutes=1), "side": "long", "sl": 82200.0, "tp": 90000.0}]
@@ -401,7 +402,7 @@ def test_check_api_saves_every_check_and_uses_synced_equity(db, monkeypatch):
     from fastapi.testclient import TestClient
     from src.api import main
     h = _hourly(2400, start=datetime(2026, 7, 1))
-    monkeypatch.setattr(main, "_candles_for_check", lambda: (h, _daily_from(h)))
+    monkeypatch.setattr(main, "_candles_for_check", lambda coin="BTC": (h, _daily_from(h)))
     monkeypatch.setattr(main.wave_snapshot, "read", lambda stem: None)
     store.set_meta("equity", 2000.0)
     client = TestClient(main.app)
@@ -455,3 +456,41 @@ def test_weekly_report_links_latest_untagged_trades():
     s = stats.compute(ts)
     assert [u["id"] for u in s["untagged_recent"]] == [6, 5, 4, 3, 2]
     assert "/journal#t6" in stats.format_report(s)
+
+
+def test_eth_trade_is_synced_with_its_own_contract_size(db):
+    """Phase 56: ซิงก์หลายเหรียญ — ไม้ ETH ต้องใช้ขนาดสัญญา ETH (0.1) ไม่ใช่ของ BTC (0.01)"""
+    h = _hourly(2400, start=datetime(2026, 7, 1))
+    row = {**OPEN, "instId": "ETH-USDT-SWAP", "posId": "eth1", "avgPx": "2500", "pos": "-3",
+           "cTime": str(int((h[-100].ts - datetime(1970, 1, 1)).total_seconds() * 1000))}
+
+    class Eth(FakeClient):
+        def stops(self, inst=okx.INST):
+            return {"short": {"sl": 2600.0, "tp": 2200.0}} if inst == "ETH-USDT-SWAP" else {}
+
+    sync.sync(Eth(opens=[row]), candles=(h, _daily_from(h)), ct_val=0.1,
+              insts=("ETH-USDT-SWAP",))
+    (t,) = store.all_trades()
+    assert t["inst"] == "ETH-USDT-SWAP" and t["ct_val"] == 0.1 and t["sl"] == 2600.0
+    assert C.risk(t)["risk_usd"] == round((2600 - 2500) * 3 * 0.1, 2)
+
+
+def test_coin_helpers():
+    assert okx.coin("SOL-USDT-SWAP") == "SOL" and okx.yahoo_symbol("ETH-USDT-SWAP") == "ETH-USD"
+    assert okx.DEFAULT_CT_VALS["SOL-USDT-SWAP"] == 1.0
+
+
+def test_check_api_sizes_sol_in_sol_contracts(db, monkeypatch):
+    from fastapi.testclient import TestClient
+    from src.api import main
+    h = _hourly(2400, start=datetime(2026, 7, 1))
+    asked = []
+    monkeypatch.setattr(main, "_candles_for_check", lambda coin="BTC": asked.append(coin) or (h, _daily_from(h)))
+    monkeypatch.setattr(main.wave_snapshot, "read", lambda stem: asked.append(stem) or None)
+    client = TestClient(main.app)
+    r = client.post("/api/check", json={"coin": "sol", "side": "long", "entry": 120.0, "sl": 116.0, "equity": 2500})
+    body = r.json()
+    assert r.status_code == 200 and body["inst"] == "SOL-USDT-SWAP" and asked == ["SOL", "sol"]
+    one = next(x for x in body["sizing"] if x["risk_pct"] == 1.0)
+    assert one["coins"] == round(25 / 4, 6) and one["contracts"] == round(25 / 4 / 1.0, 2)   # 1 สัญญา = 1 SOL
+    assert client.post("/api/check", json={"coin": "DOGE", "side": "long", "sl": 1}).status_code == 400

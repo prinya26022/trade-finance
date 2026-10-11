@@ -506,19 +506,21 @@ class CheckIn(BaseModel):
     lever: float | None = None
     equity: float | None = None
     has_time: bool | None = None
+    coin: str = "BTC"          # Phase 56: BTC | ETH | SOL — สัญญา perpetual USDT บน OKX
 
 
 _check_candles: dict = {}
 
 
-def _candles_for_check():
-    """แท่ง BTC สำหรับเช็กลิสต์ — เก็บไว้ 5 นาที. หน้านี้ต่างจากกระดานอื่นที่อ่าน snapshot อย่างเดียว:
-    เช็กก่อนกดเข้าต้องใช้ราคาตอนนี้ ไม่ใช่ราคาเมื่อเช้า"""
+def _candles_for_check(coin: str = "BTC"):
+    """แท่งของเหรียญนั้นสำหรับเช็กลิสต์ — เก็บไว้ 5 นาทีต่อเหรียญ. หน้านี้ต่างจากกระดานอื่นที่อ่าน snapshot
+    อย่างเดียว: เช็กก่อนกดเข้าต้องใช้ราคาตอนนี้ ไม่ใช่ราคาเมื่อเช้า"""
     import time
     from src.wave.candles import fetch
-    if _check_candles.get("at", 0) < time.time() - 300:
-        _check_candles.update(at=time.time(), hourly=fetch("BTC-USD", "1h", "730d"), daily=fetch("BTC-USD", "1d", "10y"))
-    return _check_candles["hourly"], _check_candles["daily"]
+    c = _check_candles.setdefault(coin, {})
+    if c.get("at", 0) < time.time() - 300:
+        c.update(at=time.time(), hourly=fetch(f"{coin}-USD", "1h", "730d"), daily=fetch(f"{coin}-USD", "1d", "10y"))
+    return c["hourly"], c["daily"]
 
 
 @app.post("/api/check")
@@ -527,13 +529,19 @@ def post_check(body: CheckIn):
     from src.journal.check import evaluate
     if body.side not in ("long", "short"):
         raise HTTPException(400, "side ต้องเป็น long หรือ short")
-    hourly, daily = _candles_for_check()
+    from src.journal import okx
+    coin = body.coin.upper()
+    inst = f"{coin}-USDT-SWAP"
+    if inst not in okx.INSTS:
+        raise HTTPException(400, f"coin ต้องเป็น {', '.join(okx.coin(i) for i in okx.INSTS)}")
+    hourly, daily = _candles_for_check(coin)
     if not hourly or not daily:
-        raise HTTPException(503, "ดึงราคา BTC ไม่ได้ตอนนี้")
+        raise HTTPException(503, f"ดึงราคา {coin} ไม่ได้ตอนนี้")
     result = evaluate(body.side, body.sl, body.tp, hourly, daily, journal_store.all_trades(),
                       entry=body.entry, margin=body.margin, lever=body.lever,
                       equity=body.equity or journal_store.get_meta("equity"), has_time=body.has_time,
-                      wave=wave_snapshot.read("btc"))
+                      wave=wave_snapshot.read(coin.lower()), inst=inst,
+                      ct_val=okx.DEFAULT_CT_VALS[inst])
     result["id"] = journal_store.save_check(result)
     return result
 
