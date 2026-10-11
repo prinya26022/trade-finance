@@ -11,6 +11,7 @@ from src.journal.context import risk
 from src.journal.tags import GROUPS
 
 MIN_N = 10
+UNTAGGED_LINKS = 5      # ลิงก์ไม้ที่ยังไม่แตะเหตุผลในสรุปรายสัปดาห์ — ห้าอันพอทำจบในครั้งเดียว
 
 
 def _rr_bucket(t: dict) -> str | None:
@@ -49,6 +50,33 @@ def _check_bucket(t: dict, since: str | None) -> str | None:
     return "เช็กก่อนเข้า" if t.get("check_id") else "กดเข้าโดยไม่ได้เช็ก"
 
 
+def _week_of(iso: str):
+    from datetime import date, timedelta
+    d = date.fromisoformat(iso[:10])
+    return d - timedelta(days=d.weekday())          # สัปดาห์จันทร์–อาทิตย์ ตามวันที่เปิดไม้ (UTC)
+
+
+def week_count(trades: list[dict], opened_at: str) -> int:
+    """ไม้นี้เป็นไม้ที่เท่าไรของสัปดาห์ (นับทุกไม้ที่เปิดในสัปดาห์เดียวกันจนถึงไม้นี้)"""
+    w = _week_of(opened_at)
+    return sum(1 for t in trades if t.get("opened_at") and _week_of(t["opened_at"]) == w
+               and t["opened_at"] <= opened_at)
+
+
+def week_bucket(n: int) -> str:
+    # ข้อมูลจริง ณ Phase 56: สัปดาห์ที่เปิด 5+ ไม้ ชนะ 1/16 สุทธิ −276$ · 1–2 ไม้ +7.5$ — เกณฑ์แบ่ง
+    # คงที่ แต่ผลของแต่ละกลุ่มคิดสดจากสมุดทุกครั้ง (บทเรียนชีต: ห้ามฝังผลไว้ในโค้ด)
+    return "สัปดาห์ที่เปิด 1–2 ไม้" if n <= 2 else "สัปดาห์ที่เปิด 3–4 ไม้" if n <= 4 else "สัปดาห์ที่เปิด 5 ไม้ขึ้นไป"
+
+
+def hold_bucket(t: dict) -> str | None:
+    from datetime import datetime
+    if not (t.get("opened_at") and t.get("closed_at")):
+        return None
+    h = (datetime.fromisoformat(t["closed_at"]) - datetime.fromisoformat(t["opened_at"])).total_seconds() / 3600
+    return "ถือไม่ถึง 1 ชม." if h < 1 else "ถือ 1–24 ชม." if h < 24 else "ถือเกิน 1 วัน"
+
+
 def _summary(trades: list[dict]) -> dict:
     n = len(trades)
     wins = sum(1 for t in trades if (t.get("pnl") or 0) > 0)
@@ -60,7 +88,16 @@ def _summary(trades: list[dict]) -> dict:
 def compute(trades: list[dict], checks_since: str | None = None) -> dict:
     done = [t for t in trades if t.get("status") == "closed" and t.get("pnl") is not None]
     groups: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    per_week: dict = defaultdict(int)
+    for t in trades:
+        if t.get("opened_at"):
+            per_week[_week_of(t["opened_at"])] += 1
     for t in done:
+        if t.get("opened_at"):
+            groups["จำนวนไม้ในสัปดาห์นั้น"][week_bucket(per_week[_week_of(t["opened_at"])])].append(t)
+        hb = hold_bucket(t)
+        if hb:
+            groups["เวลาถือ"][hb].append(t)
         for g in GROUPS:
             for v in (t.get("tags") or {}).get(g["key"], []):
                 groups[g["label"]][v].append(t)
@@ -81,6 +118,12 @@ def compute(trades: list[dict], checks_since: str | None = None) -> dict:
         "groups": {title: {k: _summary(v) for k, v in sorted(g.items(), key=lambda kv: -len(kv[1]))}
                    for title, g in groups.items()},
         "untagged": sum(1 for t in trades if not t.get("tags")),
+        # Phase 56: ไม้จาก OKX ไม่มีใครแตะเหตุผลเลย (0/101) — สรุปรายสัปดาห์ยื่นลิงก์ไม้ล่าสุดให้กดทีละอัน
+        "untagged_recent": [
+            {"id": t["id"], "closed_at": t["closed_at"], "side": t["side"], "pnl": t["pnl"]}
+            for t in sorted((t for t in done if not t.get("tags") and t.get("closed_at")),
+                            key=lambda t: t["closed_at"], reverse=True)[:UNTAGGED_LINKS]
+        ],
     }
 
 
@@ -101,5 +144,11 @@ def format_report(stats: dict) -> str:
             thin = " _(น้อยเกิน สรุปไม่ได้)_" if s["thin"] else ""
             L.append(f"• {k}: {s['n']} ไม้ ชนะ {s['wins']} ({s['win_rate']:.0%}) · {s['net']:+,.2f}${thin}")
     if stats["untagged"]:
-        L.append(f"\nยังไม่ได้แตะเหตุผล {stats['untagged']} ไม้ — แตะได้ที่หน้า /journal")
+        L.append(f"\nยังไม่ได้แตะเหตุผล {stats['untagged']} ไม้ — สถิติ \"ชนะ/แพ้เพราะอะไร\" ยังว่างจนกว่าจะแตะ")
+        if stats.get("untagged_recent"):
+            import os
+            url = os.environ.get("JOURNAL_WEB_URL", "http://localhost:3000").rstrip("/")
+            L.append("ไม้ล่าสุดที่ยังไม่แตะ (กดทีละอัน ใช้เวลาไม่ถึงนาที):")
+            L += [f"• {u['closed_at'][:10]} {'Long' if u['side'] == 'long' else 'Short'} {u['pnl']:+,.2f}$ → "
+                  f"{url}/journal#t{u['id']}" for u in stats["untagged_recent"]]
     return "\n".join(L)

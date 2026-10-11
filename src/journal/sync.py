@@ -94,6 +94,50 @@ def backfill_stops(client, db_path: Path | None = None, pages: int = 30) -> dict
     return found
 
 
+def _past_line(label: str, s: dict | None) -> str:
+    if not s or not s.get("n"):
+        return f"• {label}: ยังไม่มีไม้แบบนี้ในอดีต"
+    thin = " _(น้อยเกิน สรุปไม่ได้)_" if s["thin"] else ""
+    warn = "⚠️ " if s["net"] < 0 and not s["thin"] else ""
+    return f"• {warn}{label}: ในอดีต {s['n']} ไม้ ชนะ {s['wins']} ({s['win_rate']:.0%}) · {s['net']:+,.2f}${thin}"
+
+
+def auto_check(t: dict, trades: list[dict], wave: dict | None = None) -> list[str]:
+    """เช็กลิสต์ /check ที่รันให้เองตอนไม้เข้าสมุด (Phase 56) — ผู้ใช้ไม่เคยเปิด /check ก่อนกดเข้าเลย (0 ครั้ง)
+    เพราะต้องกรอก ซึ่งขัดกับนิสัย "ขี้เกียจกรอก" ที่ผู้ใช้บอกเอง ที่นี่จึงตอบคำถามเดียวกันจากคำสั่งจริงบน OKX:
+    ไม้หน้าตาแบบนี้ในอดีตของคุณได้ผลยังไง + เป็นไม้ที่เท่าไรของสัปดาห์ + stop อยู่ตรงไหนเทียบเส้นตายคลื่น.
+    ไม่บันทึกเป็นรายการเช็ก — สถิติ "เช็กก่อนเข้า vs กดเข้าเลย" ต้องนับเฉพาะเช็กที่ผู้ใช้ทำเองก่อนเข้า"""
+    from src.journal import stats as S
+    from src.journal.check import _wave_lines
+    others = [x for x in trades if x.get("id") != t.get("id")]
+    groups = S.compute(others)["groups"]
+    L = ["**ไม้หน้าตาแบบนี้ในอดีตของคุณ**"]
+    if t["status"] == "open":
+        for title, b in (("R:R ที่วางไว้", S._rr_bucket(t)), ("stop เทียบระยะแกว่ง", S._stop_bucket(t)),
+                         ("เทรนด์จริงตอนเข้า", S._trend_bucket(t))):
+            if b:
+                L.append(_past_line(b, groups.get(title, {}).get(b)))
+        if t.get("opened_at"):
+            n = S.week_count(trades, t["opened_at"])
+            b = S.week_bucket(n)
+            L.append(_past_line(f"ไม้ที่ {n} ของสัปดาห์นี้ ({b})", groups.get("จำนวนไม้ในสัปดาห์นั้น", {}).get(b)))
+        if wave and (t.get("inst") or "").startswith("BTC"):
+            rows = _wave_lines(t["side"], t.get("sl"), wave)
+            mine = [r for r in rows if r["with_trade"]]
+            if mine:
+                L += [f"• คลื่น: ฉาก {r['key']} ({r['title']}) — {r.get('stop_vs_kill', 'ไม่มี stop ให้เทียบ')}"
+                      for r in mine]
+            elif rows:
+                L.append("• ⚠️ คลื่น: ไม่มีฉากที่ยังไม่ตายอยู่ฝั่งเดียวกับไม้นี้ ("
+                         + " · ".join(f"{r['key']} {r['title']}" for r in rows) + ")")
+    else:
+        b = S.hold_bucket(t)
+        if b:
+            L.append(_past_line(b, groups.get("เวลาถือ", {}).get(b))
+                     + " _(เวลาถือเป็นผลด้วย: ไม้ที่โดน stop มักสั้นเอง)_")
+    return L if len(L) > 1 else []
+
+
 def describe(t: dict) -> str:
     """ข้อความสั้นต่อไม้ — ตัวเลขจริง + สิ่งที่ข้อมูลของผู้ใช้เองบอกว่าสำคัญ (stop, R:R, เทรนด์)"""
     side = "Long" if t["side"] == "long" else "Short"
@@ -135,10 +179,22 @@ def is_news(t: dict, now: datetime | None = None) -> bool:
     return now - datetime.fromisoformat(stamp) <= timedelta(hours=NEWS_HOURS)
 
 
-def notify(rep: SyncReport, now: datetime | None = None) -> int:
+def _wave_snapshot() -> dict | None:
+    try:
+        from src.wave import snapshot
+        return snapshot.read("btc")
+    except Exception:            # ไม่มี snapshot (ยังไม่เคยรันคลื่น) ก็ยังแจ้งไม้ได้ตามปกติ
+        return None
+
+
+def notify(rep: SyncReport, now: datetime | None = None, trades: list[dict] | None = None,
+           wave: dict | None = None) -> int:
     from src.notify.discord import post
     url = os.environ.get(WEBHOOK_ENV)
     news = [t for t in rep.opened + rep.closed if is_news(t, now)]
+    if news:
+        trades = store.all_trades() if trades is None else trades
+        wave = _wave_snapshot() if wave is None else wave
     for t in news:
-        post(describe(t), url)
+        post("\n".join([describe(t)] + auto_check(t, trades, wave)), url)
     return len(news)

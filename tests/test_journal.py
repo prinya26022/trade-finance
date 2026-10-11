@@ -409,3 +409,49 @@ def test_check_api_saves_every_check_and_uses_synced_equity(db, monkeypatch):
     assert r.status_code == 200 and r.json()["risk_pct"] is not None and r.json()["equity"] == 2000.0
     assert store.all_checks()[0]["id"] == r.json()["id"]
     assert client.post("/api/check", json={"side": "up", "sl": 1}).status_code == 400
+
+
+# ---------- Phase 56: เช็กลิสต์อัตโนมัติตอนไม้เข้าสมุด + พฤติกรรมรายสัปดาห์ ----------
+
+def _tr(i, opened, closed=None, pnl=None, side="long", **kw):
+    return {"id": i, "source": "okx", "inst": "BTC-USDT-SWAP", "side": side,
+            "status": "closed" if closed else "open", "opened_at": opened, "closed_at": closed,
+            "pnl": pnl, "entry": 100.0, "sl": 99.0, "tp": 110.0, "tags": None, "context": None, **kw}
+
+
+def test_week_count_and_bucket_follow_monday_weeks():
+    ts = [_tr(1, "2026-10-05T09:00:00"), _tr(2, "2026-10-07T09:00:00"), _tr(3, "2026-10-12T01:00:00")]
+    assert stats.week_count(ts, "2026-10-07T09:00:00") == 2          # จ. 5 ต.ค. สัปดาห์เดียวกับ พ. 7
+    assert stats.week_count(ts, "2026-10-12T01:00:00") == 1          # จ. 12 = สัปดาห์ใหม่
+    assert stats.week_bucket(5) == "สัปดาห์ที่เปิด 5 ไม้ขึ้นไป"
+
+
+def test_hold_bucket():
+    assert stats.hold_bucket(_tr(1, "2026-10-01T00:00:00", "2026-10-01T00:30:00", -1)) == "ถือไม่ถึง 1 ชม."
+    assert stats.hold_bucket(_tr(1, "2026-10-01T00:00:00", "2026-10-03T00:00:00", 5)) == "ถือเกิน 1 วัน"
+    assert stats.hold_bucket(_tr(1, "2026-10-01T00:00:00")) is None
+
+
+def test_auto_check_uses_own_history_and_flags_a_busy_week():
+    past = [_tr(i, f"2026-09-0{i}T01:00:00", f"2026-09-0{i}T05:00:00", -10.0) for i in range(1, 6)]
+    new = _tr(9, "2026-10-01T01:00:00")
+    lines = sync.auto_check(new, past + [new])
+    text = "\n".join(lines)
+    assert "R:R เกิน 5" in text and "ในอดีต 5 ไม้ ชนะ 0" in text      # TP 110 / SL 99 = R:R 10
+    assert "สัปดาห์ที่เปิด 5 ไม้ขึ้นไป" not in text                       # ไม้ใหม่อยู่คนละสัปดาห์
+    closed = sync.auto_check(past[0], past)
+    assert any("ถือ 1–24 ชม." in l and "เวลาถือเป็นผล" in l for l in closed)
+
+
+def test_auto_check_says_when_no_wave_scenario_is_on_the_trades_side():
+    wave = {"report": {"scenarios": [{"key": "B", "title": "5 จบแล้ว", "alive": True, "bias": "down",
+                                       "kill_level": 87237, "kill_text": "ทะลุ 87,237"}]}}
+    text = "\n".join(sync.auto_check(_tr(1, "2026-10-01T01:00:00"), [], wave))
+    assert "ไม่มีฉากที่ยังไม่ตายอยู่ฝั่งเดียวกับไม้นี้" in text
+
+
+def test_weekly_report_links_latest_untagged_trades():
+    ts = [_tr(i, f"2026-09-1{i}T01:00:00", f"2026-09-1{i}T09:00:00", 1.0) for i in range(7)]
+    s = stats.compute(ts)
+    assert [u["id"] for u in s["untagged_recent"]] == [6, 5, 4, 3, 2]
+    assert "/journal#t6" in stats.format_report(s)
