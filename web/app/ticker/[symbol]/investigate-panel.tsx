@@ -88,6 +88,18 @@ export default function InvestigatePanel({
     };
   }, [running, poll]);
 
+  // Phase 56: กล่องเรื่องอนาคต 3 ข้อส่งโจทย์ "ฝ่ายค้าน" มาเติมให้ — ผู้ใช้กดสืบเอง (กินโควตา Gemini)
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onFocus = (e: Event) => {
+      setFocus((e as CustomEvent<string>).detail);
+      setShowFocus(true);
+      rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    window.addEventListener("investigate-focus", onFocus);
+    return () => window.removeEventListener("investigate-focus", onFocus);
+  }, []);
+
   async function run() {
     setErr(null);
     startedRef.current = Date.now();
@@ -111,7 +123,7 @@ export default function InvestigatePanel({
   const jobError = useJob ? job.error : null;
 
   return (
-    <div className="investigation">
+    <div className="investigation" ref={rootRef}>
       <div className="section-title" style={{ margin: "0 0 6px", display: "flex", alignItems: "center", gap: 8 }}>
         <span>🔬 การสืบของ agent</span>
         <span className="inv-meta">

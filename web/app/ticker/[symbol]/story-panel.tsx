@@ -45,12 +45,29 @@ export default function StoryPanel({ ticker }: { ticker: string }) {
     }
   }
 
+  // วิธีของโช๊ค โชกุล: ให้ AI แย้ง thesis — เติมโจทย์ให้กล่อง "การสืบของ agent" แล้วผู้ใช้กดสืบเอง
+  function challenge() {
+    if (!story) return;
+    const brief =
+      `ทำหน้าที่ฝ่ายค้าน: หาหลักฐานจากข้อมูลจริงที่ขัดกับเรื่องอนาคตของ ${ticker} 3 ข้อนี้ ` +
+      `(1) ${story.future} (2) ตัวเลขที่ต้องเกิด: ${story.signals} (3) ผิดเมื่อ: ${story.wrong_if}. ` +
+      `ตอบทีละข้อว่ามีหลักฐานแย้งไหม ตัวเลขในข้อ 2 ตอนนี้เป็นยังไงจริง และเงื่อนไขข้อ 3 เข้าใกล้แค่ไหน ` +
+      `แยกให้ชัดว่าส่วนไหนเป็นข้อมูล ส่วนไหนเป็นการตีความ`;
+    window.dispatchEvent(new CustomEvent("investigate-focus", { detail: brief }));
+  }
+
   if (!loaded) return null;
 
   return (
     <div className="decision-log">
       <div className="thesis-box-head">
         <span className="section-title" style={{ margin: 0 }}>เรื่องอนาคต 3 ข้อ</span>
+        {story && !editing && (
+          <button className="btn-sm" onClick={challenge}
+                  title="เติมโจทย์ให้ agent หาหลักฐานแย้ง 3 ข้อนี้ — กดสืบเองในกล่องการสืบ (ใช้โควตา Gemini)">
+            ให้ AI แย้ง
+          </button>
+        )}
         <button className="btn-sm" onClick={() => (editing ? setEditing(false) : startEdit())}>
           {editing ? "ยกเลิก" : story ? "แก้" : "+ เขียน"}
         </button>
