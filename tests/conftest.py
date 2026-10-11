@@ -16,6 +16,7 @@ _STORE_MODULES = [
     "src.history.claude_store",
     "src.thesis.store",
     "src.settings.store",
+    "src.decisions.store",      # ตกหล่นมาตั้งแต่ Phase 27 — เทสต์ที่แตะ decisions จะเขียนลง DB จริง
 ]
 
 

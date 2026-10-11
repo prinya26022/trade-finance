@@ -59,10 +59,15 @@ def log_decision(
     gate2_note: str = "",
     reason: str = "",
     conviction: int | None = None,
+    decided_at: str | None = None,
 ) -> dict:
     """บันทึกการตัดสินใจ 1 ครั้ง (append-only — ไม่ upsert เหมือน thesis เพราะแต่ละครั้งคือ
     เหตุการณ์แยกกัน ไม่ใช่สถานะปัจจุบัน). โยน ValueError ถ้า action/gate2 ไม่อยู่ในชุดที่รองรับ
-    หรือ conviction นอกช่วง 1-5."""
+    หรือ conviction นอกช่วง 1-5.
+
+    decided_at: จดย้อนหลังได้ (ISO วันที่/เวลา, ห้ามอยู่ในอนาคต) — ไม่ใส่ = ตอนนี้. เพิ่มตอนจด
+    การซื้อ DUOL (6 พ.ค.) ที่ทำไปก่อนเริ่มใช้ตารางนี้: ถ้าลงวันที่ "วันที่จด" ราคาและผลที่วัดทีหลัง
+    จะเพี้ยนไปจากวันที่ตัดสินใจจริง"""
     if action not in VALID_ACTIONS:
         raise ValueError(f"action '{action}' ไม่รองรับ (ใช้ได้: {sorted(VALID_ACTIONS)})")
     if gate2 not in VALID_GATE2:
@@ -70,9 +75,15 @@ def log_decision(
     if conviction is not None and not (1 <= conviction <= 5):
         raise ValueError("conviction ต้องอยู่ระหว่าง 1-5")
 
+    if decided_at is not None:
+        at = datetime.fromisoformat(decided_at)       # รูปแบบผิด -> ValueError เอง
+        if at > datetime.now():
+            raise ValueError("decided_at อยู่ในอนาคตไม่ได้")
+        decided_at = at.isoformat(timespec="seconds")
+
     init_db()
     ticker = ticker.upper()
-    now = datetime.now().isoformat(timespec="seconds")
+    now = decided_at or datetime.now().isoformat(timespec="seconds")
     with _connect() as conn:
         cur = conn.execute(
             """
@@ -122,6 +133,7 @@ if __name__ == "__main__":
     lg.add_argument("--gate2-note", default="", dest="gate2_note")
     lg.add_argument("--reason", default="")
     lg.add_argument("--conviction", type=int, default=None, choices=[1, 2, 3, 4, 5])
+    lg.add_argument("--at", default=None, dest="decided_at", help="จดย้อนหลัง เช่น 2026-05-06")
 
     ls = sub.add_parser("list")
     ls.add_argument("ticker", nargs="?", default=None)
@@ -132,6 +144,7 @@ if __name__ == "__main__":
         d = log_decision(
             args.ticker, args.action, health_score=args.health_score, price=args.price,
             gate2=args.gate2, gate2_note=args.gate2_note, reason=args.reason, conviction=args.conviction,
+            decided_at=args.decided_at,
         )
         print(f"บันทึกแล้ว #{d['id']}: {d['ticker']} {d['action']} @ {d['price']} (health={d['health_score']}, gate2={d['gate2']})")
     elif args.cmd == "list":
